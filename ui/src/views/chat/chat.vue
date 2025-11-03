@@ -5,11 +5,12 @@ import { VirtualList } from 'vue-tiny-virtual-list';
 import { chatEvent, useChatStore } from '@/stores/chat';
 import type { Event, Message, User } from '@satorijs/protocol'
 import { useUserStore } from '@/stores/user';
-import { ArrowBarToDown, Plus, Upload, Eye, EyeOff, Lock } from '@vicons/tabler'
+import { ArrowBarToDown, Plus, Upload, Send } from '@vicons/tabler'
 import { NIcon, c, useDialog, useMessage, type MentionOption } from 'naive-ui';
 import VueScrollTo from 'vue-scrollto'
-import UploadSupport from './components/upload.vue'
 import ChatInputSwitcher from './components/ChatInputSwitcher.vue'
+import { uploadImageAttachment } from './composables/useAttachmentUploader';
+import { urlBase } from '@/stores/_config';
 import { liveQuery } from "dexie";
 import { useObservable } from "@vueuse/rxjs";
 import { db, getSrc, type Thumb } from '@/models';
@@ -51,10 +52,66 @@ const dialog = useDialog()
 const { t } = useI18n();
 
 // const virtualListRef = ref<InstanceType<typeof VirtualList> | null>(null);
-const uploadSupportRef = ref<any>(null);
 const messagesListRef = ref<HTMLElement | null>(null);
 const textInputRef = ref<any>(null);
 const inputMode = ref<'plain' | 'rich'>('plain');
+const inlineImageInputRef = ref<HTMLInputElement | null>(null);
+
+type SelectionRange = { start: number; end: number };
+
+interface InlineImageDraft {
+  id: string;
+  token: string;
+  status: 'uploading' | 'uploaded' | 'failed';
+  objectUrl?: string;
+  file?: File | null;
+  attachmentId?: string;
+  error?: string;
+}
+
+const inlineImages = reactive(new Map<string, InlineImageDraft>());
+const inlineImageMarkerRegexp = /\[\[图片:([a-zA-Z0-9_-]+)\]\]/g;
+let suspendInlineSync = false;
+
+const hasUploadingInlineImages = computed(() => {
+  for (const draft of inlineImages.values()) {
+    if (draft.status === 'uploading') {
+      return true;
+    }
+  }
+  return false;
+});
+
+const hasFailedInlineImages = computed(() => {
+  for (const draft of inlineImages.values()) {
+    if (draft.status === 'failed') {
+      return true;
+    }
+  }
+  return false;
+});
+
+let pendingInlineSelection: SelectionRange | null = null;
+const inlineImagePreviewMap = computed<Record<string, { status: 'uploading' | 'uploaded' | 'failed'; previewUrl?: string; error?: string }>>(() => {
+  const result: Record<string, { status: 'uploading' | 'uploaded' | 'failed'; previewUrl?: string; error?: string }> = {};
+  inlineImages.forEach((draft, key) => {
+    let previewUrl = draft.objectUrl;
+    if (!previewUrl && draft.attachmentId) {
+      if (/^https?:/i.test(draft.attachmentId)) {
+        previewUrl = draft.attachmentId;
+      } else {
+        const attachmentId = draft.attachmentId.startsWith('id:') ? draft.attachmentId.slice(3) : draft.attachmentId;
+        previewUrl = `${urlBase}/api/v1/attachments/${attachmentId}`;
+      }
+    }
+    result[key] = {
+      status: draft.status,
+      previewUrl,
+      error: draft.error,
+    };
+  });
+  return result;
+});
 
 const SCROLL_STICKY_THRESHOLD = 200;
 
@@ -566,10 +623,29 @@ const stopEditingPreviewNow = () => {
 };
 
 const convertMessageContentToDraft = (content?: string) => {
+  resetInlineImages();
   if (!content) {
     return '';
   }
   let text = contentUnescape(content);
+  const imageRecords: Array<{ id: string; token: string; attachmentId: string }> = [];
+  text = text.replace(/<img\s+[^>]*src="([^"]+)"[^>]*\/?>/gi, (_, src) => {
+    const markerId = nanoid();
+    const token = `[[图片:${markerId}]]`;
+    const attachmentId = src.startsWith('id:') ? src : src;
+    imageRecords.push({ id: markerId, token, attachmentId });
+    return token;
+  });
+  imageRecords.forEach(({ id, token, attachmentId }) => {
+    const record: InlineImageDraft = reactive({
+      id,
+      token,
+      status: 'uploaded',
+      attachmentId,
+      file: null,
+    });
+    inlineImages.set(id, record);
+  });
   text = text.replace(/<at\s+[^>]*name="([^"]+)"[^>]*\/>/gi, (_, name) => `@${name}`);
   text = text.replace(/<at\s+[^>]*id="([^"]+)"[^>]*\/>/gi, (_, id) => `@${id}`);
   text = text.replace(/<br\s*\/?>/gi, '\n');
@@ -645,8 +721,6 @@ const typingToggleClass = computed(() => ({
   'typing-toggle--content': typingPreviewMode.value === 'content',
   'typing-toggle--silent': typingPreviewMode.value === 'silent',
 }));
-
-const typingToggleIcon = computed(() => (typingPreviewMode.value === 'indicator' ? EyeOff : Eye));
 
 const textToSend = ref('');
 const editingPreviewMap = computed<Record<string, EditingPreviewInfo>>(() => {
@@ -765,6 +839,7 @@ const cancelEditing = () => {
   chat.cancelEditing();
   textToSend.value = '';
   stopTypingPreviewNow();
+  resetInlineImages();
   ensureInputFocus();
 };
 
@@ -777,7 +852,8 @@ const saveEdit = async () => {
     return;
   }
   const draft = textToSend.value;
-  if (draft.trim() === '') {
+  const hasImages = containsInlineImageMarker(draft);
+  if (draft.trim() === '' && !hasImages) {
     message.error('消息内容不能为空');
     return;
   }
@@ -785,15 +861,22 @@ const saveEdit = async () => {
     message.error('消息过长，请分段编辑');
     return;
   }
+  if (hasUploadingInlineImages.value) {
+    message.warning('仍有图片正在上传，请稍候再试');
+    return;
+  }
+  if (hasFailedInlineImages.value) {
+    message.error('存在上传失败的图片，请删除后重试');
+    return;
+  }
   try {
     stopTypingPreviewNow();
-    const escaped = contentEscape(draft);
-    const replaced = await replaceUsernames(escaped);
-    if (replaced.trim() === '') {
+    const finalContent = await buildMessageHtml(draft);
+    if (finalContent.trim() === '') {
       message.error('消息内容不能为空');
       return;
     }
-    const updated = await chat.messageUpdate(chat.editing.channelId, chat.editing.messageId, replaced);
+    const updated = await chat.messageUpdate(chat.editing.channelId, chat.editing.messageId, finalContent);
     if (updated) {
       upsertMessage(updated as unknown as Message);
     }
@@ -801,6 +884,7 @@ const saveEdit = async () => {
     stopEditingPreviewNow();
     chat.cancelEditing();
     textToSend.value = '';
+    resetInlineImages();
     ensureInputFocus();
   } catch (error: any) {
     console.error('更新消息失败', error);
@@ -920,6 +1004,155 @@ const getTextarea = () => {
   return textInputRef.value?.getTextarea?.();
 };
 
+const containsInlineImageMarker = (text: string) => /\[\[图片:[^\]]+\]\]/.test(text);
+
+const collectInlineMarkerIds = (text: string) => {
+  const markers = new Set<string>();
+  inlineImageMarkerRegexp.lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = inlineImageMarkerRegexp.exec(text)) !== null) {
+    markers.add(match[1]);
+  }
+  inlineImageMarkerRegexp.lastIndex = 0;
+  return markers;
+};
+
+const revokeInlineImage = (draft?: InlineImageDraft) => {
+  if (draft?.objectUrl) {
+    URL.revokeObjectURL(draft.objectUrl);
+    draft.objectUrl = undefined;
+  }
+};
+
+const resetInlineImages = () => {
+  inlineImages.forEach((draft) => revokeInlineImage(draft));
+  inlineImages.clear();
+};
+
+const syncInlineMarkersWithText = (value: string) => {
+  const markers = collectInlineMarkerIds(value);
+  inlineImages.forEach((draft, key) => {
+    if (!markers.has(key)) {
+      revokeInlineImage(draft);
+      inlineImages.delete(key);
+    }
+  });
+};
+
+const formatInlinePreviewText = (value: string) => value.replace(/\[\[图片:[^\]]+\]\]/g, '[图片]');
+
+const buildMessageHtml = async (draft: string) => {
+  const placeholderMap = new Map<string, string>();
+  let index = 0;
+  inlineImageMarkerRegexp.lastIndex = 0;
+  const sanitizedDraft = draft.replace(inlineImageMarkerRegexp, (_, markerId) => {
+    const record = inlineImages.get(markerId);
+    if (record && record.status === 'uploaded' && record.attachmentId) {
+      const placeholder = `__INLINE_IMG_${index++}__`;
+      const src = record.attachmentId.startsWith('id:') ? record.attachmentId : `id:${record.attachmentId}`;
+      placeholderMap.set(placeholder, `<img src="${src}" />`);
+      return placeholder;
+    }
+    return '';
+  });
+  inlineImageMarkerRegexp.lastIndex = 0;
+  let escaped = contentEscape(sanitizedDraft);
+  escaped = escaped.replace(/\r\n/g, '\n').replace(/\n/g, '<br />');
+  escaped = await replaceUsernames(escaped);
+  let html = escaped;
+  placeholderMap.forEach((value, key) => {
+    html = html.split(key).join(value);
+  });
+  return html;
+};
+
+const captureSelectionRange = (): SelectionRange => {
+  const textarea = getTextarea();
+  const len = textToSend.value.length;
+  if (!textarea) {
+    return { start: len, end: len };
+  }
+  const start = textarea.selectionStart ?? len;
+  const end = textarea.selectionEnd ?? len;
+  return { start, end };
+};
+
+const startInlineImageUpload = async (markerId: string, draft: InlineImageDraft) => {
+  try {
+    if (!draft.file) {
+      draft.status = 'failed';
+      draft.error = '无效的图片文件';
+      return;
+    }
+    const result = await uploadImageAttachment(draft.file as File, { channelId: chat.curChannel?.id });
+    draft.attachmentId = result.attachmentId;
+    draft.status = 'uploaded';
+    draft.error = '';
+  } catch (error: any) {
+    draft.status = 'failed';
+    draft.error = error?.message || '上传失败';
+    message.error('图片上传失败，请删除占位符后重试');
+  }
+};
+
+const insertInlineImages = (files: File[], selection?: SelectionRange) => {
+  if (!files.length) {
+    return;
+  }
+  const imageFiles = files.filter((file) => file.type.startsWith('image/'));
+  if (!imageFiles.length) {
+    message.warning('当前仅支持插入图片文件');
+    return;
+  }
+  const draftText = textToSend.value;
+  const range = selection ?? captureSelectionRange();
+  let cursor = range.start;
+  let updatedText = draftText.slice(0, range.start) + draftText.slice(range.end);
+  imageFiles.forEach((file, index) => {
+    const markerId = nanoid();
+    const token = `[[图片:${markerId}]]`;
+    const objectUrl = URL.createObjectURL(file);
+    const draftRecord: InlineImageDraft = reactive({
+      id: markerId,
+      token,
+      status: 'uploading',
+      objectUrl,
+      file,
+    });
+    inlineImages.set(markerId, draftRecord);
+    updatedText = updatedText.slice(0, cursor) + token + updatedText.slice(cursor);
+    cursor += token.length;
+    startInlineImageUpload(markerId, draftRecord);
+  });
+  textToSend.value = updatedText;
+  nextTick(() => {
+    const textarea = getTextarea();
+    if (textarea) {
+      textarea.focus();
+      textarea.setSelectionRange(cursor, cursor);
+    }
+  });
+};
+
+const handlePlainPasteImage = (payload: { files: File[]; selectionStart: number; selectionEnd: number }) => {
+  insertInlineImages(payload.files, { start: payload.selectionStart, end: payload.selectionEnd });
+};
+
+const handlePlainDropFiles = (payload: { files: File[]; selectionStart: number; selectionEnd: number }) => {
+  insertInlineImages(payload.files, { start: payload.selectionStart, end: payload.selectionEnd });
+};
+
+const handleInlineFileChange = (event: Event) => {
+  const input = event.target as HTMLInputElement | null;
+  if (!input?.files?.length) {
+    pendingInlineSelection = null;
+    return;
+  }
+  insertInlineImages(Array.from(input.files), pendingInlineSelection || undefined);
+  pendingInlineSelection = null;
+  input.value = '';
+};
+
 watch(() => chat.editing?.messageId, (messageId, previousId) => {
   if (!messageId && previousId) {
     stopEditingPreviewNow();
@@ -954,18 +1187,29 @@ const send = throttle(async () => {
     message.error('尚未连接，请稍等');
     return;
   }
-  let t = textToSend.value;
-  if (t.trim() === '') {
+  const draft = textToSend.value;
+  const hasImages = containsInlineImageMarker(draft);
+  if (draft.trim() === '' && !hasImages) {
     message.error('不能发送空消息');
     return;
   }
-  if (t.length > 10000) {
+  if (draft.length > 10000) {
     message.error('消息过长，请分段发送');
+    return;
+  }
+  if (hasUploadingInlineImages.value) {
+    message.warning('仍有图片正在上传，请稍后再试');
+    return;
+  }
+  if (hasFailedInlineImages.value) {
+    message.error('存在上传失败的图片，请删除后重试');
     return;
   }
   const replyTo = chat.curReplyTo || undefined;
   stopTypingPreviewNow();
+  suspendInlineSync = true;
   textToSend.value = '';
+  suspendInlineSync = false;
   chat.curReplyTo = null;
 
   const now = Date.now();
@@ -975,7 +1219,7 @@ const send = throttle(async () => {
     id: clientId,
     createdAt: now,
     updatedAt: now,
-    content: t,
+    content: draft,
     user: user.info,
     member: chat.curMember || undefined,
     quote: replyTo,
@@ -996,24 +1240,26 @@ const send = throttle(async () => {
   instantMessages.add(tmpMsg);
 
   try {
-    t = contentEscape(t);
-    t = await replaceUsernames(t);
-
-    tmpMsg.content = t;
-    const newMsg = await chat.messageCreate(t, replyTo?.id, whisperTargetForSend?.id, clientId);
+    const finalContent = await buildMessageHtml(draft);
+    tmpMsg.content = finalContent;
+    const newMsg = await chat.messageCreate(finalContent, replyTo?.id, whisperTargetForSend?.id, clientId);
     for (const [k, v] of Object.entries(newMsg)) {
       (tmpMsg as any)[k] = v;
     }
     instantMessages.delete(tmpMsg);
     upsertMessage(tmpMsg);
+    resetInlineImages();
+    pendingInlineSelection = null;
   } catch (e) {
     message.error('发送失败,您可能没有权限在此频道发送消息');
     console.error('消息发送失败', e);
-
+    suspendInlineSync = true;
+    textToSend.value = draft;
+    suspendInlineSync = false;
+    syncInlineMarkersWithText(draft);
     const index = rows.value.findIndex(msg => msg.id === tmpMsg.id);
     if (index !== -1) {
       (rows.value[index] as any).failed = true;
-      // rows.value.splice(index, 1);
     }
   }
 
@@ -1038,6 +1284,13 @@ watch(filteredWhisperCandidates, (list) => {
   } else if (whisperSelectionIndex.value > list.length - 1) {
     whisperSelectionIndex.value = 0;
   }
+});
+
+watch(textToSend, (value) => {
+  if (suspendInlineSync) {
+    return;
+  }
+  syncInlineMarkersWithText(value);
 });
 
 watch(canOpenWhisperPanel, (canOpen) => {
@@ -1094,7 +1347,8 @@ const toBottom = () => {
 }
 
 const doUpload = () => {
-  uploadSupportRef.value.openUpload();
+  pendingInlineSelection = captureSelectionRange();
+  inlineImageInputRef.value?.click?.();
 }
 
 const isMe = (item: Message) => {
@@ -1655,7 +1909,7 @@ const isManagingEmoji = ref(false);
                 正在输入
               </template>
               <template v-else>
-                {{ preview.content }}
+                {{ formatInlinePreviewText(preview.content) }}
               </template>
             </div>
           </div>
@@ -1701,108 +1955,7 @@ const isManagingEmoji = ref(false);
         <n-button @click="chat.curReplyTo = null">取消</n-button>
       </div>
 
-      <div class="flex justify-between relative w-full">
-        <!-- 输入框左侧按钮，因为n-mention不支持#prefix和#suffix，所以单独拿出来了 -->
-        <div class="absolute" style="z-index: 1; left: 0.5rem; top: .55rem;">
-          <n-popover v-model:show="emojiPopoverShow" trigger="click">
-            <template #trigger>
-              <n-button text :disabled="isEditing">
-                <template #icon>
-                  <n-icon :component="Plus" size="20" />
-                </template>
-              </n-button>
-            </template>
-
-            <div class="flex justify-between items-center">
-              <div class="text-base mb-1">{{ $t('inputBox.emojiTitle') }}</div>
-              <n-tooltip trigger="hover">
-                <template #trigger>
-                  <n-button text size="small" @click="isManagingEmoji = !isManagingEmoji">
-                    <template #icon>
-                      <n-icon :component="Settings" />
-                    </template>
-                  </n-button>
-                </template>
-                表情管理
-              </n-tooltip>
-            </div>
-
-            <div v-if="!uploadImages?.length" class="flex justify-center w-full py-4 px-4">
-              <div class="w-56">当前没有收藏的表情，可以在聊天窗口的图片上<b class="px-1">长按</b>或<b class="px-1">右键</b>添加</div>
-            </div>
-
-            <template v-else>
-              <template v-if="isManagingEmoji">
-                <n-checkbox-group v-model:value="selectedEmojiIds">
-                  <div class="grid grid-cols-4 gap-4 pt-2 pb-4">
-                    <div class="cursor-pointer" v-for="i in uploadImages" :key="i.id">
-                      <n-checkbox :value="i.id" class="mt-2">
-                        <img :src="getSrc(i)"
-                          style="width: 4.8rem; height: 4.8rem; object-fit: contain; cursor: pointer;" />
-                      </n-checkbox>
-                    </div>
-                  </div>
-                </n-checkbox-group>
-
-                <div class="flex justify-end space-x-2 mb-4">
-                  <n-button type="info" size="small" @click="emojiSelectedDelete" :disabled="selectedEmojiIds.length === 0">
-                    删除选中
-                  </n-button>
-                  <n-button type="default" size="small" @click="() => { isManagingEmoji = false; selectedEmojiIds = []; }" class="mr-2">
-                    退出管理
-                  </n-button>
-                </div>
-              </template>
-
-              <template v-else>
-                <div class="grid grid-cols-4 gap-4 pt-2 pb-4">
-                  <div class="cursor-pointer" v-for="i in uploadImages" :key="i.id">
-                    <img @click="sendEmoji(i)" :src="getSrc(i)"
-                      style="width: 4.8rem; height: 4.8rem; object-fit: contain;" />
-                  </div>
-                </div>
-              </template>
-            </template>
-          </n-popover>
-        </div>
-
-        <div class="absolute flex items-center space-x-2" style="z-index: 1; right: 0.6rem; top: .55rem;">
-          <n-tooltip trigger="hover">
-            <template #trigger>
-              <n-button text class="whisper-toggle-button" :class="{ 'whisper-toggle-button--active': whisperMode }"
-                @click="startWhisperSelection" :disabled="!canOpenWhisperPanel || isEditing">
-                <template #icon>
-                  <n-icon :component="Lock" size="20" />
-                </template>
-              </n-button>
-            </template>
-            {{ t('inputBox.whisperTooltip') }}
-          </n-tooltip>
-
-          <n-tooltip trigger="hover">
-            <template #trigger>
-              <n-button text class="typing-toggle" :class="typingToggleClass"
-                @click="toggleTypingPreview" :disabled="isEditing">
-                <template #icon>
-                  <n-icon :component="typingToggleIcon" size="20" />
-                </template>
-              </n-button>
-            </template>
-            {{ typingPreviewTooltip }}
-          </n-tooltip>
-
-          <n-popover trigger="hover">
-            <template #trigger>
-              <n-button text @click="doUpload" :disabled="isEditing">
-                <template #icon>
-                  <n-icon :component="Upload" size="20" />
-                </template>
-              </n-button>
-            </template>
-            <span>上传图片</span>
-          </n-popover>
-        </div>
-
+      <div class="chat-input-container flex flex-col w-full relative">
         <transition name="fade">
           <div v-if="whisperPanelVisible" class="whisper-panel" @mousedown.stop>
             <div class="whisper-panel__title">{{ t('inputBox.whisperPanelTitle') }}</div>
@@ -1825,37 +1978,167 @@ const isManagingEmoji = ref(false);
           </div>
         </transition>
 
-        <div v-if="whisperMode" class="whisper-pill" @mousedown.prevent>
-          <span class="whisper-pill__label">{{ t('inputBox.whisperPillPrefix') }} @{{ whisperTargetDisplay }}</span>
-          <button type="button" class="whisper-pill__close" @click="clearWhisperTarget">×</button>
-        </div>
+        <div class="chat-input-area relative flex-1">
+            <div v-if="whisperMode" class="whisper-pill" @mousedown.prevent>
+              <span class="whisper-pill__label">{{ t('inputBox.whisperPillPrefix') }} @{{ whisperTargetDisplay }}</span>
+              <button type="button" class="whisper-pill__close" @click="clearWhisperTarget">×</button>
+            </div>
 
-        <ChatInputSwitcher
-          ref="textInputRef"
-          v-model="textToSend"
-          v-model:mode="inputMode"
-          :placeholder="whisperMode ? whisperPlaceholderText : $t('inputBox.placeholder')"
-          :whisper-mode="whisperMode"
-          :mention-options="atOptions"
-          :mention-loading="atLoading"
-          :mention-prefix="atPrefix"
-          :mention-render-label="atRenderLabel"
-          :rows="1"
+            <ChatInputSwitcher
+              ref="textInputRef"
+              v-model="textToSend"
+              v-model:mode="inputMode"
+              :placeholder="whisperMode ? whisperPlaceholderText : $t('inputBox.placeholder')"
+              :whisper-mode="whisperMode"
+              :mention-options="atOptions"
+              :mention-loading="atLoading"
+              :mention-prefix="atPrefix"
+              :mention-render-label="atRenderLabel"
+              :rows="1"
+          :inline-images="inlineImagePreviewMap"
           @mention-search="atHandleSearch"
           @mention-select="handleMentionSelect"
           @keydown="keyDown"
+          @paste-image="handlePlainPasteImage"
+          @drop-files="handlePlainDropFiles"
         />
-      </div>
-      <div class="flex" style="align-items: end; padding-bottom: 1px;">
-        <n-button class="" type="primary" @click="send" :disabled="chat.connectState !== 'connected' || isEditing">{{ 
-          $t('inputBox.send') }}</n-button>
+            <input
+              ref="inlineImageInputRef"
+              class="hidden"
+              type="file"
+              accept="image/*"
+              multiple
+              @change="handleInlineFileChange"
+            />
+        </div>
+        <div class="chat-input-actions flex items-center justify-between gap-2 mt-2">
+          <div class="chat-input-actions__group chat-input-actions__group--addons">
+            <div class="chat-input-actions__cell">
+              <n-popover v-model:show="emojiPopoverShow" trigger="click">
+                <template #trigger>
+                  <n-button quaternary circle :disabled="isEditing">
+                    <template #icon>
+                      <n-icon :component="Plus" size="18" />
+                    </template>
+                  </n-button>
+                </template>
+
+                <div class="flex justify-between items-center">
+                  <div class="text-base mb-1">{{ $t('inputBox.emojiTitle') }}</div>
+                  <n-tooltip trigger="hover">
+                    <template #trigger>
+                      <n-button text size="small" @click="isManagingEmoji = !isManagingEmoji">
+                        <template #icon>
+                          <n-icon :component="Settings" />
+                        </template>
+                      </n-button>
+                    </template>
+                    表情管理
+                  </n-tooltip>
+                </div>
+
+                <div v-if="!uploadImages?.length" class="flex justify-center w-full py-4 px-4">
+                  <div class="w-56">当前没有收藏的表情，可以在聊天窗口的图片上<b class="px-1">长按</b>或<b class="px-1">右键</b>添加</div>
+                </div>
+
+                <template v-else>
+                  <template v-if="isManagingEmoji">
+                    <n-checkbox-group v-model:value="selectedEmojiIds">
+                      <div class="grid grid-cols-4 gap-4 pt-2 pb-4">
+                        <div class="cursor-pointer" v-for="i in uploadImages" :key="i.id">
+                          <n-checkbox :value="i.id" class="mt-2">
+                            <img :src="getSrc(i)"
+                              style="width: 4.8rem; height: 4.8rem; object-fit: contain; cursor: pointer;" />
+                          </n-checkbox>
+                        </div>
+                      </div>
+                    </n-checkbox-group>
+
+                    <div class="flex justify-end space-x-2 mb-4">
+                      <n-button type="info" size="small" @click="emojiSelectedDelete" :disabled="selectedEmojiIds.length === 0">
+                        删除选中
+                      </n-button>
+                      <n-button type="default" size="small" @click="() => { isManagingEmoji = false; selectedEmojiIds = []; }">
+                        退出管理
+                      </n-button>
+                    </div>
+                  </template>
+
+                  <template v-else>
+                    <div class="grid grid-cols-4 gap-4 pt-2 pb-4">
+                      <div class="cursor-pointer" v-for="i in uploadImages" :key="i.id">
+                        <img @click="sendEmoji(i)" :src="getSrc(i)"
+                          style="width: 4.8rem; height: 4.8rem; object-fit: contain;" />
+                      </div>
+                    </div>
+                  </template>
+                </template>
+              </n-popover>
+            </div>
+
+           <div class="chat-input-actions__cell">
+             <n-tooltip trigger="hover">
+               <template #trigger>
+                 <n-button quaternary circle class="whisper-toggle-button" :class="{ 'whisper-toggle-button--active': whisperMode }"
+                   @click="startWhisperSelection" :disabled="!canOpenWhisperPanel || isEditing">
+                    <span class="chat-input-actions__icon">W</span>
+                  </n-button>
+                </template>
+                {{ t('inputBox.whisperTooltip') }}
+              </n-tooltip>
+            </div>
+
+            <div class="chat-input-actions__cell">
+              <n-tooltip trigger="hover">
+                <template #trigger>
+                  <n-button quaternary circle class="typing-toggle" :class="typingToggleClass"
+                    @click="toggleTypingPreview" :disabled="isEditing">
+                    <span class="chat-input-actions__icon">👁</span>
+                  </n-button>
+                </template>
+                {{ typingPreviewTooltip }}
+              </n-tooltip>
+            </div>
+            <div class="chat-input-actions__cell">
+              <n-tooltip trigger="hover">
+                <template #trigger>
+                  <n-button quaternary circle @click="doUpload" :disabled="isEditing">
+                    <template #icon>
+                      <n-icon :component="Upload" size="18" />
+                    </template>
+                  </n-button>
+                </template>
+                上传图片
+              </n-tooltip>
+            </div>
+
+            <div class="chat-input-actions__cell">
+              <n-tooltip trigger="hover">
+                <template #trigger>
+                  <n-button quaternary circle disabled>
+                    R
+                  </n-button>
+                </template>
+                富文本编辑器（即将上线）
+              </n-tooltip>
+            </div>
+          </div>
+
+          <div class="chat-input-actions__cell chat-input-actions__send">
+            <n-button type="primary" circle size="large" @click="send"
+              :disabled="chat.connectState !== 'connected' || isEditing">
+              <template #icon>
+                <n-icon :component="Send" size="20" />
+              </template>
+            </n-button>
+          </div>
+        </div>
       </div>
     </div>
   </div>
 
   <RightClickMenu />
   <AvatarClickMenu />
-  <upload-support ref="uploadSupportRef" />
 </template>
 
 <style lang="scss" scoped>
@@ -2086,10 +2369,65 @@ const isManagingEmoji = ref(false);
   color: #d97706;
 }
 
+.chat-input-container {
+  width: 100%;
+}
+
+.chat-input-area {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+
+.chat-input-area :deep(.n-input) {
+  width: 100%;
+}
+
+.chat-input-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+
+.chat-input-actions__group {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.chat-input-actions__cell .n-button {
+  width: 42px;
+  height: 42px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.chat-input-actions__cell .n-button:disabled {
+  opacity: 0.55;
+}
+
+.chat-input-actions__icon {
+  display: inline-flex;
+  width: 100%;
+  height: 100%;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+}
+
+.chat-input-actions__send .n-button {
+  width: 44px;
+  height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
 .chat-text :deep(textarea) {
-  padding-left: 2.4rem;
-  padding-right: 3rem;
-  padding-top: 1.6rem;
+  padding: 0.75rem 1.25rem;
   transition: border-color 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease, padding-top 0.2s ease;
 }
 
@@ -2097,13 +2435,13 @@ const isManagingEmoji = ref(false);
   border-color: #7c3aed;
   box-shadow: 0 0 0 1px rgba(124, 58, 237, 0.35);
   background-color: rgba(250, 245, 255, 0.92);
-  padding-top: 2.8rem;
+  padding-top: 1.35rem;
 }
 
 .whisper-pill {
   position: absolute;
-  top: 0.4rem;
-  left: 2.5rem;
+  top: 0.35rem;
+  left: 1.1rem;
   display: inline-flex;
   align-items: center;
   gap: 0.5rem;
@@ -2133,8 +2471,8 @@ const isManagingEmoji = ref(false);
 .whisper-panel {
   position: absolute;
   bottom: calc(100% + 0.75rem);
-  left: 2.5rem;
-  right: 2.5rem;
+  left: 0;
+  right: 0;
   margin: 0 auto;
   max-width: 340px;
   background: #ffffff;
@@ -2241,12 +2579,8 @@ const isManagingEmoji = ref(false);
 }
 
 .chat-text>.n-input>.n-input-wrapper {
-  @apply bg-gray-200;
-  padding-top: 1.6rem;
-}
-
-.chat-text>.n-input>.n-input-wrapper {
-  padding-left: 2.4rem;
-  padding-right: 3rem;
+  @apply bg-gray-100;
+  padding: 0.75rem 1.25rem;
+  border-radius: 0.85rem;
 }
 </style>
