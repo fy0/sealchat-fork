@@ -119,7 +119,9 @@ function renderNode(node: TipTapNode, options: RenderOptions = {}): string {
       // 处理 id: 协议
       if (src.startsWith('id:')) {
         const attachmentId = src.slice(3);
-        src = `${baseUrl}/api/v1/attachments/${attachmentId}`;
+        src = `${baseUrl}/api/v1/attachment/${attachmentId}`;
+      } else if (/^[0-9A-Za-z_-]+$/.test(src)) {
+        src = `${baseUrl}/api/v1/attachment/${src}`;
       }
 
       const alt = node.attrs?.alt || '';

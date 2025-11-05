@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 
 	"github.com/gofiber/fiber/v2"
@@ -39,25 +38,28 @@ func UploadQuick(c *fiber.Ctx) error {
 		return wrapError(c, nil, "此项数据无法进行快速上传")
 	}
 
-	_, newItem := model.AttachmentCreate(&model.AttachmentModel{
+	tx, newItem := model.AttachmentCreate(&model.AttachmentModel{
 		Filename:  item.Filename,
 		Size:      item.Size,
 		Hash:      hashBytes,
 		ChannelID: body.ChannelID,
 		UserID:    getCurUser(c).ID,
 	})
+	if tx.Error != nil {
+		return wrapError(c, tx.Error, "上传失败，请重试")
+	}
 
 	// 特殊值处理
 	if body.ChannelID == "user-avatar" {
-		fn := fmt.Sprintf("%s_%d", body.Hash, item.Size)
 		user := getCurUser(c)
-		user.Avatar = "id:" + fn
+		user.Avatar = "id:" + newItem.ID
 		user.SaveAvatar()
 	}
 
 	return c.JSON(fiber.Map{
 		"message": "上传成功",
 		"file":    newItem,
+		"id":      newItem.ID,
 	})
 }
 
@@ -72,6 +74,7 @@ func Upload(c *fiber.Ctx) error {
 	// 获取上传的文件切片
 	files := form.File["file"]
 	filenames := []string{}
+	ids := []string{}
 
 	tmpDir := "./data/temp/"
 	uploadDir := "./data/upload/"
@@ -111,20 +114,24 @@ func Upload(c *fiber.Ctx) error {
 			_ = appFs.Remove(tempFile.Name())
 		}
 
-		model.AttachmentCreate(&model.AttachmentModel{
+		tx, newItem := model.AttachmentCreate(&model.AttachmentModel{
 			Filename:  file.Filename,
 			Size:      file.Size,
 			Hash:      hashCode,
 			ChannelID: channelId,
 			UserID:    getCurUser(c).ID,
 		})
+		if tx.Error != nil {
+			return wrapError(c, tx.Error, "上传失败，请重试")
+		}
 
 		filenames = append(filenames, fn)
+		ids = append(ids, newItem.ID)
 
 		// 特殊值处理
 		if channelId == "user-avatar" {
 			user := getCurUser(c)
-			user.Avatar = "id:" + fn
+			user.Avatar = "id:" + newItem.ID
 			user.SaveAvatar()
 		}
 	}
@@ -132,6 +139,7 @@ func Upload(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{
 		"message": "上传成功",
 		"files":   filenames,
+		"ids":     ids,
 	})
 }
 
@@ -164,8 +172,8 @@ func AttachmentGet(c *fiber.Ctx) error {
 	}
 	filename := fmt.Sprintf("%s_%d", hex.EncodeToString([]byte(att.Hash)), att.Size)
 	fullPath := filepath.Join("./data/upload", filename)
-	file, err := appFs.Open(fullPath)
-	if err != nil {
+	// 先检查文件是否存在，保证 SendFile 能返回正确的错误码
+	if _, err := os.Stat(fullPath); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
 				"message": "附件文件不存在",
@@ -173,15 +181,8 @@ func AttachmentGet(c *fiber.Ctx) error {
 		}
 		return wrapError(c, err, "读取附件失败")
 	}
-	defer file.Close()
 
-	info, err := file.Stat()
-	if err != nil {
-		return wrapError(c, err, "读取附件失败")
-	}
-
-	c.Set("Content-Length", strconv.FormatInt(info.Size(), 10))
-	return c.SendStream(file)
+	return c.SendFile(fullPath)
 }
 
 func wrapError(c *fiber.Ctx, err error, s string) error {

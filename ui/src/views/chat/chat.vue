@@ -100,18 +100,14 @@ const inlineImagePreviewMap = computed<Record<string, { status: 'uploading' | 'u
   const result: Record<string, { status: 'uploading' | 'uploaded' | 'failed'; previewUrl?: string; error?: string }> = {};
   inlineImages.forEach((draft, key) => {
     let previewUrl = draft.objectUrl;
-  if (!previewUrl && draft.attachmentId) {
-    if (/^https?:/i.test(draft.attachmentId)) {
-      previewUrl = draft.attachmentId;
-    } else {
-      const attachmentToken = draft.attachmentId.startsWith('id:') ? draft.attachmentId.slice(3) : draft.attachmentId;
-      if (draft.attachmentId.startsWith('id:')) {
-        previewUrl = `${urlBase}/api/v1/attachment/${attachmentToken}`;
+    if (!previewUrl && draft.attachmentId) {
+      if (/^https?:/i.test(draft.attachmentId)) {
+        previewUrl = draft.attachmentId;
       } else {
-        previewUrl = `${urlBase}/api/v1/attachments/${attachmentToken}`;
+        const attachmentToken = draft.attachmentId.startsWith('id:') ? draft.attachmentId.slice(3) : draft.attachmentId;
+        previewUrl = `${urlBase}/api/v1/attachment/${attachmentToken}`;
       }
     }
-  }
     result[key] = {
       status: draft.status,
       previewUrl,
@@ -157,9 +153,6 @@ const resolveAttachmentUrl = (value?: string) => {
   const normalized = raw.startsWith('id:') ? raw.slice(3) : raw;
   if (!normalized) {
     return '';
-  }
-  if (/^[0-9a-f]{32}_[0-9]+$/i.test(normalized)) {
-    return `${urlBase}/api/v1/attachments/${normalized}`;
   }
   return `${urlBase}/api/v1/attachment/${normalized}`;
 };
@@ -420,7 +413,10 @@ const submitIdentityForm = async () => {
   try {
     if (identityAvatarFile) {
       const uploadResult = await uploadImageAttachment(identityAvatarFile, { channelId: chat.curChannel.id });
-      const fileToken = uploadResult.response?.files?.[0] || uploadResult.attachmentId || '';
+      const fileToken = uploadResult.attachmentId;
+      if (!fileToken) {
+        throw new Error('上传失败：未返回附件ID');
+      }
       const normalizedToken = normalizeAttachmentId(fileToken);
       identityForm.avatarAttachmentId = normalizedToken;
       payload.avatarAttachmentId = identityForm.avatarAttachmentId;

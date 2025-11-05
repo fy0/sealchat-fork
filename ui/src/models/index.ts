@@ -32,12 +32,13 @@ export function getSrcThumb(i: Thumb) {
       return URL.createObjectURL(b)
     }
   } else {
-      return `${urlBase}/api/v1/attachments/${i.id}`;
+      return `${urlBase}/api/v1/attachment/${i.id}`;
   }
 }
 
 export function getSrc(i: UserEmojiModel) {
-  return `${urlBase}/api/v1/attachments/${i.attachmentId || i.id}`;
+  const id = i.attachmentId || i.id;
+  return `${urlBase}/api/v1/attachment/${id}`;
 }
 
 export const db = new MySubClassedDexie();

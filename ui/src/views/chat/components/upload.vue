@@ -30,7 +30,7 @@ const headers = computed(() => {
 const inputFile = async (newFile: any, oldFile: any) => {
   if (newFile && oldFile && !newFile.active && oldFile.active) {
     // 获得相应数据
-    console.log('response', newFile.response.files)
+    console.log('response', newFile.response)
     dialogVisible.value = false;
     files.value = [];
 
@@ -42,9 +42,10 @@ const inputFile = async (newFile: any, oldFile: any) => {
       fileType = 'image'
     }
 
-    if (fileType === 'image') {
+    const attachmentId = newFile.response?.ids?.[0] as string | undefined;
+    if (fileType === 'image' && attachmentId) {
       const x = db.thumbs.add({
-        id: newFile.response.files[0],
+        id: attachmentId,
         recentUsed: Number(Date.now()),
         filename: newFile.file.name,
         mimeType: newFile.file.type,
@@ -55,22 +56,27 @@ const inputFile = async (newFile: any, oldFile: any) => {
     if (newFile.xhr) {
       if (newFile.xhr.status === 200) {
         // 上传成功
-        if (fileType === 'image') {
-          const resp = await chat.messageCreate(`<img src="id:${newFile.response.files}" />`)
+        if (fileType === 'image' && attachmentId) {
+          const resp = await chat.messageCreate(`<img src="id:${attachmentId}" />`)
           if (!resp) {
             message.error('发送失败,您可能没有权限在此频道发送消息');
             return;
           }
         }
-        if (fileType === 'audio') {
-          const resp = await chat.messageCreate(`<audio src="id:${newFile.response.files}" />`)
+        if (fileType === 'audio' && attachmentId) {
+          const resp = await chat.messageCreate(`<audio src="id:${attachmentId}" />`)
           if (!resp) {
             message.error('发送失败,您可能没有权限在此频道发送消息');
             return;
           }
         }
-
-        message.error('无法处理此格式的文件');
+        if (!attachmentId) {
+          message.error('上传结果缺少附件ID，消息未发送');
+          return;
+        }
+        if (fileType !== 'image' && fileType !== 'audio') {
+          message.error('无法处理此格式的文件');
+        }
         console.log('success')
       } else {
         // 上传失败

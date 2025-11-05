@@ -29,8 +29,8 @@ export const uploadImageAttachment = async (file: File, options?: UploadImageOpt
   }
 
   const resp = await api.post('/api/v1/attachment-upload', formData, { headers });
-  const filesField = resp.data?.files;
   const idsField = resp.data?.ids;
+  const filesField = resp.data?.files;
 
   const extractFirst = (value: unknown): string => {
     if (!value) return '';
@@ -46,13 +46,17 @@ export const uploadImageAttachment = async (file: File, options?: UploadImageOpt
   };
 
   const rawId = extractFirst(idsField);
-  const rawFile = extractFirst(filesField);
 
-  if (!rawId && !rawFile) {
+  if (!rawId) {
+    // 兼容旧结构：尝试从 files 字段回退一次
+    const legacyToken = extractFirst(filesField);
+    if (legacyToken) {
+      throw new Error('服务端未返回附件ID，已停止兼容旧数据，请升级后端接口');
+    }
     throw new Error('上传失败，请稍后重试');
   }
 
-  const cacheKey = rawId || rawFile || '';
+  const cacheKey = rawId;
 
   if (cacheKey) {
     try {
@@ -68,7 +72,7 @@ export const uploadImageAttachment = async (file: File, options?: UploadImageOpt
     }
   }
 
-  const attachmentRef = rawId ? `id:${rawId}` : rawFile;
+  const attachmentRef = `id:${rawId}`;
 
   return {
     attachmentId: attachmentRef as string,

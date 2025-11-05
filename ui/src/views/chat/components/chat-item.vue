@@ -78,7 +78,7 @@ const parseContent = (payload: any, overrideContent?: string) => {
     switch (item.type) {
       case 'img':
         if (item.attrs.src && item.attrs.src.startsWith('id:')) {
-          item.attrs.src = item.attrs.src.replace('id:', `${urlBase}/api/v1/attachments/`);
+          item.attrs.src = item.attrs.src.replace('id:', `${urlBase}/api/v1/attachment/`);
         }
         textItems.push(DOMPurify.sanitize(item.toString()));
         hasImage.value = true;
@@ -89,7 +89,7 @@ const parseContent = (payload: any, overrideContent?: string) => {
 
         src = item.attrs.src;
         if (item.attrs.src.startsWith('id:')) {
-          src = item.attrs.src.replace('id:', `${urlBase}/api/v1/attachments/`);
+          src = item.attrs.src.replace('id:', `${urlBase}/api/v1/attachment/`);
         }
 
         let info = utils.sounds.get(src);

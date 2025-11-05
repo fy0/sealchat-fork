@@ -229,9 +229,13 @@ const saveAvatarImage = async () => {
 
     // 检查上传是否成功
     if (resp.status === 200) {
-      // 处理成功上传的响应
+      const attachmentId = resp.data?.ids?.[0];
+      if (!attachmentId) {
+        message.error('上传失败，未返回附件ID');
+        return;
+      }
       message.success('头像修改成功!')
-      user.info.avatar = `id:${resp.data.files[0]}`
+      user.info.avatar = `id:${attachmentId}`
       imageInfo.value.image = '' // 关闭界面
     } else {
       // 处理上传失败的情况

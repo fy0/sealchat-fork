@@ -51,9 +51,6 @@ const buildAttachmentUrl = (token?: string) => {
   if (!normalized) {
     return '';
   }
-  if (/^[0-9a-f]{32}_[0-9]+$/i.test(normalized)) {
-    return `${urlBase}/api/v1/attachments/${normalized}`;
-  }
   return `${urlBase}/api/v1/attachment/${normalized}`;
 };
 
