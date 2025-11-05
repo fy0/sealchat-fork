@@ -214,14 +214,18 @@ func AttachmentMeta(c *fiber.Ctx) error {
 	})
 }
 
-func wrapError(c *fiber.Ctx, err error, s string) error {
+func wrapErrorStatus(c *fiber.Ctx, status int, err error, s string) error {
 	m := fiber.Map{
 		"message": s,
 	}
 	if err != nil {
 		m["error"] = err.Error()
 	}
-	return c.Status(fiber.StatusBadRequest).JSON(m)
+	return c.Status(status).JSON(m)
+}
+
+func wrapError(c *fiber.Ctx, err error, s string) error {
+	return wrapErrorStatus(c, fiber.StatusBadRequest, err, s)
 }
 
 func getHeader(c *fiber.Ctx, name string) string {

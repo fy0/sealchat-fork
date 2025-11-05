@@ -22,6 +22,7 @@ type AppConfig struct {
 	DSN                       string `json:"-" yaml:"dbUrl" koanf:"dbUrl"`
 	BuiltInSealBotEnable      bool   `json:"builtInSealBotEnable" yaml:"builtInSealBotEnable"` // 内置小海豹启用
 	Version                   int    `json:"version" yaml:"version"`
+	GalleryQuotaMB            int64  `json:"galleryQuotaMB" yaml:"galleryQuotaMB"`
 }
 
 // 注: 实验型使用koanf，其实从需求上讲目前并无必要
@@ -39,6 +40,7 @@ func ReadConfig() *AppConfig {
 		DSN:                       "./data/chat.db",
 		BuiltInSealBotEnable:      true,
 		Version:                   1,
+	GalleryQuotaMB:            100,
 	}
 
 	lo.Must0(k.Load(structs.Provider(&config, "yaml"), nil))
@@ -95,6 +97,7 @@ func WriteConfig(config *AppConfig) {
 		_ = k.Set("imageSizeLimit", config.ImageSizeLimit)
 		_ = k.Set("imageCompress", config.ImageCompress)
 		_ = k.Set("builtInSealBotEnable", config.BuiltInSealBotEnable)
+		_ = k.Set("galleryQuotaMB", config.GalleryQuotaMB)
 
 		if err := k.Unmarshal("", &config); err != nil {
 			fmt.Printf("配置解析失败: %v\n", err)

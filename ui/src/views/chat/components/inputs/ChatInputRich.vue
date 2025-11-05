@@ -40,6 +40,8 @@ const emit = defineEmits<{
   (event: 'paste-image', payload: { files: File[]; selectionStart: number; selectionEnd: number }): void
   (event: 'drop-files', payload: { files: File[]; selectionStart: number; selectionEnd: number }): void
   (event: 'upload-button-click'): void
+  (event: 'composition-start'): void
+  (event: 'composition-end'): void
 }>();
 
 const editor = shallowRef<Editor | null>(null);
@@ -378,6 +380,14 @@ const handleKeydown = (event: KeyboardEvent) => {
   emit('keydown', event);
 };
 
+const handleCompositionStart = () => {
+  emit('composition-start');
+};
+
+const handleCompositionEnd = () => {
+  emit('composition-end');
+};
+
 onBeforeUnmount(() => {
   editor.value?.destroy();
 });
@@ -617,7 +627,13 @@ defineExpose({
       </div>
 
       <!-- 编辑器内容区 -->
-      <div class="tiptap-editor-wrapper" ref="editorElement" @keydown="handleKeydown">
+      <div
+        class="tiptap-editor-wrapper"
+        ref="editorElement"
+        @keydown="handleKeydown"
+        @compositionstart="handleCompositionStart"
+        @compositionend="handleCompositionEnd"
+      >
         <component :is="EditorContent" v-if="editor" :editor="editor" />
 
         <!-- BubbleMenu 浮动工具栏 -->

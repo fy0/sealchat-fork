@@ -68,6 +68,19 @@ func Init(config *utils.AppConfig, uiStatic fs.FS) {
 	v1Auth.Post("/user-emoji-add", UserEmojiAdd)
 	v1Auth.Get("/user-emoji-list", UserEmojiList)
 	v1Auth.Post("/user-emoji-delete", UserEmojiDelete)
+	v1Auth.Patch("/user-emoji/:id", UserEmojiUpdate)
+
+	v1Auth.Get("/gallery/collections", GalleryCollectionsList)
+	v1Auth.Post("/gallery/collections", GalleryCollectionCreate)
+	v1Auth.Patch("/gallery/collections/:id", GalleryCollectionUpdate)
+	v1Auth.Delete("/gallery/collections/:id", GalleryCollectionDelete)
+
+	v1Auth.Get("/gallery/items", GalleryItemsList)
+	v1Auth.Post("/gallery/items/upload", GalleryItemsUpload)
+	v1Auth.Patch("/gallery/items/:id", GalleryItemUpdate)
+	v1Auth.Post("/gallery/items/delete", GalleryItemsDelete)
+
+	v1Auth.Get("/gallery/search", GallerySearch)
 
 	v1Auth.Get("/timeline-list", TimelineList)
 
@@ -96,6 +109,7 @@ func Init(config *utils.AppConfig, uiStatic fs.FS) {
 		return c.Status(http.StatusOK).JSON(m)
 	})
 	v1Auth.Static("/attachments", "./data/upload")
+	v1Auth.Static("/gallery/thumbs", "./data/gallery/thumbs")
 
 	v1Auth.Get("/channel-role-list", ChannelRoles)
 	v1Auth.Get("/channel-member-list", ChannelMembers)

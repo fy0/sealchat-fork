@@ -37,6 +37,8 @@ const emit = defineEmits<{
   (event: 'keydown', e: KeyboardEvent): void
   (event: 'focus'): void
   (event: 'blur'): void
+  (event: 'composition-start'): void
+  (event: 'composition-end'): void
   (event: 'remove-image', markerId: string): void
   (event: 'paste-image', payload: { files: File[]; selectionStart: number; selectionEnd: number }): void
   (event: 'drop-files', payload: { files: File[]; selectionStart: number; selectionEnd: number }): void
@@ -572,6 +574,14 @@ const handleBlur = () => {
   emit('blur');
 };
 
+const handleCompositionStart = () => {
+  emit('composition-start');
+};
+
+const handleCompositionEnd = () => {
+  emit('composition-end');
+};
+
 // 暴露方法
 const focus = () => {
   nextTick(() => {
@@ -630,6 +640,8 @@ defineExpose({
     @click="handleClick"
     @focus="handleFocus"
     @blur="handleBlur"
+    @compositionstart="handleCompositionStart"
+    @compositionend="handleCompositionEnd"
   ></div>
 </template>
 

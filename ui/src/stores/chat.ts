@@ -598,6 +598,10 @@ export const useChatStore = defineStore({
         if (extra?.messageId) {
           payload.message_id = extra.messageId;
         }
+        const activeIdentity = this.getActiveIdentity(targetChannelId);
+        if (activeIdentity) {
+          payload.identity_id = activeIdentity.id;
+        }
         await this.sendAPI('message.typing', payload as APIMessage);
       } catch (error) {
         console.warn('message.typing 调用失败', error);

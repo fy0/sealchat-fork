@@ -138,6 +138,7 @@ const handleSelect = async (key: string | number) => {
     return;
   }
   chat.setActiveIdentity(channelId, String(key));
+  emit('identity-changed' as any);
 };
 </script>
 

@@ -4,13 +4,15 @@ import { computed, ref, watch, onMounted, onBeforeMount, onBeforeUnmount, nextTi
 import { VirtualList } from 'vue-tiny-virtual-list';
 import { chatEvent, useChatStore } from '@/stores/chat';
 import type { Event, Message, User } from '@satorijs/protocol'
-import type { ChannelIdentity } from '@/types'
+import type { ChannelIdentity, GalleryItem } from '@/types'
 import { useUserStore } from '@/stores/user';
 import { ArrowBarToDown, Plus, Upload, Send, ArrowBackUp, Palette, Users, Download } from '@vicons/tabler'
 import { NIcon, c, useDialog, useMessage, type MentionOption } from 'naive-ui';
 import VueScrollTo from 'vue-scrollto'
 import ChatInputSwitcher from './components/ChatInputSwitcher.vue'
 import ChannelIdentitySwitcher from './components/ChannelIdentitySwitcher.vue'
+import GalleryButton from '@/components/gallery/GalleryButton.vue'
+import GalleryPanel from '@/components/gallery/GalleryPanel.vue'
 import { uploadImageAttachment } from './composables/useAttachmentUploader';
 import { api, urlBase } from '@/stores/_config';
 import { liveQuery } from "dexie";
@@ -26,8 +28,9 @@ import { nanoid } from 'nanoid';
 import { useUtilsStore } from '@/stores/utils';
 import { contentEscape, contentUnescape, arrayBufferToBase64, base64ToUint8Array } from '@/utils/tools'
 import IconNumber from '@/components/icons/IconNumber.vue'
-import { computedAsync } from '@vueuse/core';
+import { computedAsync, useDebounceFn, useEventListener } from '@vueuse/core';
 import type { UserEmojiModel } from '@/types';
+import { useGalleryStore } from '@/stores/gallery';
 import { Settings } from '@vicons/ionicons5';
 import { dialogAskConfirm } from '@/utils/dialog';
 import { useI18n } from 'vue-i18n';
@@ -40,6 +43,7 @@ import DOMPurify from 'dompurify';
 
 const chat = useChatStore();
 const user = useUserStore();
+const gallery = useGalleryStore();
 const isEditing = computed(() => !!chat.editing);
 
 const emojiLoading = ref(false)
@@ -50,6 +54,69 @@ const uploadImages = computedAsync(async () => {
   }
   return [];
 }, [], emojiLoading);
+
+const hasUserEmoji = computed(() => (uploadImages.value?.length ?? 0) > 0);
+const galleryEmojiItems = computed<GalleryItem[]>(() => {
+  if (!gallery.emojiCollectionId) return [];
+  return gallery.getItemsByCollection(gallery.emojiCollectionId);
+});
+const galleryEmojiName = computed(() => gallery.emojiCollection?.name ?? '');
+const hasGalleryEmoji = computed(() => galleryEmojiItems.value.length > 0);
+
+const emojiPopoverShow = ref(false);
+const emojiSearchQuery = ref('');
+const isManagingEmoji = ref(false);
+
+const allGalleryItems = computed(() =>
+  Object.values(gallery.items).flatMap((entry) => entry?.items ?? [])
+);
+
+const emojiUsageKey = 'sealchat_emoji_usage';
+const emojiUsageMap = ref<Record<string, number>>({});
+
+onMounted(() => {
+  try {
+    const stored = localStorage.getItem(emojiUsageKey);
+    if (stored) emojiUsageMap.value = JSON.parse(stored);
+  } catch (e) {
+    console.warn('Failed to load emoji usage', e);
+  }
+});
+
+const recordEmojiUsage = (id: string) => {
+  emojiUsageMap.value[id] = Date.now();
+  try {
+    localStorage.setItem(emojiUsageKey, JSON.stringify(emojiUsageMap.value));
+  } catch (e) {
+    console.warn('Failed to save emoji usage', e);
+  }
+};
+
+const sortByUsage = <T extends { id: string }>(items: T[]): T[] => {
+  return [...items].sort((a, b) => {
+    const timeA = emojiUsageMap.value[a.id] || 0;
+    const timeB = emojiUsageMap.value[b.id] || 0;
+    return timeB - timeA;
+  });
+};
+
+const filteredUserEmojis = computed(() => {
+  const query = emojiSearchQuery.value.trim().toLowerCase();
+  const items = uploadImages.value || [];
+  const filtered = !query ? items : items.filter((item, idx) => {
+    const remark = (item.remark && item.remark.trim()) || `收藏${idx + 1}`;
+    return remark.toLowerCase().includes(query);
+  });
+  return sortByUsage(filtered);
+});
+
+const filteredGalleryEmojis = computed(() => {
+  const query = emojiSearchQuery.value.trim().toLowerCase();
+  const filtered = !query ? galleryEmojiItems.value : galleryEmojiItems.value.filter(item =>
+    item.remark?.toLowerCase().includes(query)
+  );
+  return sortByUsage(filtered);
+});
 
 const message = useMessage()
 const dialog = useDialog()
@@ -118,6 +185,114 @@ const inlineImagePreviewMap = computed<Record<string, { status: 'uploading' | 'u
 });
 
 const identityDialogVisible = ref(false);
+
+watch(
+  () => user.info.id,
+  async (id) => {
+    if (!id) return;
+    gallery.loadEmojiPreference(id);
+    await gallery.loadCollections(id).catch(() => undefined);
+    if (gallery.emojiCollectionId) {
+      await gallery.loadItems(gallery.emojiCollectionId).catch(() => undefined);
+    }
+  },
+  { immediate: true }
+);
+
+watch(
+  () => gallery.emojiCollectionId,
+  (collectionId) => {
+    if (collectionId) {
+      void gallery.loadItems(collectionId);
+    }
+  }
+);
+
+watch(emojiPopoverShow, (show) => {
+  if (!show) {
+    isManagingEmoji.value = false;
+    emojiSearchQuery.value = '';
+  } else {
+    gallery.loadEmojiCollection();
+  }
+});
+
+watch(isManagingEmoji, (val) => {
+  if (val) {
+    gallery.loadEmojiCollection();
+  }
+});
+
+const buildEmojiRemarkMap = () => {
+  const allEmojis = [
+    ...(uploadImages.value || []).map(item => ({
+      remark: item.remark?.trim(),
+      attachmentId: item.attachmentId || item.id
+    })),
+    ...allGalleryItems.value.map(item => ({
+      remark: item.remark?.trim(),
+      attachmentId: item.attachmentId
+    }))
+  ].filter(e => e.remark && e.attachmentId);
+
+  const remarkMap = new Map<string, string>();
+  allEmojis.forEach(e => {
+    if (e.remark) remarkMap.set(e.remark, e.attachmentId);
+  });
+  return remarkMap;
+};
+
+const replaceEmojiRemarksForPreview = (text: string): string => {
+  const remarkMap = buildEmojiRemarkMap();
+  return text.replace(/[\[【\/]([^\]】\/]+)[\]】\/]/g, (match, remark) => {
+    const attachmentId = remarkMap.get(remark.trim());
+    if (!attachmentId) return match;
+    const normalized = attachmentId.startsWith('id:') ? attachmentId.slice(3) : attachmentId;
+    return `[[img:id:${normalized}]]`;
+  });
+};
+
+const replaceEmojiRemarks = (text: string): string => {
+  const remarkMap = buildEmojiRemarkMap();
+  return text.replace(/[\[【\/]([^\]】\/]+)[\]】\/]/g, (match, remark) => {
+    const attachmentId = remarkMap.get(remark.trim());
+    if (!attachmentId) return match;
+
+    const normalized = attachmentId.startsWith('id:') ? attachmentId.slice(3) : attachmentId;
+    const markerId = nanoid();
+    const token = `[[图片:${markerId}]]`;
+    const record: InlineImageDraft = reactive({
+      id: markerId,
+      token,
+      status: 'uploaded',
+      attachmentId: normalized,
+    });
+    inlineImages.set(markerId, record);
+    return token;
+  });
+};
+
+const handleSlashInput = (e: InputEvent) => {
+  if (inputMode.value === 'rich' || e.inputType !== 'insertText' || e.data !== ' ') return;
+
+  const text = textToSend.value;
+  const { start } = captureSelectionRange();
+  const before = text.slice(0, start);
+
+  if (before.endsWith('/e ') && (start === 3 || !/[\u4e00-\u9fa5\w]/.test(text[start - 4]))) {
+    textToSend.value = text.slice(0, start - 3) + text.slice(start);
+    nextTick(() => {
+      setInputSelection(start - 3, start - 3);
+      emojiPopoverShow.value = true;
+    });
+  } else if (before.endsWith('/w ') && (start === 3 || !/[\u4e00-\u9fa5\w]/.test(text[start - 4]))) {
+    textToSend.value = text.slice(0, start - 3) + text.slice(start);
+    nextTick(() => {
+      setInputSelection(start - 3, start - 3);
+      openWhisperPanel('slash');
+    });
+  }
+};
 const identityDialogMode = ref<'create' | 'edit'>('create');
 const identityManageVisible = ref(false);
 const identitySubmitting = ref(false);
@@ -1396,14 +1571,30 @@ const emitTypingPreview = () => {
     return;
   }
 
-  const raw = textToSend.value;
-  if (raw.trim().length === 0) {
-    stopTypingPreviewNow();
-    return;
+  let raw = textToSend.value;
+
+  if (inputMode.value === 'rich') {
+    try {
+      const json = JSON.parse(raw);
+      if (!json.content || json.content.length === 0) {
+        stopTypingPreviewNow();
+        return;
+      }
+    } catch {
+      stopTypingPreviewNow();
+      return;
+    }
+  } else {
+    if (raw.trim().length === 0) {
+      stopTypingPreviewNow();
+      return;
+    }
+    raw = replaceEmojiRemarksForPreview(raw);
   }
 
   typingPreviewActive.value = true;
   lastTypingChannelId = channelId;
+
   const truncated = raw.length > 500 ? raw.slice(0, 500) : raw;
   const content = typingPreviewMode.value === 'content' ? truncated : '';
   sendTypingUpdate(typingPreviewMode.value, content, channelId);
@@ -1818,7 +2009,11 @@ const whisperPlaceholderText = computed(() => t('inputBox.whisperPlaceholder', {
 
 const ensureInputFocus = () => {
   nextTick(() => {
-    textInputRef.value?.focus?.();
+    if (textInputRef.value?.focus) {
+      textInputRef.value.focus();
+      return;
+    }
+    textInputRef.value?.getTextarea?.()?.focus();
   });
 };
 
@@ -1827,12 +2022,20 @@ const getInputSelection = (): SelectionRange => {
   if (selection) {
     return { start: selection.start, end: selection.end };
   }
+  const textarea = textInputRef.value?.getTextarea?.();
+  if (textarea) {
+    return { start: textarea.selectionStart, end: textarea.selectionEnd };
+  }
   const length = textToSend.value.length;
   return { start: length, end: length };
 };
 
 const setInputSelection = (start: number, end: number) => {
-  textInputRef.value?.setSelectionRange?.(start, end);
+  if (textInputRef.value?.setSelectionRange) {
+    textInputRef.value.setSelectionRange(start, end);
+    return;
+  }
+  textInputRef.value?.getTextarea?.()?.setSelectionRange(start, end);
 };
 
 const moveInputCursorToEnd = () => {
@@ -2158,7 +2361,7 @@ const renderPreviewContent = (value: string) => {
   }
 
   // 处理普通文本和图片标记
-  const imageMarkerRegex = /\[\[图片:([^\]]+)\]\]/g;
+  const imageMarkerRegex = /\[\[(?:图片:([^\]]+)|img:id:([^\]]+))\]\]/g;
   let result = '';
   let lastIndex = 0;
 
@@ -2170,12 +2373,19 @@ const renderPreviewContent = (value: string) => {
     }
 
     // 添加图片
-    const markerId = match[1];
-    const imageInfo = inlineImages.get(markerId);
-    if (imageInfo && imageInfo.previewUrl) {
-      result += `<img src="${imageInfo.previewUrl}" class="preview-inline-image" alt="图片" />`;
-    } else {
-      result += '<span class="preview-image-placeholder">[图片]</span>';
+    if (match[1]) {
+      // [[图片:markerId]] 格式
+      const markerId = match[1];
+      const imageInfo = inlineImages.get(markerId);
+      if (imageInfo && imageInfo.previewUrl) {
+        result += `<img src="${imageInfo.previewUrl}" class="preview-inline-image" alt="图片" />`;
+      } else {
+        result += '<span class="preview-image-placeholder">[图片]</span>';
+      }
+    } else if (match[2]) {
+      // [[img:id:attachmentId]] 格式
+      const attachmentId = match[2];
+      result += `<img src="${urlBase}/api/v1/attachment/${attachmentId}" class="preview-inline-image" alt="图片" />`;
     }
 
     lastIndex = match.index + match[0].length;
@@ -2456,10 +2666,16 @@ const send = throttle(async () => {
     message.error('尚未连接，请稍等');
     return;
   }
-  const draft = textToSend.value;
+  let draft = textToSend.value;
 
   // 检查是否为富文本模式
   const isRichMode = inputMode.value === 'rich';
+
+  // 替换表情备注为图片标记
+  if (!isRichMode) {
+    draft = replaceEmojiRemarks(draft);
+  }
+
   const hasImages = isRichMode ? false : containsInlineImageMarker(draft);
 
   if (draft.trim() === '' && !hasImages) {
@@ -3143,14 +3359,23 @@ const reachTop = throttle(async (evt: any) => {
   }
 }, 1000)
 
-const sendEmoji = throttle(async (i: UserEmojiModel) => {
-  const resp = await chat.messageCreate(`<img src="id:${i.attachmentId}" />`);
-  emojiPopoverShow.value = false;
+const sendImageMessage = async (attachmentId: string) => {
+  const normalized = attachmentId.startsWith('id:') ? attachmentId : `id:${attachmentId}`;
+  const rawId = normalized.startsWith('id:') ? normalized.slice(3) : normalized;
+  const resp = await chat.messageCreate(`<img src="id:${rawId}" />`);
   if (!resp) {
     message.error('发送失败,您可能没有权限在此频道发送消息');
-    return;
+    return false;
   }
   toBottom();
+  return true;
+};
+
+const sendEmoji = throttle(async (i: UserEmojiModel) => {
+  if (await sendImageMessage(i.attachmentId)) {
+    recordEmojiUsage(i.id);
+    emojiPopoverShow.value = false;
+  }
 }, 1000);
 
 const avatarLongpress = (data: any) => {
@@ -3161,24 +3386,158 @@ const avatarLongpress = (data: any) => {
 }
 
 const selectedEmojiIds = ref<string[]>([]);
+const emojiRemarkModalVisible = ref(false);
+const emojiRemarkInput = ref('');
+const emojiRemarkSaving = ref(false);
+const editingEmoji = ref<UserEmojiModel | null>(null);
+const emojiRemarkPattern = /^[\p{L}\p{N}_]{1,64}$/u;
+
+const resolveEmojiRemark = (item: UserEmojiModel, idx: number) => (item.remark?.trim() || `收藏${idx + 1}`);
+
+const openEmojiRemarkEditor = (item: UserEmojiModel) => {
+  editingEmoji.value = item;
+  emojiRemarkInput.value = item.remark?.trim() || '';
+  emojiRemarkModalVisible.value = true;
+};
+
+const submitEmojiRemark = async () => {
+  if (!editingEmoji.value) {
+    return false;
+  }
+  const remark = emojiRemarkInput.value.trim();
+  if (!remark) {
+    message.warning('备注不能为空');
+    return false;
+  }
+  if (!emojiRemarkPattern.test(remark)) {
+    message.warning('备注仅支持字母、数字和下划线，长度不超过64');
+    return false;
+  }
+  emojiRemarkSaving.value = true;
+  try {
+    await user.emojiUpdate(editingEmoji.value.id, { remark });
+    editingEmoji.value.remark = remark;
+    message.success('备注已更新');
+    emojiRemarkModalVisible.value = false;
+    return true;
+  } catch (error: any) {
+    console.error('更新表情备注失败', error);
+    message.error(error?.message || '更新失败，请稍后再试');
+    return false;
+  } finally {
+    emojiRemarkSaving.value = false;
+  }
+};
+
+const cancelEmojiRemark = () => {
+  if (emojiRemarkSaving.value) {
+    return false;
+  }
+  emojiRemarkModalVisible.value = false;
+  return true;
+};
+
+const exitEmojiManage = () => {
+  isManagingEmoji.value = false;
+  selectedEmojiIds.value = [];
+};
 
 const emojiSelectedDelete = async () => {
-  if (!await dialogAskConfirm(dialog)) return;
+  if (!(await dialogAskConfirm(dialog))) return;
 
-  if (selectedEmojiIds.value.length > 0) {
-    await user.emojiDelete(selectedEmojiIds.value);
-    // 例如：调用API删除表情，然后更新本地状态
-    console.log('删除选中的表情：', selectedEmojiIds.value);
-    // 删除后清空选中状态
-    selectedEmojiIds.value = [];
-    user.emojiCount++;
-  } else {
-    console.log('没有选中的表情可删除');
+  if (!selectedEmojiIds.value.length) {
+    message.info('没有选中的表情');
+    return;
   }
-}
+  try {
+    await user.emojiDelete(selectedEmojiIds.value);
+    message.success('已删除所选表情');
+    selectedEmojiIds.value = [];
+  } catch (error: any) {
+    console.error('删除表情失败', error);
+    message.error(error?.message || '删除失败，请稍后再试');
+  }
+};
 
-const emojiPopoverShow = ref(false);
-const isManagingEmoji = ref(false);
+const insertGalleryInline = (attachmentId: string) => {
+  const normalized = attachmentId.startsWith('id:') ? attachmentId.slice(3) : attachmentId;
+  if (inputMode.value === 'rich') {
+    const editor = textInputRef.value?.getEditor?.();
+    editor?.chain().focus().setImage({ src: `id:${normalized}` }).run();
+    return;
+  }
+
+  const markerId = nanoid();
+  const token = `[[图片:${markerId}]]`;
+  const record: InlineImageDraft = reactive({
+    id: markerId,
+    token,
+    status: 'uploaded',
+    attachmentId: normalized,
+  });
+  inlineImages.set(markerId, record);
+
+  const draft = textToSend.value;
+  const selection = captureSelectionRange();
+  const start = Math.max(0, Math.min(selection.start, selection.end));
+  const end = Math.max(start, Math.max(selection.start, selection.end));
+  textToSend.value = draft.slice(0, start) + token + draft.slice(end);
+  const cursor = start + token.length;
+  nextTick(() => setInputSelection(cursor, cursor));
+  ensureInputFocus();
+};
+
+const getGalleryItemThumb = (item: GalleryItem) => item.thumbUrl || `${urlBase}/api/v1/attachment/${item.attachmentId}`;
+
+const handleGalleryEmojiClick = (item: GalleryItem) => {
+  recordEmojiUsage(item.id);
+  insertGalleryInline(item.attachmentId);
+};
+
+const handleGalleryEmojiDragStart = (item: GalleryItem, evt: DragEvent) => {
+  const dt = evt.dataTransfer;
+  if (!dt) return;
+  dt.effectAllowed = 'copy';
+  try {
+    dt.setData('application/x-sealchat-gallery-item', JSON.stringify({ attachmentId: item.attachmentId }));
+  } catch (error) {
+    console.warn('设置画廊拖拽数据失败', error);
+  }
+  dt.setData('text/plain', item.attachmentId);
+};
+
+const handleGalleryInsert = (src: string) => {
+  const normalized = src.startsWith('id:') ? src.slice(3) : src;
+  insertGalleryInline(normalized);
+};
+
+const handleGalleryDragOver = (event: DragEvent) => {
+  const dt = event.dataTransfer;
+  if (!dt) return;
+  if (Array.from(dt.types || []).includes('application/x-sealchat-gallery-item')) {
+    event.preventDefault();
+    dt.dropEffect = 'copy';
+  }
+};
+
+const handleGalleryDrop = async (event: DragEvent) => {
+  const dt = event.dataTransfer;
+  if (!dt) return;
+  const data = dt.getData('application/x-sealchat-gallery-item');
+  if (!data) {
+    return;
+  }
+  event.preventDefault();
+  try {
+    const payload = JSON.parse(data) as { attachmentId?: string };
+    if (payload?.attachmentId) {
+      await sendImageMessage(payload.attachmentId);
+    }
+  } catch (error) {
+    console.warn('解析画廊拖拽数据失败', error);
+  }
+};
+
 
 onBeforeUnmount(() => {
   chatEvent.off('channel-identity-open', handleIdentityMenuOpen);
@@ -3190,6 +3549,7 @@ onBeforeUnmount(() => {
 <template>
   <div class="flex flex-col h-full justify-between">
     <div class="chat overflow-y-auto h-full px-4 pt-6" v-show="rows.length > 0" @scroll="onScroll"
+      @dragover="handleGalleryDragOver" @drop="handleGalleryDrop"
       ref="messagesListRef">
       <!-- <VirtualList itemKey="id" :list="rows" :minSize="50" ref="virtualListRef" @scroll="onScroll"
               @toBottom="reachBottom" @toTop="reachTop"> -->
@@ -3316,21 +3676,128 @@ onBeforeUnmount(() => {
         </transition>
 
         <div class="chat-input-area relative flex-1">
+            <div class="input-floating-toolbar">
+              <ChannelIdentitySwitcher
+                v-if="chat.curChannel"
+                :disabled="isEditing"
+                @create="openIdentityCreate"
+                @manage="openIdentityManager"
+                @identity-changed="emitTypingPreview"
+              />
+              <div class="emoji-trigger">
+                <n-popover v-model:show="emojiPopoverShow" trigger="click" placement="top-start">
+                  <template #trigger>
+                    <n-button quaternary circle :disabled="isEditing">
+                      <template #icon>
+                        <n-icon :component="Plus" size="18" />
+                      </template>
+                    </n-button>
+                  </template>
+
+                  <div class="emoji-panel">
+                    <div class="emoji-panel__header">
+                      <div class="emoji-panel__title">{{ $t('inputBox.emojiTitle') }}</div>
+                      <n-tooltip trigger="hover">
+                        <template #trigger>
+                          <n-button text size="small" @click="isManagingEmoji = !isManagingEmoji">
+                            <template #icon>
+                              <n-icon :component="Settings" />
+                            </template>
+                          </n-button>
+                        </template>
+                        表情管理
+                      </n-tooltip>
+                    </div>
+
+                    <div v-if="hasGalleryEmoji && !isManagingEmoji" class="emoji-panel__search">
+                      <n-input
+                        v-model:value="emojiSearchQuery"
+                        size="small"
+                        placeholder="搜索表情..."
+                        clearable
+                      />
+                    </div>
+
+                    <div v-if="!hasUserEmoji && !hasGalleryEmoji" class="emoji-panel__empty">
+                      当前没有收藏的表情，可以在聊天窗口的图片上<b class="px-1">长按</b>或<b class="px-1">右键</b>添加
+                    </div>
+
+                    <div v-else class="emoji-panel__content">
+                    <template v-if="true">
+                      <template v-if="hasUserEmoji && !emojiSearchQuery">
+                        <template v-if="isManagingEmoji">
+                          <n-checkbox-group v-model:value="selectedEmojiIds">
+                            <div class="emoji-grid">
+                              <div class="emoji-manage-item" v-for="(item, idx) in uploadImages" :key="item.id">
+                                <div class="emoji-manage-item__content">
+                                  <n-checkbox :value="item.id">
+                                    <div class="emoji-item">
+                                      <img :src="getSrc(item)" alt="表情" />
+                                      <div class="emoji-caption" :title="resolveEmojiRemark(item, idx)">
+                                        {{ resolveEmojiRemark(item, idx) }}
+                                      </div>
+                                    </div>
+                                  </n-checkbox>
+                                  <n-button text size="tiny" @click.stop="openEmojiRemarkEditor(item)">编辑备注</n-button>
+                                </div>
+                              </div>
+                            </div>
+                          </n-checkbox-group>
+
+                          <div class="emoji-panel__actions">
+                            <n-button type="info" size="small" @click="emojiSelectedDelete" :disabled="selectedEmojiIds.length === 0">
+                              删除选中
+                            </n-button>
+                            <n-button type="default" size="small" @click="exitEmojiManage">
+                              退出管理
+                            </n-button>
+                          </div>
+                        </template>
+                        <template v-else>
+                          <div class="emoji-grid">
+                            <div class="emoji-item" v-for="(item, idx) in filteredUserEmojis" :key="item.id" @click="sendEmoji(item)">
+                              <img :src="getSrc(item)" alt="表情" />
+                              <div class="emoji-caption" :title="resolveEmojiRemark(item, idx)">{{ resolveEmojiRemark(item, idx) }}</div>
+                              <div class="emoji-item__actions">
+                                <n-button text size="tiny" @click.stop="openEmojiRemarkEditor(item)">备注</n-button>
+                              </div>
+                            </div>
+                          </div>
+                        </template>
+                      </template>
+
+                      <template v-if="!isManagingEmoji && (hasGalleryEmoji || emojiSearchQuery)">
+                        <div class="emoji-section__title">联动分类：{{ galleryEmojiName || '未命名分类' }}</div>
+                        <div v-if="filteredGalleryEmojis.length === 0" class="emoji-panel__empty">
+                          没有匹配的表情
+                        </div>
+                        <div v-else class="emoji-grid">
+                          <div
+                            class="emoji-item"
+                            v-for="item in filteredGalleryEmojis"
+                            :key="item.id"
+                            draggable="true"
+                            @dragstart="handleGalleryEmojiDragStart(item, $event)"
+                            @click="handleGalleryEmojiClick(item)"
+                          >
+                            <img :src="getGalleryItemThumb(item)" alt="表情" />
+                            <div class="emoji-caption">{{ item.remark || '未命名表情' }}</div>
+                          </div>
+                        </div>
+                      </template>
+                    </template>
+                    </div>
+                  </div>
+                </n-popover>
+              </div>
+              <GalleryButton />
+            </div>
+
+
             <div v-if="whisperMode" class="whisper-pill" @mousedown.prevent>
               <span class="whisper-pill__label">{{ t('inputBox.whisperPillPrefix') }} @{{ whisperTargetDisplay }}</span>
               <button type="button" class="whisper-pill__close" @click="clearWhisperTarget">×</button>
             </div>
-            <div
-              v-if="chat.curChannel"
-              class="identity-switcher-floating"
-            >
-              <ChannelIdentitySwitcher
-                :disabled="isEditing"
-                @create="openIdentityCreate"
-                @manage="openIdentityManager"
-              />
-            </div>
-
             <ChatInputSwitcher
               ref="textInputRef"
               v-model="textToSend"
@@ -3346,6 +3813,7 @@ onBeforeUnmount(() => {
           @mention-search="atHandleSearch"
           @mention-select="handleMentionSelect"
           @keydown="keyDown"
+          @input="handleSlashInput"
           @paste-image="handlePlainPasteImage"
           @drop-files="handlePlainDropFiles"
           @upload-button-click="handleRichUploadButtonClick"
@@ -3362,68 +3830,6 @@ onBeforeUnmount(() => {
         </div>
         <div class="chat-input-actions flex items-center justify-between gap-2 mt-2">
           <div class="chat-input-actions__group chat-input-actions__group--addons">
-            <div class="chat-input-actions__cell">
-              <n-popover v-model:show="emojiPopoverShow" trigger="click">
-                <template #trigger>
-                  <n-button quaternary circle :disabled="isEditing">
-                    <template #icon>
-                      <n-icon :component="Plus" size="18" />
-                    </template>
-                  </n-button>
-                </template>
-
-                <div class="flex justify-between items-center">
-                  <div class="text-base mb-1">{{ $t('inputBox.emojiTitle') }}</div>
-                  <n-tooltip trigger="hover">
-                    <template #trigger>
-                      <n-button text size="small" @click="isManagingEmoji = !isManagingEmoji">
-                        <template #icon>
-                          <n-icon :component="Settings" />
-                        </template>
-                      </n-button>
-                    </template>
-                    表情管理
-                  </n-tooltip>
-                </div>
-
-                <div v-if="!uploadImages?.length" class="flex justify-center w-full py-4 px-4">
-                  <div class="w-56">当前没有收藏的表情，可以在聊天窗口的图片上<b class="px-1">长按</b>或<b class="px-1">右键</b>添加</div>
-                </div>
-
-                <template v-else>
-                  <template v-if="isManagingEmoji">
-                    <n-checkbox-group v-model:value="selectedEmojiIds">
-                      <div class="grid grid-cols-4 gap-4 pt-2 pb-4">
-                        <div class="cursor-pointer" v-for="i in uploadImages" :key="i.id">
-                          <n-checkbox :value="i.id" class="mt-2">
-                            <img :src="getSrc(i)"
-                              style="width: 4.8rem; height: 4.8rem; object-fit: contain; cursor: pointer;" />
-                          </n-checkbox>
-                        </div>
-                      </div>
-                    </n-checkbox-group>
-
-                    <div class="flex justify-end space-x-2 mb-4">
-                      <n-button type="info" size="small" @click="emojiSelectedDelete" :disabled="selectedEmojiIds.length === 0">
-                        删除选中
-                      </n-button>
-                      <n-button type="default" size="small" @click="() => { isManagingEmoji = false; selectedEmojiIds = []; }">
-                        退出管理
-                      </n-button>
-                    </div>
-                  </template>
-
-                  <template v-else>
-                    <div class="grid grid-cols-4 gap-4 pt-2 pb-4">
-                      <div class="cursor-pointer" v-for="i in uploadImages" :key="i.id">
-                        <img @click="sendEmoji(i)" :src="getSrc(i)"
-                          style="width: 4.8rem; height: 4.8rem; object-fit: contain;" />
-                      </div>
-                    </div>
-                  </template>
-                </template>
-              </n-popover>
-            </div>
 
            <div class="chat-input-actions__cell">
              <n-tooltip trigger="hover">
@@ -3551,6 +3957,24 @@ onBeforeUnmount(() => {
 
   <RightClickMenu />
   <AvatarClickMenu />
+  <GalleryPanel @insert="handleGalleryInsert" />
+  <n-modal
+    v-model:show="emojiRemarkModalVisible"
+    preset="dialog"
+    :show-icon="false"
+    title="编辑表情备注"
+    :positive-text="emojiRemarkSaving ? '保存中…' : '保存'"
+    :positive-button-props="{ loading: emojiRemarkSaving }"
+    negative-text="取消"
+    @positive-click="submitEmojiRemark"
+    @negative-click="cancelEmojiRemark"
+  >
+    <n-form label-width="72">
+      <n-form-item label="备注">
+        <n-input v-model:value="emojiRemarkInput" maxlength="64" placeholder="请输入备注" />
+      </n-form-item>
+    </n-form>
+  </n-modal>
   <n-modal
     v-model:show="identityDialogVisible"
     preset="card"
@@ -3909,8 +4333,8 @@ onBeforeUnmount(() => {
 }
 
 .preview-inline-image {
-  max-height: 3rem;
-  max-width: 6rem;
+  max-height: 2rem;
+  max-width: 3rem;
   border-radius: 0.375rem;
   vertical-align: middle;
   margin: 0 0.25rem;
@@ -4263,18 +4687,158 @@ onBeforeUnmount(() => {
   align-items: center;
 }
 
-.identity-switcher-floating {
+.chat-input-area {
+  padding-top: 3.4rem;
+}
+
+.input-floating-toolbar {
   position: absolute;
   top: 0.25rem;
   left: 0.5rem;
-  z-index: 5;
+  z-index: 6;
   display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+@media (max-width: 768px) {
+  .input-floating-toolbar {
+    position: static;
+    margin-bottom: 0.5rem;
+  }
+}
+
+.emoji-panel {
+  width: 320px;
+  max-height: 400px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.emoji-panel__content {
+  overflow-y: auto;
+  max-height: 320px;
+  padding-right: 4px;
+}
+
+@media (max-width: 768px) {
+  .emoji-panel {
+    width: calc(100vw - 32px);
+    max-width: 320px;
+  }
+}
+
+.emoji-panel__header {
+  display: flex;
+  justify-content: space-between;
   align-items: center;
 }
 
-.chat-input-area {
-  padding-top: 2.8rem;
+.emoji-panel__title {
+  font-weight: 600;
 }
+
+.emoji-panel__search {
+  margin-top: 8px;
+  margin-bottom: 8px;
+}
+
+.emoji-panel__empty {
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-color-3);
+  padding: 12px 0;
+}
+
+.emoji-panel__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.emoji-section__title {
+  font-size: 12px;
+  color: var(--text-color-3);
+}
+
+.emoji-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(70px, 1fr));
+  gap: 0.75rem;
+}
+
+@media (max-width: 768px) {
+  .emoji-grid {
+    grid-template-columns: repeat(3, minmax(60px, 1fr));
+    gap: 0.5rem;
+  }
+}
+
+.emoji-item {
+  display: flex;
+  flex-direction: column;
+  touch-action: manipulation;
+  align-items: center;
+  gap: 0.4rem;
+  cursor: pointer;
+  border-radius: 8px;
+  padding: 0.25rem;
+  transition: background-color 0.15s ease;
+}
+
+.emoji-item img {
+  width: 4.8rem;
+  height: 4.8rem;
+  object-fit: contain;
+}
+
+.emoji-item:hover {
+  background-color: rgba(255, 255, 255, 0.06);
+}
+
+.emoji-caption {
+  font-size: 12px;
+  color: var(--text-color-3);
+  text-align: center;
+  width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.emoji-item.is-active {
+  background-color: rgba(255, 255, 255, 0.12);
+}
+
+.emoji-item__actions {
+  display: flex;
+  gap: 0.25rem;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.emoji-item:hover .emoji-item__actions {
+  opacity: 1;
+}
+
+.emoji-manage-item__content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.emoji-manage-item :deep(.n-checkbox) {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+}
+
+.emoji-manage-item :deep(.n-checkbox__label) {
+  padding: 0;
+}
+
 
 .identity-color-field {
   display: flex;

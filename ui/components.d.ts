@@ -8,6 +8,13 @@ export {}
 declare module 'vue' {
   export interface GlobalComponents {
     Avatar: typeof import('./src/components/avatar.vue')['default']
+    GalleryButton: typeof import('./src/components/gallery/GalleryButton.vue')['default']
+    GalleryCollectionTree: typeof import('./src/components/gallery/GalleryCollectionTree.vue')['default']
+    GalleryContextMenu: typeof import('./src/components/gallery/GalleryContextMenu.vue')['default']
+    GalleryGrid: typeof import('./src/components/gallery/GalleryGrid.vue')['default']
+    GalleryPanel: typeof import('./src/components/gallery/GalleryPanel.vue')['default']
+    GallerySearchSuggest: typeof import('./src/components/gallery/GallerySearchSuggest.vue')['default']
+    GalleryUploadZone: typeof import('./src/components/gallery/GalleryUploadZone.vue')['default']
     IconFluentMention24Filled: typeof import('./src/components/icons/IconFluentMention24Filled.vue')['default']
     IconNumber: typeof import('./src/components/icons/IconNumber.vue')['default']
     IconTooling: typeof import('./src/components/icons/IconTooling.vue')['default']
@@ -53,6 +60,7 @@ declare module 'vue' {
     NTooltip: typeof import('naive-ui')['NTooltip']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
+    SlashSuggestPanel: typeof import('./src/components/chat/SlashSuggestPanel.vue')['default']
     UserLabel: typeof import('./src/components/UserLabel.vue')['default']
     UserLabelV: typeof import('./src/components/UserLabelV.vue')['default']
   }

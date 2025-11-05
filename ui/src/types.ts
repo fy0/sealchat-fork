@@ -122,7 +122,34 @@ interface ModelDataBase {
 export interface UserEmojiModel {
   id: string
   attachmentId: string;
+  remark?: string;
   order?: number;
+}
+
+export interface GalleryCollection extends ModelDataBase {
+  ownerType: 'user' | 'channel';
+  ownerId: string;
+  name: string;
+  order: number;
+  quotaUsed: number;
+  createdBy?: string;
+  updatedBy?: string;
+}
+
+export interface GalleryItem extends ModelDataBase {
+  collectionId: string;
+  attachmentId: string;
+  thumbUrl: string;
+  remark: string;
+  tags?: string;
+  order: number;
+  createdBy: string;
+  size: number;
+}
+
+export interface GallerySearchResponse {
+  items: GalleryItem[];
+  collections: Record<string, GalleryCollection>;
 }
 
 export enum ChannelType {

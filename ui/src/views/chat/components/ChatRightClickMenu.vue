@@ -45,10 +45,9 @@ const detectContentMode = (content?: string): 'plain' | 'rich' => {
   if (!trimmed) {
     return 'plain';
   }
-  if (/<(p|img|br|span|at|strong|em|blockquote|ul|ol|li|code|pre|a)\b/i.test(trimmed)) {
-    return 'rich';
-  }
-  return 'plain';
+  const containsRich = /<(p|span|at|strong|em|blockquote|ul|ol|li|code|pre|a)\b/i.test(trimmed);
+  const onlyImagesOrText = /^(?:\s*(<img\b[^>]*>))*\s*$/.test(trimmed);
+  return containsRich && !onlyImagesOrText ? 'rich' : 'plain';
 };
 
 const isSelfMessage = computed(() => {

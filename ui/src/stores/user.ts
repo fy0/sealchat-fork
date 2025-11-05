@@ -176,9 +176,9 @@ export const useUserStore = defineStore({
       this._accessToken = ''
     },
 
-    async emojiAdd(attachmentId: string) {
+    async emojiAdd(attachmentId: string, remark?: string) {
       const user = useUserStore();
-      const resp = await api.post('api/v1/user-emoji-add', { attachmentId }, {
+      const resp = await api.post('api/v1/user-emoji-add', { attachmentId, remark }, {
         headers: { 'Authorization': user.token }
       });
       this.emojiCount += 1;
@@ -190,6 +190,16 @@ export const useUserStore = defineStore({
       const resp = await api.post('api/v1/user-emoji-delete', { ids }, {
         headers: { 'Authorization': user.token }
       });
+      this.emojiCount += 1;
+      return resp;
+    },
+
+    async emojiUpdate(id: string, payload: { remark: string }) {
+      const user = useUserStore();
+      const resp = await api.patch(`api/v1/user-emoji/${id}`, payload, {
+        headers: { 'Authorization': user.token }
+      });
+      this.emojiCount += 1;
       return resp;
     },
 

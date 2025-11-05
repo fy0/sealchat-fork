@@ -26,6 +26,7 @@ var (
 	PermFuncChannelManageInfo     = gorbac.NewStdPermission("func_channel_manage_info")      // 频道 - 频道设置 - 基础设置
 	PermFuncChannelManageRole     = gorbac.NewStdPermission("func_channel_manage_role")      // 频道 - 频道设置 - 权限管理
 	PermFuncChannelManageRoleRoot = gorbac.NewStdPermission("func_channel_manage_role_root") // 频道 - 频道设置 - 权限管理（Root管理员）
+	PermFuncChannelManageGallery  = gorbac.NewStdPermission("func_channel_manage_gallery")   // 频道 - 频道设置 - 快捷表情资源管理
 
 	// 准备加一个at权限
 

@@ -46,15 +46,24 @@ type User struct {
 	// Nickname      string // Deprecated
 }
 
+type ChannelIdentity struct {
+	ID                 string `json:"id"`
+	DisplayName        string `json:"displayName"`
+	Color              string `json:"color"`
+	AvatarAttachmentID string `json:"avatarAttachmentId"`
+	IsDefault          bool   `json:"isDefault"`
+}
+
 type GuildMember struct {
-	ID       string   `json:"id"`
-	User     *User    `json:"user"`
-	Name     string   `json:"name"` // 指用户名吗？
-	Nick     string   `json:"nick"`
-	Avatar   string   `json:"avatar"`
-	Title    string   `json:"title"`
-	Roles    []string `json:"roles"`
-	JoinedAt int64    `json:"joined_at"`
+	ID       string           `json:"id"`
+	User     *User            `json:"user"`
+	Name     string           `json:"name"` // 指用户名吗？
+	Nick     string           `json:"nick"`
+	Avatar   string           `json:"avatar"`
+	Title    string           `json:"title"`
+	Roles    []string         `json:"roles"`
+	JoinedAt int64            `json:"joined_at"`
+	Identity *ChannelIdentity `json:"identity,omitempty"`
 }
 
 type Login struct {

@@ -94,6 +94,7 @@ func DBInit(dsn string) {
 	db.AutoMigrate(&BotTokenModel{})
 	db.AutoMigrate(&ChannelLatestReadModel{})
 	db.AutoMigrate(&ChannelIdentityModel{})
+	db.AutoMigrate(&GalleryCollection{}, &GalleryItem{})
 
 	db.AutoMigrate(&SystemRoleModel{}, &ChannelRoleModel{}, &RolePermissionModel{}, &UserRoleMappingModel{})
 	db.AutoMigrate(&FriendModel{}, &FriendRequestModel{})

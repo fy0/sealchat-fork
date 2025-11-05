@@ -43,6 +43,8 @@ const emit = defineEmits<{
   (event: 'keydown', e: KeyboardEvent): void
   (event: 'focus'): void
   (event: 'blur'): void
+  (event: 'composition-start'): void
+  (event: 'composition-end'): void
   (event: 'rich-needed'): void
   (event: 'paste-image', payload: { files: File[]; selectionStart: number; selectionEnd: number }): void
   (event: 'drop-files', payload: { files: File[]; selectionStart: number; selectionEnd: number }): void
@@ -93,6 +95,14 @@ const handleFocus = () => {
 
 const handleBlur = () => {
   emit('blur');
+};
+
+const handleCompositionStart = () => {
+  emit('composition-start');
+};
+
+const handleCompositionEnd = () => {
+  emit('composition-end');
 };
 
 const handlePasteImage = (payload: { files: File[]; selectionStart: number; selectionEnd: number }) => {
@@ -208,6 +218,8 @@ defineExpose({
     @keydown="handleKeydown"
     @focus="handleFocus"
     @blur="handleBlur"
+    @composition-start="handleCompositionStart"
+    @composition-end="handleCompositionEnd"
     @remove-image="handleRemoveImage"
     @paste-image="handlePasteImage"
     @drop-files="handleDropFiles"
@@ -232,6 +244,8 @@ defineExpose({
     @keydown="handleKeydown"
     @focus="handleFocus"
     @blur="handleBlur"
+    @composition-start="handleCompositionStart"
+    @composition-end="handleCompositionEnd"
     @paste-image="handlePasteImage"
     @drop-files="handleDropFiles"
     @upload-button-click="handleUploadButtonClick"

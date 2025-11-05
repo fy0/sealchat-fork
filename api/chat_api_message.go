@@ -855,12 +855,13 @@ func normalizeTypingState(raw string, enabled *bool) protocol.TypingState {
 }
 
 func apiMessageTyping(ctx *ChatContext, data *struct {
-	ChannelID string `json:"channel_id"`
-	State     string `json:"state"`
-	Content   string `json:"content"`
-	MessageID string `json:"message_id"`
-	Mode      string `json:"mode"`
-	Enabled   *bool  `json:"enabled"`
+	ChannelID  string `json:"channel_id"`
+	State      string `json:"state"`
+	Content    string `json:"content"`
+	MessageID  string `json:"message_id"`
+	Mode       string `json:"mode"`
+	Enabled    *bool  `json:"enabled"`
+	IdentityID string `json:"identity_id"`
 }) (any, error) {
 	channelId := data.ChannelID
 	if len(channelId) < 30 {
@@ -938,6 +939,12 @@ func apiMessageTyping(ctx *ChatContext, data *struct {
 	}
 	if member != nil {
 		event.Member = member.ToProtocolType()
+	}
+	if data.IdentityID != "" {
+		identity, _ := model.ChannelIdentityGetByID(data.IdentityID)
+		if identity != nil && identity.ChannelID == channelId && identity.UserID == ctx.User.ID {
+			event.Member.Identity = identity.ToProtocolType()
+		}
 	}
 
 	ctx.BroadcastEventInChannelExcept(channelId, []string{ctx.User.ID}, event)

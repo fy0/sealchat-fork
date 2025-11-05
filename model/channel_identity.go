@@ -2,6 +2,7 @@ package model
 
 import (
 	"errors"
+	"sealchat/protocol"
 	"strings"
 
 	"gorm.io/gorm"
@@ -20,6 +21,16 @@ type ChannelIdentityModel struct {
 
 func (*ChannelIdentityModel) TableName() string {
 	return "channel_identities"
+}
+
+func (m *ChannelIdentityModel) ToProtocolType() *protocol.ChannelIdentity {
+	return &protocol.ChannelIdentity{
+		ID:                 m.ID,
+		DisplayName:        m.DisplayName,
+		Color:              m.Color,
+		AvatarAttachmentID: m.AvatarAttachmentID,
+		IsDefault:          m.IsDefault,
+	}
 }
 
 func ChannelIdentityGetByID(id string) (*ChannelIdentityModel, error) {
