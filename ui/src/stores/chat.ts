@@ -56,6 +56,15 @@ interface ChatState {
   canReorderAllMessages: boolean;
   channelIdentities: Record<string, ChannelIdentity[]>;
   activeChannelIdentity: Record<string, string>;
+
+  // 新增状态
+  icMode: 'ic' | 'ooc';
+  presenceMap: Record<string, { lastPing: number; latencyMs: number; isFocused: boolean }>;
+  filterState: {
+    icOnly: boolean;
+    showArchived: boolean;
+    userIds: string[];
+  };
 }
 
 const apiMap = new Map<string, any>();
@@ -129,6 +138,15 @@ export const useChatStore = defineStore({
     canReorderAllMessages: false,
     channelIdentities: {},
     activeChannelIdentity: {},
+
+    // 新增状态初始值
+    icMode: 'ic',
+    presenceMap: {},
+    filterState: {
+      icOnly: false,
+      showArchived: false,
+      userIds: [],
+    },
   }),
 
   getters: {
@@ -561,6 +579,7 @@ export const useChatStore = defineStore({
       const payload: Record<string, any> = {
         channel_id: this.curChannel?.id,
         content,
+        ic_mode: this.icMode,
       };
       if (quote_id) {
         payload.quote_id = quote_id;
@@ -577,7 +596,11 @@ export const useChatStore = defineStore({
         payload.identity_id = identityId;
       }
       const resp = await this.sendAPI('message.create', payload);
-      return resp?.data;
+      const message = resp?.data;
+      if (!message || typeof message !== 'object') {
+        return null;
+      }
+      return message;
     },
 
     async messageTyping(state: 'indicator' | 'content' | 'silent', content: string, channelId?: string, extra?: { mode?: string; messageId?: string }) {
@@ -765,6 +788,64 @@ export const useChatStore = defineStore({
 
     async eventDispatch(e: Event) {
       chatEvent.emit(e.type as any, e);
+    },
+
+    // 新增方法
+    setIcMode(mode: 'ic' | 'ooc') {
+      this.icMode = mode;
+    },
+
+    updatePresence(userId: string, data: { lastPing: number; latencyMs: number; isFocused: boolean }) {
+      this.presenceMap = {
+        ...this.presenceMap,
+        [userId]: data,
+      };
+    },
+
+    setFilterState(filters: Partial<{ icOnly: boolean; showArchived: boolean; userIds: string[] }>) {
+      this.filterState = {
+        ...this.filterState,
+        ...filters,
+      };
+    },
+
+    async archiveMessages(messageIds: string[]) {
+      if (!this.curChannel?.id) return;
+      const resp = await api.post('api/chat/messages/archive', {
+        channel_id: this.curChannel.id,
+        message_ids: messageIds,
+        reason: '整理消息',
+      });
+      return resp.data;
+    },
+
+    async unarchiveMessages(messageIds: string[]) {
+      if (!this.curChannel?.id) return;
+      const resp = await api.post('api/chat/messages/unarchive', {
+        channel_id: this.curChannel.id,
+        message_ids: messageIds,
+      });
+      return resp.data;
+    },
+
+    async getChannelPresence(channelId?: string) {
+      const targetId = channelId || this.curChannel?.id;
+      if (!targetId) return;
+      const resp = await api.get('api/channel/presence', {
+        params: { channel_id: targetId },
+      });
+      return resp.data;
+    },
+
+    async exportMessagesTest(params: {
+      channelId: string;
+      format: string;
+      timeRange?: [string, string];
+      includeOoc?: boolean;
+      includeArchived?: boolean;
+    }) {
+      const resp = await api.post('api/chat/export/test', params);
+      return resp.data;
     }
   }
 });

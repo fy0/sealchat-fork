@@ -13,6 +13,11 @@ import ChatInputSwitcher from './components/ChatInputSwitcher.vue'
 import ChannelIdentitySwitcher from './components/ChannelIdentitySwitcher.vue'
 import GalleryButton from '@/components/gallery/GalleryButton.vue'
 import GalleryPanel from '@/components/gallery/GalleryPanel.vue'
+import ChatIcOocToggle from './components/ChatIcOocToggle.vue'
+import UserPresencePopover from './components/UserPresencePopover.vue'
+import ChatActionRibbon from './components/ChatActionRibbon.vue'
+import ArchiveDrawer from './components/archive/ArchiveDrawer.vue'
+import ExportDialog from './components/export/ExportDialog.vue'
 import { uploadImageAttachment } from './composables/useAttachmentUploader';
 import { api, urlBase } from '@/stores/_config';
 import { liveQuery } from "dexie";
@@ -45,6 +50,12 @@ const chat = useChatStore();
 const user = useUserStore();
 const gallery = useGalleryStore();
 const isEditing = computed(() => !!chat.editing);
+
+// 新增状态
+const showPresencePopover = ref(false);
+const showActionRibbon = ref(false);
+const archiveDrawerVisible = ref(false);
+const exportDialogVisible = ref(false);
 
 const emojiLoading = ref(false)
 const uploadImages = computedAsync(async () => {
@@ -926,6 +937,30 @@ const getMessageIdentityColor = (message: any) => {
   return normalizeHexColor(message?.identity?.color || message?.sender_identity_color || '') || '';
 };
 
+const getMessageTone = (message: any): 'ic' | 'ooc' | 'archived' => {
+  if (message?.isArchived || message?.is_archived) {
+    return 'archived';
+  }
+  if (message?.icMode === 'ooc' || message?.ic_mode === 'ooc') {
+    return 'ooc';
+  }
+  return 'ic';
+};
+
+const getMessageAuthorId = (message: any): string => {
+  return (
+    message?.user?.id ||
+    message?.member?.user?.id ||
+    (message?.member && (message.member as any).user_id) ||
+    (message?.member && (message.member as any).userId) ||
+    (message as any)?.sender_user_id ||
+    (message as any)?.senderUserId ||
+    (message as any)?.sender?.id ||
+    message?.user_id ||
+    ''
+  );
+};
+
 const handleIdentityMenuOpen = async () => {
   if (!chat.curChannel?.id) {
     message.warning('请先选择频道');
@@ -940,9 +975,86 @@ const handleIdentityMenuOpen = async () => {
   }
 };
 
+// 新增处理函数
+const handlePresenceRefresh = async () => {
+  try {
+    const data = await chat.getChannelPresence();
+    if (data?.data) {
+      data.data.forEach((item: any) => {
+        chat.updatePresence(item.user_id, {
+          lastPing: item.last_seen || Date.now(),
+          latencyMs: item.latency_ms || 0,
+          isFocused: item.is_focused || false,
+        });
+      });
+    }
+    message.success('状态已刷新');
+  } catch (error) {
+    message.error('刷新失败');
+  }
+};
+
+const handleArchiveMessages = async (messageIds: string[]) => {
+  try {
+    await chat.archiveMessages(messageIds);
+    message.success('消息已归档');
+    // 这里应该刷新消息列表或更新本地状态
+  } catch (error) {
+    message.error('归档失败');
+  }
+};
+
+const handleUnarchiveMessages = async (messageIds: string[]) => {
+  try {
+    await chat.unarchiveMessages(messageIds);
+    message.success('消息已恢复');
+    // 这里应该刷新消息列表或更新本地状态
+  } catch (error) {
+    message.error('恢复失败');
+  }
+};
+
+const handleExportMessages = async (params: any) => {
+  try {
+    const result = await chat.exportMessagesTest({
+      channelId: chat.curChannel?.id || '',
+      ...params,
+    });
+    message.info(`导出任务已创建: ${result.task_id}`);
+    exportDialogVisible.value = false;
+  } catch (error) {
+    message.error('导出失败');
+  }
+};
+
 const SCROLL_STICKY_THRESHOLD = 200;
 
 const rows = ref<Message[]>([]);
+const visibleRows = computed(() => {
+  const { icOnly, showArchived, userIds } = chat.filterState;
+  const filterUserIds = Array.isArray(userIds) ? userIds : [];
+
+  return rows.value.filter((message) => {
+    const isArchived = Boolean(message?.isArchived || message?.is_archived);
+    if (!showArchived && isArchived) {
+      return false;
+    }
+
+    const icValue = String(message?.icMode ?? message?.ic_mode ?? 'ic').toLowerCase();
+    if (icOnly && icValue !== 'ic') {
+      return false;
+    }
+
+    if (filterUserIds.length > 0) {
+      const authorId = getMessageAuthorId(message);
+      if (!authorId || !filterUserIds.includes(authorId)) {
+        return false;
+      }
+    }
+
+    return true;
+  });
+});
 
 const normalizeMessageShape = (msg: any): Message => {
   if (!msg) {
@@ -1473,7 +1585,7 @@ const typingPreviewItems = computed(() => typingPreviewList.value.filter((item) 
 let lastTypingChannelId = '';
 
 const upsertTypingPreview = (item: TypingPreviewItem) => {
-  const shouldStick = isNearBottom();
+  const shouldStick = visibleRows.value.length === rows.value.length && isNearBottom();
   typingPreviewList.value = typingPreviewList.value.filter((i) => !(i.userId === item.userId && i.mode === item.mode));
   typingPreviewList.value.push(item);
   if (shouldStick) {
@@ -2750,7 +2862,10 @@ const send = throttle(async () => {
 
     tmpMsg.content = finalContent;
     const newMsg = await chat.messageCreate(finalContent, replyTo?.id, whisperTargetForSend?.id, clientId);
-    for (const [k, v] of Object.entries(newMsg)) {
+    if (!newMsg) {
+      throw new Error('message.create returned empty result');
+    }
+    for (const [k, v] of Object.entries(newMsg as Record<string, any>)) {
       (tmpMsg as any)[k] = v;
     }
     instantMessages.delete(tmpMsg);
@@ -2948,7 +3063,7 @@ chatEvent.on('message-created', (e?: Event) => {
   if (!e?.message || e.channel?.id !== chat.curChannel?.id) {
     return;
   }
-  const shouldStick = isNearBottom();
+    const shouldStick = visibleRows.value.length === rows.value.length && isNearBottom();
   const incoming = normalizeMessageShape(e.message);
   const isSelf = incoming.user?.id === user.info.id;
   if (isSelf) {
@@ -3565,12 +3680,57 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="flex flex-col h-full justify-between">
+    <!-- 顶部控件栏 -->
+    <div class="chat-topbar">
+      <div class="topbar-left">
+        <span class="channel-name">{{ chat.curChannel?.name || '未选择频道' }}</span>
+        <span class="online-count">{{ chat.curChannelUsers.length }} 人在线</span>
+      </div>
+      <div class="topbar-right">
+        <n-popover trigger="click" placement="bottom-end" :show="showPresencePopover" @update:show="showPresencePopover = $event">
+          <template #trigger>
+            <n-button quaternary circle>
+              <template #icon>
+                <n-icon :component="Users" size="18" />
+              </template>
+            </n-button>
+          </template>
+          <UserPresencePopover
+            :members="chat.curChannelUsers"
+            :presence-map="chat.presenceMap"
+            @request-refresh="handlePresenceRefresh"
+          />
+        </n-popover>
+
+        <n-button quaternary circle @click="showActionRibbon = !showActionRibbon">
+          <template #icon>
+            <n-icon component="MoreOutlined" size="18" />
+          </template>
+        </n-button>
+      </div>
+    </div>
+
+    <!-- 功能面板 -->
+    <transition name="slide-down">
+      <ChatActionRibbon
+        v-if="showActionRibbon"
+        :filters="chat.filterState"
+        :members="chat.curChannelUsers"
+        @update:filters="chat.setFilterState($event)"
+        @open-archive="archiveDrawerVisible = true"
+        @open-export="exportDialogVisible = true"
+        @open-identity-manager="openIdentityManager"
+        @open-gallery="() => {}"
+        @clear-filters="chat.setFilterState({ icOnly: false, showArchived: false, userIds: [] })"
+      />
+    </transition>
+
     <div class="chat overflow-y-auto h-full px-4 pt-6" v-show="rows.length > 0" @scroll="onScroll"
       @dragover="handleGalleryDragOver" @drop="handleGalleryDrop"
       ref="messagesListRef">
       <!-- <VirtualList itemKey="id" :list="rows" :minSize="50" ref="virtualListRef" @scroll="onScroll"
               @toBottom="reachBottom" @toTop="reachTop"> -->
-      <template v-for="itemData in rows" :key="itemData.id">
+      <template v-for="itemData in visibleRows" :key="itemData.id">
         <div
           :class="rowClass(itemData)"
           :data-message-id="itemData.id"
@@ -3592,6 +3752,7 @@ onBeforeUnmount(() => {
             :is-rtl="isMe(itemData)"
             :item="itemData"
             :editing-preview="editingPreviewMap[itemData.id]"
+            :tone="getMessageTone(itemData)"
             @avatar-longpress="avatarLongpress(itemData)"
             @edit="beginEdit(itemData)"
             @edit-save="saveEdit"
@@ -3600,8 +3761,8 @@ onBeforeUnmount(() => {
         </div>
       </template>
 
-      <template v-for="preview in typingPreviewItems" :key="`${preview.userId}-typing`">
-        <div class="typing-preview-item">
+      <div class="typing-preview-viewport" v-if="typingPreviewItems.length">
+        <div v-for="preview in typingPreviewItems" :key="`${preview.userId}-typing`" class="typing-preview-item">
           <AvatarVue :border="false" :size="40" :src="preview.avatar" />
           <div :class="['typing-preview-bubble', preview.indicatorOnly ? '' : 'typing-preview-bubble--content']">
             <div class="typing-preview-bubble__header">
@@ -3631,7 +3792,7 @@ onBeforeUnmount(() => {
             </div>
           </div>
         </div>
-      </template>
+      </div>
 
       <!-- <VirtualList itemKey="id" :list="rows" :minSize="50" ref="virtualListRef" @scroll="onScroll"
               @toBottom="reachBottom" @toTop="reachTop">
@@ -3854,6 +4015,12 @@ onBeforeUnmount(() => {
         </div>
         <div class="chat-input-actions flex items-center justify-between gap-2 mt-2">
           <div class="chat-input-actions__group chat-input-actions__group--addons">
+            <div class="chat-input-actions__cell">
+              <ChatIcOocToggle
+                v-model="chat.icMode"
+                :disabled="isEditing"
+              />
+            </div>
 
            <div class="chat-input-actions__cell">
              <n-tooltip trigger="hover">
@@ -4127,6 +4294,22 @@ onBeforeUnmount(() => {
     </n-drawer-content>
   </n-drawer>
   <input ref="identityImportInputRef" class="hidden" type="file" accept="application/json" @change="handleIdentityImportChange">
+
+  <!-- 新增组件 -->
+  <ArchiveDrawer
+    v-model:visible="archiveDrawerVisible"
+    :messages="[]"
+    :loading="false"
+    @unarchive="handleUnarchiveMessages"
+    @delete="handleArchiveMessages"
+    @refresh="() => {}"
+  />
+
+  <ExportDialog
+    v-model:visible="exportDialogVisible"
+    :channel-id="chat.curChannel?.id"
+    @export="handleExportMessages"
+  />
 </template>
 
 <style lang="scss" scoped>
@@ -4263,6 +4446,13 @@ onBeforeUnmount(() => {
   margin-top: 0.75rem;
   font-size: 0.9375rem;
   color: #4b5563;
+}
+
+.typing-preview-viewport {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.5rem 0;
 }
 
 .typing-preview-bubble {
@@ -4989,6 +5179,75 @@ onBeforeUnmount(() => {
   40% {
     transform: scale(1);
     opacity: 1;
+  }
+}
+
+/* 顶部控件栏样式 */
+.chat-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1rem;
+  background: rgba(255, 255, 255, 0.95);
+  border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+  backdrop-filter: blur(8px);
+}
+
+.topbar-left {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.channel-name {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #1f2937;
+}
+
+.online-count {
+  font-size: 0.875rem;
+  color: #6b7280;
+  background: rgba(107, 114, 128, 0.1);
+  padding: 0.25rem 0.5rem;
+  border-radius: 0.375rem;
+}
+
+.topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* 过渡动画 */
+.slide-down-enter-active,
+.slide-down-leave-active {
+  transition: all 0.3s ease;
+}
+
+.slide-down-enter-from,
+.slide-down-leave-to {
+  opacity: 0;
+  transform: translateY(-10px);
+}
+
+@media (max-width: 768px) {
+  .chat-topbar {
+    padding: 0.5rem;
+  }
+
+  .topbar-left {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.25rem;
+  }
+
+  .channel-name {
+    font-size: 0.875rem;
+  }
+
+  .online-count {
+    font-size: 0.75rem;
   }
 }
 </style>

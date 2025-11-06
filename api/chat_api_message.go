@@ -398,9 +398,6 @@ func apiMessageCreate(ctx *ChatContext, data *struct {
 		if !pm.CanWithChannelRole(ctx.User.ID, channelId, pm.PermFuncChannelTextSend, pm.PermFuncChannelTextSendAll) {
 			return nil, nil
 		}
-		if icMode == "ooc" && !pm.CanWithChannelRole(ctx.User.ID, channelId, pm.PermFuncChannelTextSendOOC, pm.PermFuncChannelTextSendAll) {
-			return nil, nil
-		}
 	} else {
 		// 好友/陌生人
 		fr, _ := model.FriendRelationGetByID(channelId)

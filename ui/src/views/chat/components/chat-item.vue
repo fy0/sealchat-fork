@@ -158,6 +158,10 @@ const props = defineProps({
   item: Object,
   identityColor: String,
   editingPreview: Object as PropType<EditingPreviewInfo | undefined>,
+  tone: {
+    type: String as PropType<'ic' | 'ooc' | 'archived'>,
+    default: 'ic'
+  },
 })
 
 const timeText = ref(timeFormat(props.item?.createdAt));
@@ -320,7 +324,11 @@ watch(() => props.item?.updatedAt, () => {
 <template>
   <div v-if="item?.is_revoked" class="py-4 text-center">一条消息已被撤回</div>
   <div v-else :id="item?.id" class="chat-item" :style="props.isRtl ? { direction: 'rtl' } : {}"
-    :class="[{ 'is-rtl': props.isRtl }, { 'is-editing': isEditing }]">
+    :class="[
+      { 'is-rtl': props.isRtl },
+      { 'is-editing': isEditing },
+      `chat-item--${props.tone}`
+    ]">
     <Avatar :src="props.avatar" @longpress="emit('avatar-longpress')" @click="doAvatarClick" />
     <!-- <img class="rounded-md w-12 h-12 border-gray-500 border" :src="props.avatar" /> -->
     <!-- <n-avatar :src="imgAvatar" size="large" bordered>海豹</n-avatar> -->
@@ -794,5 +802,21 @@ watch(() => props.item?.updatedAt, () => {
 
 .whisper-content .text-gray-400 {
   color: #e0e7ff;
+}
+
+/* Tone 样式 */
+.chat-item--ooc .right .content {
+  background: rgba(156, 163, 175, 0.1);
+  border: 1px dashed rgba(156, 163, 175, 0.3);
+  color: #6b7280;
+}
+
+.chat-item--archived {
+  opacity: 0.6;
+}
+
+.chat-item--archived .right .content {
+  background: rgba(248, 250, 252, 0.8);
+  border: 1px solid rgba(209, 213, 219, 0.5);
 }
 </style>
