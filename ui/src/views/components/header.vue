@@ -20,6 +20,12 @@ const adminShow = ref(false)
 const chat = useChatStore();
 const user = useUserStore();
 
+const channelTitle = computed(() => {
+  const raw = chat.curChannel?.name;
+  const name = typeof raw === 'string' ? raw.trim() : '';
+  return name ? `# ${name}` : t('headText');
+});
+
 const options = computed(() => [
   {
     label: t('headerMenu.profile'),
@@ -170,7 +176,7 @@ const newChannel = async () => {
         <n-icon size="36" class="mr-2">
           <img src="@/assets/head3.png" />
         </n-icon>
-        <span class="text-sm font-bold sm:text-xl">{{ $t('headText') }}</span>
+        <span class="text-sm font-bold sm:text-xl">{{ channelTitle }}</span>
       </div>
 
       <!-- <n-button>登录</n-button>
