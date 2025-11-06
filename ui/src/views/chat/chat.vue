@@ -1421,6 +1421,7 @@ interface TypingPreviewItem {
   userId: string;
   displayName: string;
   avatar?: string;
+  color?: string;
   content: string;
   indicatorOnly: boolean;
   mode: 'typing' | 'editing';
@@ -3032,6 +3033,11 @@ chatEvent.on('typing-preview', (e?: Event) => {
     return;
   }
   const mode = e.typing?.mode === 'editing' ? 'editing' : 'typing';
+  const identity = e.member?.identity;
+  const identityColor = identity ? normalizeHexColor(identity.color || '') : '';
+  const identityAvatar = identity?.avatarAttachmentId
+    ? resolveAttachmentUrl(identity.avatarAttachmentId)
+    : '';
   const typingState: TypingBroadcastState = (() => {
     const candidate = (e.typing?.state || '').toLowerCase();
     switch (candidate) {
@@ -3054,10 +3060,21 @@ chatEvent.on('typing-preview', (e?: Event) => {
     removeTypingPreview(typingUserId, mode);
     return;
   }
+  const displayName =
+    (identity?.displayName && identity.displayName.trim()) ||
+    e.member?.nick ||
+    e.user?.nick ||
+    '未知成员';
+  const avatar =
+    identityAvatar ||
+    e.member?.avatar ||
+    e.user?.avatar ||
+    '';
   upsertTypingPreview({
     userId: typingUserId,
-    displayName: e.member?.nick || e.user?.nick || '未知成员',
-    avatar: e.member?.avatar || e.user?.avatar || '',
+    displayName,
+    avatar,
+    color: identityColor,
     content: typingState === 'content' ? (e.typing?.content || '') : '',
     indicatorOnly: typingState !== 'content' || !e.typing?.content,
     mode,
@@ -3589,7 +3606,10 @@ onBeforeUnmount(() => {
           <div :class="['typing-preview-bubble', preview.indicatorOnly ? '' : 'typing-preview-bubble--content']">
             <div class="typing-preview-bubble__header">
               <div class="typing-preview-bubble__meta">
-                <span class="typing-preview-bubble__name">{{ preview.displayName }}</span>
+                <span
+                  class="typing-preview-bubble__name"
+                  :style="preview.color ? { color: preview.color } : undefined"
+                >{{ preview.displayName }}</span>
                 <span class="typing-preview-bubble__tag">
                   {{ preview.indicatorOnly ? '正在输入' : '实时内容' }}
                 </span>
