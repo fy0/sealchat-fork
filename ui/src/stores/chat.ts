@@ -65,6 +65,9 @@ interface ChatState {
     showArchived: boolean;
     userIds: string[];
   };
+  channelRoleCache: Record<string, string[]>;
+  channelMemberRoleMap: Record<string, Record<string, string[]>>;
+  channelAdminMap: Record<string, Record<string, boolean>>;
 }
 
 const apiMap = new Map<string, any>();
@@ -147,6 +150,9 @@ export const useChatStore = defineStore({
       showArchived: false,
       userIds: [],
     },
+    channelRoleCache: {},
+    channelMemberRoleMap: {},
+    channelAdminMap: {},
   }),
 
   getters: {
@@ -343,6 +349,12 @@ export const useChatStore = defineStore({
       this.curChannelUsers = resp2.data.data;
       this.whisperTarget = null;
 
+      try {
+        await this.ensureChannelPermissionCache(id);
+      } catch (error) {
+        console.warn('ensureChannelPermissionCache failed', error);
+      }
+
       chatEvent.emit('channel-switch-to', undefined);
       this.channelList();
       return true;
@@ -456,6 +468,166 @@ export const useChatStore = defineStore({
       chatEvent.emit('channel-identity-updated', { channelId, removedId: identityId });
     },
 
+    findChannelById(channelId: string): SChannel | null {
+      const traverse = (nodes: SChannel[] = []): SChannel | null => {
+        for (const node of nodes) {
+          if (node.id === channelId) {
+            return node;
+          }
+          const found = traverse(((node as any).children || []) as SChannel[]);
+          if (found) {
+            return found;
+          }
+        }
+        return null;
+      };
+      return traverse(this.channelTree) || this.channelTreePrivate.find(item => item.id === channelId) || null;
+    },
+
+    getChannelOwnerId(channelId?: string) {
+      if (!channelId) {
+        return '';
+      }
+      if (this.curChannel?.id === channelId) {
+        return (this.curChannel as any)?.userId || '';
+      }
+      const target = this.findChannelById(channelId) as any;
+      return target?.userId || '';
+    },
+
+    isChannelOwner(channelId?: string, userId?: string) {
+      if (!channelId || !userId) {
+        return false;
+      }
+      return this.getChannelOwnerId(channelId) === userId;
+    },
+
+    async ensureRolePermissions(roleId: string): Promise<string[]> {
+      if (!roleId) {
+        return [];
+      }
+      if (!this.channelRoleCache[roleId]) {
+        try {
+          const resp = await api.get<{ data: string[] }>('api/v1/channel-role-perms', { params: { roleId } });
+          this.channelRoleCache = {
+            ...this.channelRoleCache,
+            [roleId]: resp.data.data || [],
+          };
+        } catch (error) {
+          this.channelRoleCache = {
+            ...this.channelRoleCache,
+            [roleId]: [],
+          };
+        }
+      }
+      return this.channelRoleCache[roleId] || [];
+    },
+
+    async loadChannelMemberRoles(channelId: string, force = false) {
+      if (!channelId) {
+        return {} as Record<string, string[]>;
+      }
+      if (!force && this.channelMemberRoleMap[channelId]) {
+        return this.channelMemberRoleMap[channelId];
+      }
+      const pageSize = 200;
+      let page = 1;
+      const aggregated: Record<string, string[]> = {};
+      while (true) {
+        const resp = await api.get<PaginationListResponse<UserRoleModel>>('api/v1/channel-member-list', {
+          params: { id: channelId, page, pageSize },
+        });
+        const items = resp.data?.items || [];
+        for (const item of items) {
+          if (item.roleType !== 'channel') {
+            continue;
+          }
+          if (!aggregated[item.userId]) {
+            aggregated[item.userId] = [];
+          }
+          aggregated[item.userId].push(item.roleId);
+        }
+        const total = resp.data?.total ?? items.length;
+        if (!total || page * pageSize >= total || items.length === 0) {
+          break;
+        }
+        page += 1;
+      }
+      this.channelMemberRoleMap = {
+        ...this.channelMemberRoleMap,
+        [channelId]: aggregated,
+      };
+      return aggregated;
+    },
+
+    async updateChannelAdminMap(channelId: string, force = false) {
+      if (!channelId) {
+        return {} as Record<string, boolean>;
+      }
+      if (!force && this.channelAdminMap[channelId]) {
+        return this.channelAdminMap[channelId];
+      }
+      const roleMap = await this.loadChannelMemberRoles(channelId, force);
+      const uniqueRoleIds = new Set<string>();
+      Object.values(roleMap).forEach((roleIds) => {
+        roleIds.forEach((id) => {
+          if (id) {
+            uniqueRoleIds.add(id);
+          }
+        });
+      });
+      const rolePermMap: Record<string, string[]> = {};
+      await Promise.all(Array.from(uniqueRoleIds).map(async (roleId) => {
+        rolePermMap[roleId] = await this.ensureRolePermissions(roleId);
+      }));
+      const adminPerms = new Set([
+        'func_channel_message_archive',
+        'func_channel_manage_info',
+        'func_channel_manage_role',
+        'func_channel_manage_role_root',
+        'func_channel_role_link_root',
+        'func_channel_role_unlink_root',
+      ]);
+      const adminMap: Record<string, boolean> = {};
+      const ownerId = this.getChannelOwnerId(channelId);
+      if (ownerId) {
+        adminMap[ownerId] = true;
+      }
+      for (const [userId, roleIds] of Object.entries(roleMap)) {
+        if (!userId) {
+          continue;
+        }
+        const perms = new Set<string>();
+        for (const roleId of roleIds) {
+          (rolePermMap[roleId] || []).forEach((perm) => perms.add(perm));
+        }
+        const hasAdminPerm = Array.from(adminPerms).some((perm) => perms.has(perm));
+        if (hasAdminPerm) {
+          adminMap[userId] = true;
+        }
+      }
+      this.channelAdminMap = {
+        ...this.channelAdminMap,
+        [channelId]: adminMap,
+      };
+      return adminMap;
+    },
+
+    async ensureChannelPermissionCache(channelId: string) {
+      if (!channelId) {
+        return;
+      }
+      await this.loadChannelMemberRoles(channelId);
+      await this.updateChannelAdminMap(channelId);
+    },
+
+    isChannelAdmin(channelId?: string, userId?: string) {
+      if (!channelId || !userId) {
+        return false;
+      }
+      return !!this.channelAdminMap[channelId]?.[userId];
+    },
+
     async channelList() {
       const resp = await this.sendAPI('channel.list', {}) as APIChannelListResp;
       const d = resp.data;
@@ -524,8 +696,37 @@ export const useChatStore = defineStore({
       }, 20000);
     },
 
-    async messageList(channelId: string, next?: string) {
-      const resp = await this.sendAPI('message.list', { channel_id: channelId, next });
+    async messageList(channelId: string, next?: string, options?: {
+      includeArchived?: boolean;
+      includeOoc?: boolean;
+      archivedOnly?: boolean;
+      icOnly?: boolean;
+      userIds?: string[];
+    }) {
+      const payload: Record<string, any> = {
+        channel_id: channelId,
+      };
+      if (next) {
+        payload.next = next;
+      }
+      if (options) {
+        if (typeof options.includeArchived === 'boolean') {
+          payload.include_archived = options.includeArchived;
+        }
+        if (typeof options.includeOoc === 'boolean') {
+          payload.include_ooc = options.includeOoc;
+        }
+        if (typeof options.archivedOnly === 'boolean') {
+          payload.archived_only = options.archivedOnly;
+        }
+        if (typeof options.icOnly === 'boolean') {
+          payload.ic_only = options.icOnly;
+        }
+        if (options.userIds && options.userIds.length > 0) {
+          payload.user_ids = options.userIds;
+        }
+      }
+      const resp = await this.sendAPI('message.list', payload as APIMessage);
       this.canReorderAllMessages = !!resp.data?.can_reorder_all;
       return resp.data;
     },
@@ -810,22 +1011,30 @@ export const useChatStore = defineStore({
     },
 
     async archiveMessages(messageIds: string[]) {
-      if (!this.curChannel?.id) return;
-      const resp = await api.post('api/chat/messages/archive', {
+      if (!this.curChannel?.id || messageIds.length === 0) return;
+      const resp = await this.sendAPI('message.archive', {
         channel_id: this.curChannel.id,
         message_ids: messageIds,
         reason: '整理消息',
       });
-      return resp.data;
+      const payload = resp?.data as { message_ids?: string[] } | undefined;
+      if (!payload || !Array.isArray(payload.message_ids) || payload.message_ids.length === 0) {
+        throw new Error('归档失败：未找到可归档的消息或无权限操作');
+      }
+      return payload;
     },
 
     async unarchiveMessages(messageIds: string[]) {
-      if (!this.curChannel?.id) return;
-      const resp = await api.post('api/chat/messages/unarchive', {
+      if (!this.curChannel?.id || messageIds.length === 0) return;
+      const resp = await this.sendAPI('message.unarchive', {
         channel_id: this.curChannel.id,
         message_ids: messageIds,
       });
-      return resp.data;
+      const payload = resp?.data as { message_ids?: string[] } | undefined;
+      if (!payload || !Array.isArray(payload.message_ids) || payload.message_ids.length === 0) {
+        throw new Error('取消归档失败：未找到目标消息或无权限操作');
+      }
+      return payload;
     },
 
     async getChannelPresence(channelId?: string) {

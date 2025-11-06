@@ -171,29 +171,16 @@ func buildProtocolMessage(msg *model.MessageModel, channelData *protocol.Channel
 	return messageData
 }
 
-func messageArchiveMutate(ctx *ChatContext, channelID string, messageIDs []string, reason string, archived bool) ([]*model.MessageModel, *model.ChannelModel, error) {
-	db := model.GetDB()
-
-	reason = strings.TrimSpace(reason)
-	var ids []string
-	for _, id := range messageIDs {
-		id = strings.TrimSpace(id)
-		if id != "" {
-			ids = append(ids, id)
-		}
+func messageArchiveMutate(ctx *ChatContext, channel *model.ChannelModel, ids []string, reason string, archived bool) ([]*model.MessageModel, error) {
+	if channel == nil || channel.ID == "" {
+		return nil, fmt.Errorf("频道不存在")
 	}
 	if len(ids) == 0 {
-		return nil, nil, fmt.Errorf("message_ids 不能为空")
+		return []*model.MessageModel{}, nil
 	}
 
-	channel, err := model.ChannelGet(channelID)
-	if err != nil {
-		return nil, nil, err
-	}
-	if channel.ID == "" {
-		return nil, nil, fmt.Errorf("频道不存在")
-	}
-
+	db := model.GetDB()
+	trimmedReason := strings.TrimSpace(reason)
 	updates := map[string]any{
 		"is_archived": archived,
 	}
@@ -202,46 +189,54 @@ func messageArchiveMutate(ctx *ChatContext, channelID string, messageIDs []strin
 		archivedAt = time.Now()
 		updates["archived_at"] = archivedAt
 		updates["archived_by"] = ctx.User.ID
-		updates["archive_reason"] = reason
+		updates["archive_reason"] = trimmedReason
 	} else {
 		updates["archived_at"] = gorm.Expr("NULL")
 		updates["archived_by"] = ""
 		updates["archive_reason"] = ""
 	}
 
-	if err := db.Model(&model.MessageModel{}).
-		Where("channel_id = ? AND id IN ?", channelID, ids).
-		Updates(updates).Error; err != nil {
-		return nil, nil, err
+	result := db.Model(&model.MessageModel{}).
+		Where("channel_id = ? AND id IN ?", channel.ID, ids).
+		Updates(updates)
+	if result.Error != nil {
+		return nil, result.Error
+	}
+	if result.RowsAffected == 0 {
+		return nil, fmt.Errorf("未找到可归档的消息")
 	}
 
 	var messages []*model.MessageModel
-	err = db.Preload("User", func(db *gorm.DB) *gorm.DB {
+	if err := db.Preload("User", func(db *gorm.DB) *gorm.DB {
 		return db.Select("id, username, nickname, avatar, is_bot")
 	}).Preload("Member", func(db *gorm.DB) *gorm.DB {
 		return db.Select("id, nickname, channel_id, user_id")
-	}).Where("channel_id = ? AND id IN ?", channelID, ids).Find(&messages).Error
-	if err != nil {
-		return nil, nil, err
+	}).Where("channel_id = ? AND id IN ?", channel.ID, ids).Find(&messages).Error; err != nil {
+		return nil, err
 	}
 
 	for _, msg := range messages {
 		msg.IsArchived = archived
 		if archived {
-			msg.ArchivedAt = &archivedAt
 			msg.ArchivedBy = ctx.User.ID
-			msg.ArchiveReason = reason
+			msg.ArchiveReason = trimmedReason
+			if archivedAt.IsZero() {
+				msg.ArchivedAt = nil
+			} else {
+				copyTime := archivedAt
+				msg.ArchivedAt = &copyTime
+			}
 		} else {
-			msg.ArchivedAt = nil
 			msg.ArchivedBy = ""
 			msg.ArchiveReason = ""
+			msg.ArchivedAt = nil
 		}
 	}
 
 	hydrateMessagesForBroadcast(messages)
 
 	payload := map[string]any{
-		"reason":    reason,
+		"reason":    trimmedReason,
 		"archived":  archived,
 		"operator":  ctx.User.ID,
 		"timestamp": time.Now().UnixMilli(),
@@ -255,7 +250,7 @@ func messageArchiveMutate(ctx *ChatContext, channelID string, messageIDs []strin
 	for _, id := range ids {
 		logs = append(logs, &model.MessageArchiveLogModel{
 			MessageID:   id,
-			ChannelID:   channelID,
+			ChannelID:   channel.ID,
 			OperatorID:  ctx.User.ID,
 			Action:      action,
 			PayloadJSON: string(payloadBytes),
@@ -263,7 +258,61 @@ func messageArchiveMutate(ctx *ChatContext, channelID string, messageIDs []strin
 	}
 	_ = model.MessageArchiveLogBatchCreate(logs)
 
-	return messages, channel, nil
+	return messages, nil
+}
+
+func collectMessageIDs(messageIDs []string) []string {
+	var ids []string
+	for _, id := range messageIDs {
+		if trimmed := strings.TrimSpace(id); trimmed != "" {
+			ids = append(ids, trimmed)
+		}
+	}
+	return ids
+}
+
+func loadArchiveContext(channelID string, messageIDs []string) (*model.ChannelModel, []*model.MessageModel, error) {
+	channel, err := model.ChannelGet(channelID)
+	if err != nil {
+		return nil, nil, err
+	}
+	if channel.ID == "" {
+		return nil, nil, fmt.Errorf("频道不存在")
+	}
+
+	if len(messageIDs) == 0 {
+		return channel, []*model.MessageModel{}, nil
+	}
+
+	db := model.GetDB()
+	var messages []*model.MessageModel
+	err = db.Preload("User", func(db *gorm.DB) *gorm.DB {
+		return db.Select("id, username, nickname, avatar, is_bot")
+	}).Preload("Member", func(db *gorm.DB) *gorm.DB {
+		return db.Select("id, nickname, channel_id, user_id")
+	}).Where("channel_id = ? AND id IN ?", channelID, messageIDs).Find(&messages).Error
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return channel, messages, nil
+}
+
+func isChannelAdminUser(channel *model.ChannelModel, channelID, userID string) bool {
+	if userID == "" {
+		return false
+	}
+	if channel != nil && channel.UserID == userID {
+		return true
+	}
+	return pm.CanWithChannelRole(userID, channelID,
+		pm.PermFuncChannelManageInfo,
+		pm.PermFuncChannelManageRole,
+		pm.PermFuncChannelManageRoleRoot,
+		pm.PermFuncChannelMessageArchive,
+		pm.PermFuncChannelRoleLinkRoot,
+		pm.PermFuncChannelRoleUnlinkRoot,
+	)
 }
 
 func apiMessageArchive(ctx *ChatContext, data *struct {
@@ -274,28 +323,50 @@ func apiMessageArchive(ctx *ChatContext, data *struct {
 	if strings.TrimSpace(data.ChannelID) == "" {
 		return nil, fmt.Errorf("channel_id 不能为空")
 	}
-	if len(data.MessageIDs) == 0 {
+	ids := collectMessageIDs(data.MessageIDs)
+	if len(ids) == 0 {
 		return nil, fmt.Errorf("message_ids 不能为空")
 	}
-	if !pm.CanWithChannelRole(ctx.User.ID, data.ChannelID, pm.PermFuncChannelMessageArchive, pm.PermFuncChannelManageInfo) {
-		return nil, nil
-	}
-
-	messages, channel, err := messageArchiveMutate(ctx, data.ChannelID, data.MessageIDs, data.Reason, true)
+	channel, messages, err := loadArchiveContext(data.ChannelID, ids)
 	if err != nil {
 		return nil, err
 	}
 	if len(messages) == 0 {
-		return &struct {
-			MessageIDs []string `json:"message_ids"`
-			Archived   bool     `json:"archived"`
-		}{MessageIDs: nil, Archived: true}, nil
+		return nil, fmt.Errorf("未找到可归档的消息或无权限执行该操作")
+	}
+
+	hasArchivePerm := pm.CanWithChannelRole(ctx.User.ID, data.ChannelID, pm.PermFuncChannelMessageArchive, pm.PermFuncChannelManageInfo)
+	operatorID := ctx.User.ID
+	if !hasArchivePerm {
+		for _, msg := range messages {
+			if msg.UserID != operatorID {
+				return nil, fmt.Errorf("无权限归档目标消息")
+			}
+		}
+	} else {
+		operatorIsAdmin := isChannelAdminUser(channel, data.ChannelID, operatorID)
+		for _, msg := range messages {
+			if msg.UserID == operatorID {
+				continue
+			}
+			if !operatorIsAdmin {
+				return nil, fmt.Errorf("无权限归档目标消息")
+			}
+			if isChannelAdminUser(channel, data.ChannelID, msg.UserID) {
+				return nil, fmt.Errorf("无法归档同样具有管理员权限的成员消息")
+			}
+		}
+	}
+
+	updatedMessages, err := messageArchiveMutate(ctx, channel, ids, data.Reason, true)
+	if err != nil {
+		return nil, err
 	}
 
 	channelData := channel.ToProtocolType()
 	operator := ctx.User.ToProtocolType()
 
-	for _, msg := range messages {
+	for _, msg := range updatedMessages {
 		messageData := buildProtocolMessage(msg, channelData)
 		ev := &protocol.Event{
 			Type:    protocol.EventMessageArchived,
@@ -315,7 +386,7 @@ func apiMessageArchive(ctx *ChatContext, data *struct {
 	return &struct {
 		MessageIDs []string `json:"message_ids"`
 		Archived   bool     `json:"archived"`
-	}{MessageIDs: lo.Uniq(data.MessageIDs), Archived: true}, nil
+	}{MessageIDs: lo.Uniq(ids), Archived: true}, nil
 }
 
 func apiMessageUnarchive(ctx *ChatContext, data *struct {
@@ -325,28 +396,50 @@ func apiMessageUnarchive(ctx *ChatContext, data *struct {
 	if strings.TrimSpace(data.ChannelID) == "" {
 		return nil, fmt.Errorf("channel_id 不能为空")
 	}
-	if len(data.MessageIDs) == 0 {
+	ids := collectMessageIDs(data.MessageIDs)
+	if len(ids) == 0 {
 		return nil, fmt.Errorf("message_ids 不能为空")
 	}
-	if !pm.CanWithChannelRole(ctx.User.ID, data.ChannelID, pm.PermFuncChannelMessageArchive, pm.PermFuncChannelManageInfo) {
-		return nil, nil
-	}
-
-	messages, channel, err := messageArchiveMutate(ctx, data.ChannelID, data.MessageIDs, "", false)
+	channel, messages, err := loadArchiveContext(data.ChannelID, ids)
 	if err != nil {
 		return nil, err
 	}
 	if len(messages) == 0 {
-		return &struct {
-			MessageIDs []string `json:"message_ids"`
-			Archived   bool     `json:"archived"`
-		}{MessageIDs: nil, Archived: false}, nil
+		return nil, fmt.Errorf("未找到可取消归档的消息或无权限执行该操作")
+	}
+
+	hasArchivePerm := pm.CanWithChannelRole(ctx.User.ID, data.ChannelID, pm.PermFuncChannelMessageArchive, pm.PermFuncChannelManageInfo)
+	operatorID := ctx.User.ID
+	if !hasArchivePerm {
+		for _, msg := range messages {
+			if msg.UserID != operatorID {
+				return nil, fmt.Errorf("无权限取消归档目标消息")
+			}
+		}
+	} else {
+		operatorIsAdmin := isChannelAdminUser(channel, data.ChannelID, operatorID)
+		for _, msg := range messages {
+			if msg.UserID == operatorID {
+				continue
+			}
+			if !operatorIsAdmin {
+				return nil, fmt.Errorf("无权限取消归档目标消息")
+			}
+			if isChannelAdminUser(channel, data.ChannelID, msg.UserID) {
+				return nil, fmt.Errorf("无法操作同样具有管理员权限的成员消息")
+			}
+		}
+	}
+
+	updatedMessages, err := messageArchiveMutate(ctx, channel, ids, "", false)
+	if err != nil {
+		return nil, err
 	}
 
 	channelData := channel.ToProtocolType()
 	operator := ctx.User.ToProtocolType()
 
-	for _, msg := range messages {
+	for _, msg := range updatedMessages {
 		messageData := buildProtocolMessage(msg, channelData)
 		ev := &protocol.Event{
 			Type:    protocol.EventMessageUnarchived,
@@ -366,7 +459,7 @@ func apiMessageUnarchive(ctx *ChatContext, data *struct {
 	return &struct {
 		MessageIDs []string `json:"message_ids"`
 		Archived   bool     `json:"archived"`
-	}{MessageIDs: lo.Uniq(data.MessageIDs), Archived: false}, nil
+	}{MessageIDs: lo.Uniq(ids), Archived: false}, nil
 }
 
 func apiMessageCreate(ctx *ChatContext, data *struct {

@@ -66,6 +66,116 @@ const canWhisper = computed(() => {
   return authorId !== user.info.id;
 });
 
+const resolveUserId = (raw: any): string => {
+  return (
+    raw?.id ||
+    raw?.user?.id ||
+    raw?.member?.user?.id ||
+    raw?.member?.user_id ||
+    raw?.member?.userId ||
+    raw?.user_id ||
+    ''
+  );
+};
+
+const channelId = computed(() => chat.curChannel?.id || '');
+const currentUserId = computed(() => user.info.id);
+const targetUserId = computed(() => {
+  if (!menuMessage.value.raw) {
+    return '';
+  }
+  return menuMessage.value.author?.id || resolveUserId(menuMessage.value.raw);
+});
+
+const isArchivedMessage = computed(() => {
+  const raw: any = menuMessage.value.raw;
+  if (!raw) {
+    return false;
+  }
+  return Boolean(raw.isArchived ?? raw.is_archived ?? false);
+});
+
+const viewerIsAdmin = computed(() => {
+  if (!channelId.value) {
+    return false;
+  }
+  return chat.isChannelAdmin(channelId.value, currentUserId.value);
+});
+
+const targetIsAdmin = computed(() => {
+  if (!channelId.value || !targetUserId.value) {
+    return false;
+  }
+  return chat.isChannelAdmin(channelId.value, targetUserId.value);
+});
+
+const canArchiveByRule = computed(() => {
+  if (!menuMessage.value.raw || !channelId.value || !targetUserId.value) {
+    return false;
+  }
+  if (targetUserId.value === currentUserId.value) {
+    return true;
+  }
+  if (!viewerIsAdmin.value) {
+    return false;
+  }
+  if (targetIsAdmin.value) {
+    return false;
+  }
+  return true;
+});
+
+const showArchiveAction = computed(() => !isArchivedMessage.value && canArchiveByRule.value);
+const showUnarchiveAction = computed(() => isArchivedMessage.value && canArchiveByRule.value);
+
+const clickArchive = async () => {
+  if (!canArchiveByRule.value) {
+    return;
+  }
+  const targetId = menuMessage.value.raw?.id;
+  if (!channelId.value || !targetId) {
+    return;
+  }
+  try {
+    await chat.archiveMessages([targetId]);
+    const raw: any = menuMessage.value.raw;
+    if (raw) {
+      raw.isArchived = true;
+      raw.is_archived = true;
+    }
+    message.success('消息已归档');
+  } catch (error) {
+    const errMsg = (error as Error)?.message || '归档失败';
+    message.error(errMsg);
+  } finally {
+    chat.messageMenu.show = false;
+  }
+};
+
+const clickUnarchive = async () => {
+  if (!canArchiveByRule.value) {
+    return;
+  }
+  const targetId = menuMessage.value.raw?.id;
+  if (!channelId.value || !targetId) {
+    return;
+  }
+  try {
+    await chat.unarchiveMessages([targetId]);
+    const raw: any = menuMessage.value.raw;
+    if (raw) {
+      raw.isArchived = false;
+      raw.is_archived = false;
+    }
+    message.success('消息已取消归档');
+  } catch (error) {
+    const errMsg = (error as Error)?.message || '取消归档失败';
+    message.error(errMsg);
+  } finally {
+    chat.messageMenu.show = false;
+  }
+};
+
 const clickReplyTo = () => {
   if (!menuMessage.value.raw) {
     return;
@@ -173,6 +283,8 @@ const clickWhisper = () => {
     <context-menu-item v-if="!chat.messageMenu.hasImage" label="复制内容" @click="clickCopy" />
     <context-menu-item v-if="canWhisper" :label="t('whisper.menu')" @click="clickWhisper" />
     <context-menu-item label="回复" @click="clickReplyTo" />
+    <context-menu-item v-if="showArchiveAction" label="归档" @click="clickArchive" />
+    <context-menu-item v-if="showUnarchiveAction" label="取消归档" @click="clickUnarchive" />
     <context-menu-item label="编辑消息" @click="clickEdit" v-if="isSelfMessage" />
     <context-menu-item label="撤回" @click="clickDelete" v-if="isSelfMessage" />
   </context-menu>

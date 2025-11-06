@@ -234,6 +234,7 @@ watch(isManagingEmoji, (val) => {
   }
 });
 
+
 const buildEmojiRemarkMap = () => {
   const allEmojis = [
     ...(uploadImages.value || []).map(item => ({
@@ -961,6 +962,48 @@ const getMessageAuthorId = (message: any): string => {
   );
 };
 
+interface ArchivedPanelMessage {
+  id: string;
+  content: string;
+  createdAt: string;
+  archivedAt: string;
+  archivedBy: string;
+  sender: {
+    name: string;
+    avatar?: string;
+  };
+}
+
+const archivedMessages = ref<ArchivedPanelMessage[]>([]);
+const archivedLoading = ref(false);
+
+const resolveUserNameById = (userId: string): string => {
+  if (!userId) {
+    return '未知成员';
+  }
+  if (userId === user.info.id) {
+    return user.info.nick || user.info.name || user.info.username || '我';
+  }
+  const candidate = chat.curChannelUsers.find((member: any) => member?.id === userId);
+  return candidate?.nick || candidate?.name || userId;
+};
+
+const toArchivedPanelEntry = (message: Message): ArchivedPanelMessage => {
+  const createdAt = Number((message as any).createdAt ?? message.createdAt ?? Date.now());
+  const archivedAt = Number((message as any).archivedAt ?? message.archivedAt ?? Date.now());
+  return {
+    id: message.id || '',
+    content: message.content || '',
+    createdAt: new Date(createdAt).toISOString(),
+    archivedAt: new Date(archivedAt).toISOString(),
+    archivedBy: resolveUserNameById((message as any).archivedBy || ''),
+    sender: {
+      name: getMessageDisplayName(message),
+      avatar: getMessageAvatar(message),
+    },
+  };
+};
+
 const handleIdentityMenuOpen = async () => {
   if (!chat.curChannel?.id) {
     message.warning('请先选择频道');
@@ -998,9 +1041,13 @@ const handleArchiveMessages = async (messageIds: string[]) => {
   try {
     await chat.archiveMessages(messageIds);
     message.success('消息已归档');
-    // 这里应该刷新消息列表或更新本地状态
+    if (archiveDrawerVisible.value) {
+      await fetchArchivedMessages();
+    }
+    await loadMessages();
   } catch (error) {
-    message.error('归档失败');
+    const errMsg = (error as Error)?.message || '归档失败';
+    message.error(errMsg);
   }
 };
 
@@ -1008,9 +1055,13 @@ const handleUnarchiveMessages = async (messageIds: string[]) => {
   try {
     await chat.unarchiveMessages(messageIds);
     message.success('消息已恢复');
-    // 这里应该刷新消息列表或更新本地状态
+    if (archiveDrawerVisible.value) {
+      await fetchArchivedMessages();
+    }
+    await loadMessages();
   } catch (error) {
-    message.error('恢复失败');
+    const errMsg = (error as Error)?.message || '恢复失败';
+    message.error(errMsg);
   }
 };
 
@@ -1026,6 +1077,45 @@ const handleExportMessages = async (params: any) => {
     message.error('导出失败');
   }
 };
+
+const fetchArchivedMessages = async () => {
+  if (!chat.curChannel?.id) {
+    archivedMessages.value = [];
+    return;
+  }
+  archivedLoading.value = true;
+  try {
+    const resp = await chat.sendAPI('message.list', {
+      channel_id: chat.curChannel.id,
+      archived_only: true,
+      include_archived: true,
+      include_ooc: true,
+    });
+    const payload = resp?.data as { data?: any[] } | undefined;
+    const items = payload?.data ?? [];
+    archivedMessages.value = items
+      .map((item: any) => normalizeMessageShape(item))
+      .map((item: Message) => toArchivedPanelEntry(item))
+      .sort((a, b) => new Date(b.archivedAt).getTime() - new Date(a.archivedAt).getTime());
+  } catch (error) {
+    console.error('加载归档消息失败', error);
+    if (archiveDrawerVisible.value) {
+      message.error('加载归档消息失败');
+    }
+  } finally {
+    archivedLoading.value = false;
+  }
+};
+
+watch(archiveDrawerVisible, (visible) => {
+  if (visible) {
+    void fetchArchivedMessages();
+  }
+});
+
+watch(() => chat.curChannel?.id, () => {
+  archivedMessages.value = [];
+});
 
 const SCROLL_STICKY_THRESHOLD = 200;
 
@@ -1074,6 +1164,15 @@ const normalizeMessageShape = (msg: any): Message => {
   }
   if (msg.whisperTo === undefined && msg.whisper_to !== undefined) {
     msg.whisperTo = msg.whisper_to;
+  }
+  if (msg.isArchived === undefined && msg.is_archived !== undefined) {
+    msg.isArchived = msg.is_archived;
+  }
+  if (msg.archivedAt === undefined && msg.archived_at !== undefined) {
+    msg.archivedAt = msg.archived_at;
+  }
+  if (msg.archivedBy === undefined && msg.archived_by !== undefined) {
+    msg.archivedBy = msg.archived_by;
   }
   if ((msg as any).displayOrder === undefined && (msg as any).display_order !== undefined) {
     (msg as any).displayOrder = Number((msg as any).display_order);
@@ -3138,6 +3237,52 @@ chatEvent.on('message-reordered', (e?: Event) => {
   }
 });
 
+chatEvent.off('message-archived', '*');
+chatEvent.on('message-archived', (e?: Event) => {
+  if (!e?.message || e.channel?.id !== chat.curChannel?.id) {
+    return;
+  }
+  const incoming = normalizeMessageShape(e.message);
+  incoming.isArchived = true;
+  upsertMessage(incoming as Message);
+  if (!chat.filterState.showArchived) {
+    const index = rows.value.findIndex(item => item.id === incoming.id);
+    if (index >= 0) {
+      rows.value.splice(index, 1);
+    }
+  }
+  if (archiveDrawerVisible.value) {
+    const entry = toArchivedPanelEntry(incoming as Message);
+    const index = archivedMessages.value.findIndex(item => item.id === entry.id);
+    if (index >= 0) {
+      archivedMessages.value.splice(index, 1, entry);
+    } else {
+      archivedMessages.value.unshift(entry);
+    }
+  }
+});
+
+chatEvent.off('message-unarchived', '*');
+chatEvent.on('message-unarchived', (e?: Event) => {
+  if (!e?.message || e.channel?.id !== chat.curChannel?.id) {
+    return;
+  }
+  const incoming = normalizeMessageShape(e.message);
+  incoming.isArchived = false;
+  upsertMessage(incoming as Message);
+  const exists = rows.value.some(item => item.id === incoming.id);
+  if (!exists) {
+    rows.value.push(incoming as Message);
+    sortRowsByDisplayOrder();
+  }
+  if (archiveDrawerVisible.value) {
+    const index = archivedMessages.value.findIndex(item => item.id === incoming.id);
+    if (index >= 0) {
+      archivedMessages.value.splice(index, 1);
+    }
+  }
+});
+
 chatEvent.off('typing-preview', '*');
 chatEvent.on('typing-preview', (e?: Event) => {
   if (!e?.channel || e.channel.id !== chat.curChannel?.id) {
@@ -3285,9 +3430,11 @@ const messagesNextFlag = ref("");
 
 const loadMessages = async () => {
   resetTypingPreview();
-  const messages = await chat.messageList(chat.curChannel?.id || '');
+  const messages = await chat.messageList(chat.curChannel?.id || '', undefined, {
+    includeArchived: chat.filterState.showArchived,
+  });
   messagesNextFlag.value = messages.next || "";
-  rows.value.push(...normalizeMessageList(messages.data));
+  rows.value = normalizeMessageList(messages.data);
   sortRowsByDisplayOrder();
 
   nextTick(() => {
@@ -3467,7 +3614,9 @@ const reachTop = throttle(async (evt: any) => {
   recentReachTopNext = messagesNextFlag.value;
 
   if (messagesNextFlag.value) {
-    const messages = await chat.messageList(chat.curChannel?.id || '', messagesNextFlag.value);
+    const messages = await chat.messageList(chat.curChannel?.id || '', messagesNextFlag.value, {
+      includeArchived: chat.filterState.showArchived,
+    });
     messagesNextFlag.value = messages.next || "";
 
     let oldId = '';
@@ -4298,11 +4447,11 @@ onBeforeUnmount(() => {
   <!-- 新增组件 -->
   <ArchiveDrawer
     v-model:visible="archiveDrawerVisible"
-    :messages="[]"
-    :loading="false"
+    :messages="archivedMessages"
+    :loading="archivedLoading"
     @unarchive="handleUnarchiveMessages"
     @delete="handleArchiveMessages"
-    @refresh="() => {}"
+    @refresh="fetchArchivedMessages"
   />
 
   <ExportDialog
