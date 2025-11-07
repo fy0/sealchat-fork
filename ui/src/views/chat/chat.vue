@@ -974,8 +974,13 @@ interface ArchivedPanelMessage {
   };
 }
 
+const ARCHIVE_PAGE_SIZE = 10;
+const archivedMessagesRaw = ref<ArchivedPanelMessage[]>([]);
 const archivedMessages = ref<ArchivedPanelMessage[]>([]);
 const archivedLoading = ref(false);
+const archivedSearchQuery = ref('');
+const archivedCurrentPage = ref(1);
+const archivedTotalCount = ref(0);
 
 const resolveUserNameById = (userId: string): string => {
   if (!userId) {
@@ -1010,6 +1015,49 @@ const toArchivedPanelEntry = (message: Message): ArchivedPanelMessage => {
     },
   };
 };
+
+const filteredArchivedMessages = computed(() => {
+  const keyword = archivedSearchQuery.value.trim().toLowerCase();
+  if (!keyword) {
+    return [...archivedMessagesRaw.value];
+  }
+  return archivedMessagesRaw.value.filter((item) => {
+    const fields = [item.content, item.sender?.name, item.archivedBy];
+    return fields.some((field) => field?.toLowerCase().includes(keyword));
+  });
+});
+
+const archivedPageCount = computed(() => {
+  const total = filteredArchivedMessages.value.length;
+  if (total === 0) {
+    return 1;
+  }
+  return Math.max(1, Math.ceil(total / ARCHIVE_PAGE_SIZE));
+});
+
+const updateArchivedDisplay = () => {
+  const totalPages = archivedPageCount.value;
+  if (archivedCurrentPage.value > totalPages) {
+    archivedCurrentPage.value = totalPages;
+    return;
+  }
+  if (archivedCurrentPage.value < 1) {
+    archivedCurrentPage.value = 1;
+    return;
+  }
+  const start = (archivedCurrentPage.value - 1) * ARCHIVE_PAGE_SIZE;
+  const end = start + ARCHIVE_PAGE_SIZE;
+  archivedMessages.value = filteredArchivedMessages.value.slice(start, end);
+  archivedTotalCount.value = filteredArchivedMessages.value.length;
+};
+
+watch(
+  [filteredArchivedMessages, archivedCurrentPage],
+  () => {
+    updateArchivedDisplay();
+  },
+  { immediate: true },
+);
 
 const handleIdentityMenuOpen = async () => {
   if (!chat.curChannel?.id) {
@@ -1085,9 +1133,20 @@ const handleExportMessages = async (params: any) => {
   }
 };
 
+const handleArchivePageChange = (page: number) => {
+  archivedCurrentPage.value = page;
+};
+
+const handleArchiveSearchChange = (keyword: string) => {
+  archivedSearchQuery.value = keyword;
+  archivedCurrentPage.value = 1;
+};
+
 const fetchArchivedMessages = async () => {
   if (!chat.curChannel?.id) {
+    archivedMessagesRaw.value = [];
     archivedMessages.value = [];
+    archivedTotalCount.value = 0;
     return;
   }
   archivedLoading.value = true;
@@ -1098,10 +1157,12 @@ const fetchArchivedMessages = async () => {
       includeOoc: true,
     });
     const items = resp?.data ?? [];
-    archivedMessages.value = items
+    const mapped = items
       .map((item: any) => normalizeMessageShape(item))
       .map((item: Message) => toArchivedPanelEntry(item))
       .sort((a, b) => (normalizeTimestamp(b.archivedAt) ?? 0) - (normalizeTimestamp(a.archivedAt) ?? 0));
+    archivedMessagesRaw.value = mapped;
+    archivedCurrentPage.value = 1;
   } catch (error) {
     console.error('加载归档消息失败', error);
     if (archiveDrawerVisible.value) {
@@ -1114,12 +1175,18 @@ const fetchArchivedMessages = async () => {
 
 watch(archiveDrawerVisible, (visible) => {
   if (visible) {
+    archivedSearchQuery.value = '';
+    archivedCurrentPage.value = 1;
     void fetchArchivedMessages();
   }
 });
 
 watch(() => chat.curChannel?.id, () => {
+  archivedMessagesRaw.value = [];
   archivedMessages.value = [];
+  archivedSearchQuery.value = '';
+  archivedCurrentPage.value = 1;
+  archivedTotalCount.value = 0;
 });
 
 const SCROLL_STICKY_THRESHOLD = 200;
@@ -3292,11 +3359,11 @@ chatEvent.on('message-archived', (e?: Event) => {
   }
   if (archiveDrawerVisible.value) {
     const entry = toArchivedPanelEntry(incoming as Message);
-    const index = archivedMessages.value.findIndex(item => item.id === entry.id);
+    const index = archivedMessagesRaw.value.findIndex(item => item.id === entry.id);
     if (index >= 0) {
-      archivedMessages.value.splice(index, 1, entry);
+      archivedMessagesRaw.value.splice(index, 1, entry);
     } else {
-      archivedMessages.value.unshift(entry);
+      archivedMessagesRaw.value.unshift(entry);
     }
   }
 });
@@ -3315,9 +3382,9 @@ chatEvent.on('message-unarchived', (e?: Event) => {
     sortRowsByDisplayOrder();
   }
   if (archiveDrawerVisible.value) {
-    const index = archivedMessages.value.findIndex(item => item.id === incoming.id);
+    const index = archivedMessagesRaw.value.findIndex(item => item.id === incoming.id);
     if (index >= 0) {
-      archivedMessages.value.splice(index, 1);
+      archivedMessagesRaw.value.splice(index, 1);
     }
   }
 });
@@ -4488,6 +4555,12 @@ onBeforeUnmount(() => {
     v-model:visible="archiveDrawerVisible"
     :messages="archivedMessages"
     :loading="archivedLoading"
+    :page="archivedCurrentPage"
+    :page-count="archivedPageCount"
+    :total="archivedTotalCount"
+    :search-query="archivedSearchQuery"
+    @update:page="handleArchivePageChange"
+    @update:search="handleArchiveSearchChange"
     @unarchive="handleUnarchiveMessages"
     @delete="handleArchiveMessages"
     @refresh="fetchArchivedMessages"

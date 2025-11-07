@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { useMessage } from 'naive-ui'
 
 interface ArchivedMessage {
@@ -18,10 +18,16 @@ interface Props {
   visible: boolean
   messages: ArchivedMessage[]
   loading?: boolean
+  page: number
+  pageCount: number
+  total: number
+  searchQuery: string
 }
 
 interface Emits {
   (e: 'update:visible', visible: boolean): void
+  (e: 'update:page', page: number): void
+  (e: 'update:search', keyword: string): void
   (e: 'unarchive', messageIds: string[]): void
   (e: 'delete', messageIds: string[]): void
   (e: 'refresh'): void
@@ -32,6 +38,25 @@ const emit = defineEmits<Emits>()
 
 const message = useMessage()
 const selectedIds = ref<string[]>([])
+const searchValue = ref(props.searchQuery)
+
+watch(
+  () => props.searchQuery,
+  (value) => {
+    if (value !== searchValue.value) {
+      searchValue.value = value
+    }
+  },
+)
+
+const handleSearchInput = (value: string) => {
+  searchValue.value = value
+  emit('update:search', value)
+}
+
+const handlePageChange = (page: number) => {
+  emit('update:page', page)
+}
 
 const allSelected = computed({
   get: () => selectedIds.value.length === props.messages.length && props.messages.length > 0,
@@ -113,6 +138,17 @@ const handleClose = () => {
       </template>
 
       <div class="archive-content">
+        <div class="archive-toolbar">
+          <n-input
+            v-model:value="searchValue"
+            size="small"
+            placeholder="搜索内容、发送者或归档人"
+            clearable
+            @update:value="handleSearchInput"
+          />
+          <n-tag size="small" type="info">共 {{ total }} 条</n-tag>
+        </div>
+
         <div v-if="loading" class="archive-loading">
           <n-spin size="large" />
           <p>加载中...</p>
@@ -182,6 +218,18 @@ const handleClose = () => {
               </div>
             </div>
           </div>
+
+          <div class="archive-pagination">
+            <n-pagination
+              size="small"
+              :page="props.page"
+              :page-count="Math.max(props.pageCount, 1)"
+              :item-count="props.total"
+              :page-size="10"
+              :disabled="props.pageCount <= 1"
+              @update:page="handlePageChange"
+            />
+          </div>
         </div>
       </div>
     </n-drawer-content>
@@ -200,6 +248,14 @@ const handleClose = () => {
   height: 100%;
   display: flex;
   flex-direction: column;
+}
+
+.archive-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
 }
 
 .archive-loading {
@@ -312,5 +368,11 @@ const handleClose = () => {
 
 .archive-by {
   color: #6b7280;
+}
+
+.archive-pagination {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 0.5rem;
 }
 </style>
