@@ -126,3 +126,33 @@ func ChannelIdentityValidateOwnership(identityID string, userID string, channelI
 	}
 	return identity, nil
 }
+
+type ChannelIdentityOption struct {
+	ID    string `json:"id"`
+	Label string `json:"label"`
+	Color string `json:"color,omitempty"`
+}
+
+func ChannelIdentityOptionList(channelID string) ([]*ChannelIdentityOption, error) {
+	channelID = strings.TrimSpace(channelID)
+	if channelID == "" {
+		return []*ChannelIdentityOption{}, nil
+	}
+	items, err := ChannelIdentityList(channelID, "")
+	if err != nil {
+		return nil, err
+	}
+	options := make([]*ChannelIdentityOption, 0, len(items))
+	for _, item := range items {
+		label := strings.TrimSpace(item.DisplayName)
+		if label == "" {
+			label = "未命名身份"
+		}
+		options = append(options, &ChannelIdentityOption{
+			ID:    item.ID,
+			Label: label,
+			Color: item.Color,
+		})
+	}
+	return options, nil
+}

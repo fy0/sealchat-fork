@@ -175,7 +175,7 @@ func ChannelMessageSearch(c *fiber.Ctx) error {
 		}
 
 		if len(speakerIDs) > 0 {
-			q = q.Where("user_id IN ?", speakerIDs)
+			q = q.Where("sender_identity_id IN ?", speakerIDs)
 		}
 
 		if timeStart > 0 {

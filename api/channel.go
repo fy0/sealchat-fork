@@ -76,10 +76,10 @@ func ChannelMemberOptions(c *fiber.Ctx) error {
 		}
 	}
 
-	options, err := model.ChannelMemberOptionList(channelID)
+	options, err := model.ChannelIdentityOptionList(channelID)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"message": "获取频道成员失败",
+			"message": "获取频道身份失败",
 			"error":   err.Error(),
 		})
 	}
