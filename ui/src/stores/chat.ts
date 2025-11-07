@@ -1219,16 +1219,69 @@ export const useChatStore = defineStore({
       return resp.data;
     },
 
-    async exportMessagesTest(params: {
+    async createExportTask(params: {
       channelId: string;
       format: string;
-      timeRange?: [string, string];
+      timeRange?: [number, number];
       includeOoc?: boolean;
       includeArchived?: boolean;
     }) {
-      const resp = await api.post('api/chat/export/test', params);
-      return resp.data;
-    }
+      const payload: Record<string, any> = {
+        channel_id: params.channelId,
+        format: params.format,
+        include_ooc: params.includeOoc ?? true,
+        include_archived: params.includeArchived ?? false,
+      };
+      if (params.timeRange && params.timeRange.length === 2) {
+        payload.time_range = params.timeRange;
+      }
+      const resp = await api.post('api/v1/chat/export', payload);
+      return resp.data as {
+        task_id: string;
+        status: string;
+        message?: string;
+        requested_at?: number;
+      };
+    },
+
+    async getExportTaskStatus(taskId: string) {
+      const resp = await api.get(`api/v1/chat/export/${taskId}`);
+      return resp.data as {
+        task_id: string;
+        status: string;
+        file_name?: string;
+        message?: string;
+        finished_at?: number;
+      };
+    },
+
+    async downloadExportResult(taskId: string, fileNameHint?: string) {
+      const resp = await api.get<Blob>(`api/v1/chat/export/${taskId}`, {
+        params: { download: 1 },
+        responseType: 'blob',
+        timeout: 60000,
+      });
+      const headers = resp.headers ?? {};
+      const disposition = (headers['content-disposition'] || headers['Content-Disposition']) as string | undefined;
+      let fileName = fileNameHint;
+      if (!fileName && disposition) {
+        const match = disposition.match(/filename\*?=(?:UTF-8'')?\"?([^\";]+)\"?/i);
+        if (match && match[1]) {
+          try {
+            fileName = decodeURIComponent(match[1]);
+          } catch {
+            fileName = match[1];
+          }
+        }
+      }
+      if (!fileName) {
+        fileName = `channel-export-${taskId}`;
+      }
+      return {
+        blob: resp.data,
+        fileName,
+      };
+    },
   }
 });
 

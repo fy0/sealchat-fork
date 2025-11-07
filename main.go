@@ -13,6 +13,7 @@ import (
 	"sealchat/api"
 	"sealchat/model"
 	"sealchat/pm"
+	"sealchat/service"
 	"sealchat/utils"
 )
 
@@ -70,6 +71,10 @@ func main() {
 	}()
 
 	pm.Init()
+
+	service.StartMessageExportWorker(service.MessageExportWorkerConfig{
+		StorageDir: "./data/exports",
+	})
 
 	autoSave := func() {
 		t := time.NewTicker(3 * 60 * time.Second)

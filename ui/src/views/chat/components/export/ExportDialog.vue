@@ -4,7 +4,7 @@ import { useMessage } from 'naive-ui'
 
 interface ExportParams {
   format: string
-  timeRange: [string, string] | null
+  timeRange: [number, number] | null
   includeOoc: boolean
   includeArchived: boolean
 }
@@ -36,6 +36,7 @@ const formatOptions = [
   { label: '纯文本 (.txt)', value: 'txt' },
   { label: 'HTML (.html)', value: 'html' },
   { label: 'JSON (.json)', value: 'json' },
+  { label: 'Word 文档 (.docx)', value: 'docx' },
 ]
 
 const handleExport = async () => {
@@ -47,7 +48,6 @@ const handleExport = async () => {
   loading.value = true
   try {
     emit('export', { ...form })
-    message.info('导出请求已提交，功能开发中...')
   } catch (error) {
     message.error('导出失败')
   } finally {
@@ -98,10 +98,9 @@ const shortcuts = {
     <div class="export-notice">
       <n-alert type="info" :show-icon="false">
         <template #header>
-          <n-icon component="InfoCircleOutlined" />
-          功能开发中
+          导出说明
         </template>
-        当前为测试接口，仅用于前端联调，不会生成实际文件。
+        提交后系统会在后台生成文件，完成后自动下载。范围越大耗时越久，请耐心等待。
       </n-alert>
     </div>
 

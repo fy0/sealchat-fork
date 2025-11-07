@@ -1,0 +1,115 @@
+package service
+
+import (
+	"fmt"
+	"strings"
+	"time"
+
+	"gorm.io/gorm"
+
+	"sealchat/model"
+)
+
+const (
+	messageExportLimit = 65535
+	defaultExportTZ    = "2006-01-02 15:04"
+)
+
+var supportedExportFormats = map[string]struct{}{
+	"json": {},
+	"txt":  {},
+	"html": {},
+	"docx": {},
+}
+
+// ExportJobOptions 聚合创建导出任务所需的信息。
+type ExportJobOptions struct {
+	UserID          string
+	ChannelID       string
+	Format          string
+	IncludeOOC      bool
+	IncludeArchived bool
+	StartTime       *time.Time
+	EndTime         *time.Time
+}
+
+func normalizeExportFormat(format string) (string, bool) {
+	f := strings.ToLower(strings.TrimSpace(format))
+	_, ok := supportedExportFormats[f]
+	return f, ok
+}
+
+// CreateMessageExportJob 持久化导出任务并返回记录。
+func CreateMessageExportJob(opts *ExportJobOptions) (*model.MessageExportJobModel, error) {
+	if opts == nil {
+		return nil, fmt.Errorf("导出参数不能为空")
+	}
+	format, ok := normalizeExportFormat(opts.Format)
+	if !ok {
+		return nil, fmt.Errorf("不支持的导出格式: %s", opts.Format)
+	}
+
+	job := &model.MessageExportJobModel{
+		UserID:          opts.UserID,
+		ChannelID:       opts.ChannelID,
+		Format:          format,
+		IncludeOOC:      opts.IncludeOOC,
+		IncludeArchived: opts.IncludeArchived,
+		StartTime:       opts.StartTime,
+		EndTime:         opts.EndTime,
+		Status:          model.MessageExportStatusPending,
+	}
+
+	if err := model.GetDB().Create(job).Error; err != nil {
+		return nil, err
+	}
+	return job, nil
+}
+
+// GetMessageExportJob 获取任务详情。
+func GetMessageExportJob(jobID string) (*model.MessageExportJobModel, error) {
+	if strings.TrimSpace(jobID) == "" {
+		return nil, gorm.ErrRecordNotFound
+	}
+	var job model.MessageExportJobModel
+	if err := model.GetDB().Where("id = ?", jobID).Limit(1).Find(&job).Error; err != nil {
+		return nil, err
+	}
+	if job.ID == "" {
+		return nil, gorm.ErrRecordNotFound
+	}
+	return &job, nil
+}
+
+func loadMessagesForExport(job *model.MessageExportJobModel) ([]*model.MessageModel, error) {
+	if job == nil {
+		return nil, fmt.Errorf("任务不存在")
+	}
+	db := model.GetDB()
+	query := db.Model(&model.MessageModel{}).
+		Where("channel_id = ?", job.ChannelID).
+		Where("is_revoked = ?", false).
+		Preload("Member").
+		Preload("User")
+
+	if job.StartTime != nil {
+		query = query.Where("created_at >= ?", *job.StartTime)
+	}
+	if job.EndTime != nil {
+		query = query.Where("created_at <= ?", *job.EndTime)
+	}
+	if !job.IncludeArchived {
+		query = query.Where("is_archived = ?", false)
+	}
+	if !job.IncludeOOC {
+		query = query.Where("COALESCE(ic_mode, 'ic') != ?", "ooc")
+	}
+
+	query = query.Order("display_order asc").Order("created_at asc").Limit(messageExportLimit)
+
+	var messages []*model.MessageModel
+	if err := query.Find(&messages).Error; err != nil {
+		return nil, err
+	}
+	return messages, nil
+}

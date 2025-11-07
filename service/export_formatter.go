@@ -1,0 +1,322 @@
+package service
+
+import (
+	"archive/zip"
+	"bytes"
+	"encoding/json"
+	"encoding/xml"
+	"fmt"
+	"html/template"
+	"io"
+	"strings"
+	"time"
+
+	"sealchat/model"
+)
+
+type exportFormatter interface {
+	Ext() string
+	ContentType() string
+	Build(payload *ExportPayload) ([]byte, error)
+}
+
+type ExportMessage struct {
+	ID          string    `json:"id"`
+	SenderID    string    `json:"sender_id"`
+	SenderName  string    `json:"sender_name"`
+	SenderColor string    `json:"sender_color"`
+	IcMode      string    `json:"ic_mode"`
+	IsWhisper   bool      `json:"is_whisper"`
+	IsArchived  bool      `json:"is_archived"`
+	CreatedAt   time.Time `json:"created_at"`
+	Content     string    `json:"content"`
+}
+
+type ExportPayload struct {
+	ChannelID   string          `json:"channel_id"`
+	ChannelName string          `json:"channel_name"`
+	GeneratedAt time.Time       `json:"generated_at"`
+	StartTime   *time.Time      `json:"start_time,omitempty"`
+	EndTime     *time.Time      `json:"end_time,omitempty"`
+	Messages    []ExportMessage `json:"messages"`
+	Meta        map[string]bool `json:"meta"`
+	Count       int             `json:"count"`
+}
+
+var formatterRegistry = map[string]exportFormatter{
+	"json": jsonFormatter{},
+	"txt":  textFormatter{},
+	"html": htmlFormatter{},
+	"docx": docxFormatter{},
+}
+
+func getFormatter(name string) (exportFormatter, bool) {
+	f, ok := formatterRegistry[name]
+	return f, ok
+}
+
+func buildExportPayload(job *model.MessageExportJobModel, channelName string, messages []*model.MessageModel) *ExportPayload {
+	exportMessages := make([]ExportMessage, 0, len(messages))
+	for _, msg := range messages {
+		if msg == nil {
+			continue
+		}
+		exportMessages = append(exportMessages, ExportMessage{
+			ID:          msg.ID,
+			SenderID:    msg.UserID,
+			SenderName:  resolveSenderName(msg),
+			SenderColor: msg.SenderIdentityColor,
+			IcMode:      fallbackIcMode(msg.ICMode),
+			IsWhisper:   msg.IsWhisper,
+			IsArchived:  msg.IsArchived,
+			CreatedAt:   msg.CreatedAt,
+			Content:     msg.Content,
+		})
+	}
+
+	return &ExportPayload{
+		ChannelID:   job.ChannelID,
+		ChannelName: channelName,
+		GeneratedAt: time.Now(),
+		StartTime:   job.StartTime,
+		EndTime:     job.EndTime,
+		Messages:    exportMessages,
+		Count:       len(exportMessages),
+		Meta: map[string]bool{
+			"include_ooc":      job.IncludeOOC,
+			"include_archived": job.IncludeArchived,
+		},
+	}
+}
+
+func resolveSenderName(msg *model.MessageModel) string {
+	if msg == nil {
+		return "未知用户"
+	}
+	if v := strings.TrimSpace(msg.SenderIdentityName); v != "" {
+		return v
+	}
+	if v := strings.TrimSpace(msg.SenderMemberName); v != "" {
+		return v
+	}
+	if msg.Member != nil && strings.TrimSpace(msg.Member.Nickname) != "" {
+		return msg.Member.Nickname
+	}
+	if msg.User != nil {
+		if strings.TrimSpace(msg.User.Nickname) != "" {
+			return msg.User.Nickname
+		}
+		if strings.TrimSpace(msg.User.Username) != "" {
+			return msg.User.Username
+		}
+	}
+	if strings.TrimSpace(msg.UserID) != "" {
+		return msg.UserID
+	}
+	return "匿名"
+}
+
+func fallbackIcMode(value string) string {
+	if strings.TrimSpace(value) == "" {
+		return "ic"
+	}
+	return strings.ToLower(value)
+}
+
+type jsonFormatter struct{}
+
+func (jsonFormatter) Ext() string {
+	return "json"
+}
+
+func (jsonFormatter) ContentType() string {
+	return "application/json"
+}
+
+func (jsonFormatter) Build(payload *ExportPayload) ([]byte, error) {
+	if payload == nil {
+		return nil, fmt.Errorf("payload 为空")
+	}
+	return json.MarshalIndent(payload, "", "  ")
+}
+
+type textFormatter struct{}
+
+func (textFormatter) Ext() string {
+	return "txt"
+}
+
+func (textFormatter) ContentType() string {
+	return "text/plain; charset=utf-8"
+}
+
+func (textFormatter) Build(payload *ExportPayload) ([]byte, error) {
+	if payload == nil {
+		return nil, fmt.Errorf("payload 为空")
+	}
+	var sb strings.Builder
+	header := fmt.Sprintf("频道: %s (%s)\n导出时间: %s\n消息数量: %d\n---\n",
+		payload.ChannelName,
+		payload.ChannelID,
+		payload.GeneratedAt.Format(time.RFC3339),
+		len(payload.Messages),
+	)
+	sb.WriteString(header)
+	for _, msg := range payload.Messages {
+		ts := msg.CreatedAt.Format("2006-01-02 15:04:05")
+		oocFlag := ""
+		if msg.IcMode == "ooc" {
+			oocFlag = "[OOC]"
+		}
+		if msg.IsWhisper {
+			if oocFlag == "" {
+				oocFlag = "[WHISPER]"
+			} else {
+				oocFlag += "[WHISPER]"
+			}
+		}
+		line := fmt.Sprintf("[%s]%s %s: %s\n", ts, oocFlag, msg.SenderName, msg.Content)
+		sb.WriteString(line)
+	}
+	return []byte(sb.String()), nil
+}
+
+type htmlFormatter struct{}
+
+func (htmlFormatter) Ext() string {
+	return "html"
+}
+
+func (htmlFormatter) ContentType() string {
+	return "text/html; charset=utf-8"
+}
+
+var exportHTMLTemplate = template.Must(template.New("export_html").Funcs(template.FuncMap{
+	"formatTime": func(t time.Time) string {
+		if t.IsZero() {
+			return ""
+		}
+		return t.Format("2006-01-02 15:04:05")
+	},
+}).Parse(`<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <title>频道导出 - {{.ChannelName}}</title>
+  <style>
+    body { font-family: -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB",sans-serif; margin: 2rem; background: #f7f7f7; }
+    .meta { margin-bottom: 1.5rem; color: #555; }
+    .message { padding: 12px 16px; margin-bottom: 8px; background: #fff; border-radius: 6px; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
+    .sender { font-weight: 600; color: #222; }
+    .timestamp { color: #888; font-size: 0.9rem; }
+    .ooc { border-left: 3px solid #eab308; }
+    .whisper { border-left: 3px solid #6366f1; }
+    .content { margin-top: 4px; white-space: pre-wrap; line-height: 1.5; }
+  </style>
+</head>
+<body>
+  <section class="meta">
+    <div><strong>频道：</strong>{{.ChannelName}} ({{.ChannelID}})</div>
+    <div><strong>导出时间：</strong>{{formatTime .GeneratedAt}}</div>
+    <div><strong>消息数量：</strong>{{.Count}}</div>
+  </section>
+  {{range .Messages}}
+    <article class="message {{if eq .IcMode "ooc"}}ooc{{end}} {{if .IsWhisper}}whisper{{end}}">
+      <div class="sender">{{.SenderName}}</div>
+      <div class="timestamp">{{formatTime .CreatedAt}}</div>
+      <div class="content">{{.Content}}</div>
+    </article>
+  {{end}}
+</body>
+</html>`))
+
+func (htmlFormatter) Build(payload *ExportPayload) ([]byte, error) {
+	if payload == nil {
+		return nil, fmt.Errorf("payload 为空")
+	}
+	buf := &bytes.Buffer{}
+	if err := exportHTMLTemplate.Execute(buf, payload); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+type docxFormatter struct{}
+
+func (docxFormatter) Ext() string {
+	return "docx"
+}
+
+func (docxFormatter) ContentType() string {
+	return "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+}
+
+func (docxFormatter) Build(payload *ExportPayload) ([]byte, error) {
+	if payload == nil {
+		return nil, fmt.Errorf("payload 为空")
+	}
+	documentXML := buildDocxDocumentXML(payload)
+	return packageDocx(documentXML)
+}
+
+func buildDocxDocumentXML(payload *ExportPayload) []byte {
+	var sb strings.Builder
+	sb.WriteString(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>`)
+	sb.WriteString(`<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">`)
+	sb.WriteString(`<w:body>`)
+	header := fmt.Sprintf("频道: %s (%s) 导出时间: %s", payload.ChannelName, payload.ChannelID, payload.GeneratedAt.Format(time.RFC3339))
+	sb.WriteString(wParagraph(header))
+	for _, msg := range payload.Messages {
+		line := fmt.Sprintf("[%s] %s: %s", msg.CreatedAt.Format("2006-01-02 15:04:05"), msg.SenderName, msg.Content)
+		sb.WriteString(wParagraph(line))
+	}
+	sb.WriteString(`<w:sectPr/>`)
+	sb.WriteString(`</w:body></w:document>`)
+	return []byte(sb.String())
+}
+
+func wParagraph(text string) string {
+	var esc strings.Builder
+	_ = xml.EscapeText(&esc, []byte(text))
+	return fmt.Sprintf(`<w:p><w:r><w:t xml:space="preserve">%s</w:t></w:r></w:p>`, esc.String())
+}
+
+func packageDocx(documentXML []byte) ([]byte, error) {
+	buf := &bytes.Buffer{}
+	zw := zip.NewWriter(buf)
+
+	files := map[string]string{
+		"[Content_Types].xml": `<?xml version="1.0" encoding="UTF-8"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
+</Types>`,
+		"_rels/.rels": `<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="R1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
+</Relationships>`,
+	}
+
+	for name, content := range files {
+		if err := writeZipFile(zw, name, []byte(content)); err != nil {
+			return nil, err
+		}
+	}
+	if err := writeZipFile(zw, "word/document.xml", documentXML); err != nil {
+		return nil, err
+	}
+	if err := zw.Close(); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+func writeZipFile(zw *zip.Writer, name string, data []byte) error {
+	w, err := zw.Create(name)
+	if err != nil {
+		return err
+	}
+	_, err = io.Copy(w, bytes.NewReader(data))
+	return err
+}

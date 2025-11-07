@@ -106,6 +106,7 @@ func DBInit(dsn string) {
 
 	db.AutoMigrate(&SystemRoleModel{}, &ChannelRoleModel{}, &RolePermissionModel{}, &UserRoleMappingModel{})
 	db.AutoMigrate(&FriendModel{}, &FriendRequestModel{})
+	db.AutoMigrate(&MessageExportJobModel{})
 
 	if err := BackfillMessageDisplayOrder(); err != nil {
 		log.Printf("补齐消息 display_order 失败: %v", err)

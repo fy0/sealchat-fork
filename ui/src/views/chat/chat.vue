@@ -1209,16 +1209,69 @@ const handleUnarchiveMessages = async (messageIds: string[]) => {
   }
 };
 
-const handleExportMessages = async (params: any) => {
+const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+const triggerBlobDownload = (blob: Blob, fileName: string) => {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+};
+
+const pollExportTask = async (taskId: string) => {
+  const maxAttempts = 30;
+  const interval = 2000;
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    try {
+      const status = await chat.getExportTaskStatus(taskId);
+      if (status.status === 'done') {
+        message.success('导出完成，正在下载文件');
+        const { blob, fileName } = await chat.downloadExportResult(taskId, status.file_name);
+        triggerBlobDownload(blob, fileName);
+        return;
+      }
+      if (status.status === 'failed') {
+        message.error(status.message || '导出任务失败');
+        return;
+      }
+    } catch (error) {
+      console.error('查询导出状态失败', error);
+    }
+    await delay(interval);
+  }
+  message.warning('导出仍在处理，请稍后再试或重新发起下载请求');
+};
+
+const handleExportMessages = async (params: {
+  format: string;
+  timeRange: [number, number] | null;
+  includeOoc: boolean;
+  includeArchived: boolean;
+}) => {
+  if (!chat.curChannel?.id) {
+    message.error('请选择需要导出的频道');
+    return;
+  }
   try {
-    const result = await chat.exportMessagesTest({
-      channelId: chat.curChannel?.id || '',
-      ...params,
-    });
-    message.info(`导出任务已创建: ${result.task_id}`);
+    const payload = {
+      channelId: chat.curChannel.id,
+      format: params.format,
+      timeRange: params.timeRange ?? undefined,
+      includeOoc: params.includeOoc,
+      includeArchived: params.includeArchived,
+    };
+    const result = await chat.createExportTask(payload);
+    message.info(`导出任务已创建（#${result.task_id}），正在生成文件…`);
     exportDialogVisible.value = false;
-  } catch (error) {
-    message.error('导出失败');
+    void pollExportTask(result.task_id);
+  } catch (error: any) {
+    console.error('导出失败', error);
+    const errMsg = error?.response?.data?.error || (error as Error)?.message || '导出失败';
+    message.error(errMsg);
   }
 };
 
