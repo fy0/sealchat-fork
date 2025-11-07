@@ -50,6 +50,12 @@ const isInternalUpdate = ref(false); // 标记是否是内部输入导致的更�
 
 const PLACEHOLDER_PREFIX = '[[图片:';
 const PLACEHOLDER_SUFFIX = ']]';
+const BLOCK_TAGS = new Set([
+  'DIV', 'P', 'PRE', 'BLOCKQUOTE', 'UL', 'OL', 'LI',
+  'TABLE', 'THEAD', 'TBODY', 'TFOOT', 'TR', 'TD', 'TH',
+  'SECTION', 'ARTICLE', 'ASIDE', 'HEADER', 'FOOTER', 'NAV',
+  'H1', 'H2', 'H3', 'H4', 'H5', 'H6'
+]);
 
 const buildMarkerToken = (markerId: string) => `${PLACEHOLDER_PREFIX}${markerId}${PLACEHOLDER_SUFFIX}`;
 const getMarkerLength = (markerId: string) => buildMarkerToken(markerId).length;
@@ -455,26 +461,7 @@ const setCursorPosition = (position: number) => {
 const handleInput = () => {
   if (!editorRef.value) return;
 
-  // 获取当前文本内容（保留图片标记）
-  let text = '';
-  const nodes = editorRef.value.childNodes;
-
-  for (let i = 0; i < nodes.length; i++) {
-    const node = nodes[i];
-    if (node.nodeType === Node.TEXT_NODE) {
-      text += node.textContent || '';
-    } else if (node.nodeName === 'BR') {
-      text += '\n';
-    } else if (isImageElement(node)) {
-      // 图片节点 - 保留标记
-      const markerId = (node as HTMLElement).dataset.markerId;
-      if (markerId) {
-        text += buildMarkerToken(markerId);
-      }
-    } else {
-      text += node.textContent || '';
-    }
-  }
+  const text = extractContentWithLineBreaks();
 
   // 添加到历史记录
   const cursorPosition = getCursorPosition();
@@ -488,6 +475,78 @@ const handleInput = () => {
   nextTick(() => {
     isInternalUpdate.value = false;
   });
+};
+
+const extractContentWithLineBreaks = () => {
+  const root = editorRef.value;
+  if (!root) return '';
+
+  const pieces: string[] = [];
+  const childNodes = Array.from(root.childNodes);
+  childNodes.forEach((child, index) => {
+    collectNodeText(child, pieces, index === childNodes.length - 1);
+  });
+
+  let result = pieces.join('');
+  result = result.replace(/\u200B/g, '');
+  return result;
+};
+
+const collectNodeText = (node: Node, sink: string[], isLastSibling: boolean) => {
+  if (node.nodeType === Node.TEXT_NODE) {
+    const text = node.textContent?.replace(/\r\n/g, '\n') ?? '';
+    if (text) {
+      sink.push(text);
+    }
+    return;
+  }
+
+  if (node.nodeName === 'BR') {
+    sink.push('\n');
+    return;
+  }
+
+  if (isImageElement(node)) {
+    const markerId = (node as HTMLElement).dataset.markerId;
+    if (markerId) {
+      sink.push(buildMarkerToken(markerId));
+    }
+    return;
+  }
+
+  if (node.nodeType !== Node.ELEMENT_NODE) {
+    return;
+  }
+
+  const element = node as HTMLElement;
+  const isBlock = BLOCK_TAGS.has(element.tagName);
+  const children = Array.from(element.childNodes);
+
+  if (isBlock && sink.length && !endsWithLineBreak(sink)) {
+    sink.push('\n');
+  }
+
+  if (!children.length) {
+    if (isBlock && !isLastSibling && !endsWithLineBreak(sink)) {
+      sink.push('\n');
+    }
+    return;
+  }
+
+  children.forEach((child, index) => {
+    collectNodeText(child, sink, index === children.length - 1);
+  });
+
+  if (isBlock && !isLastSibling && !endsWithLineBreak(sink)) {
+    sink.push('\n');
+  }
+};
+
+const endsWithLineBreak = (chunks: string[]) => {
+  if (!chunks.length) {
+    return false;
+  }
+  return /\n$/.test(chunks[chunks.length - 1]);
 };
 
 // 处理粘贴事件

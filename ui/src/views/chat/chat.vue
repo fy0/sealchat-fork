@@ -2713,6 +2713,44 @@ const syncInlineMarkersWithText = (value: string) => {
   });
 };
 
+const normalizePlaceholderWhitespace = (value: string) => {
+  const lines = value.split('\n');
+  const result: string[] = [];
+  const blankBuffer: string[] = [];
+
+  const flushPendingBlanks = () => {
+    if (!blankBuffer.length) {
+      return;
+    }
+    result.push(...blankBuffer);
+    blankBuffer.length = 0;
+  };
+
+  lines.forEach((line) => {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      if (result[result.length - 1]?.trim() === '[图片]') {
+        blankBuffer.length = 0;
+        return;
+      }
+      blankBuffer.push('');
+      return;
+    }
+
+    if (trimmed === '[图片]') {
+      blankBuffer.length = 0;
+      result.push('[图片]');
+      return;
+    }
+
+    flushPendingBlanks();
+    result.push(line);
+  });
+
+  flushPendingBlanks();
+  return result.join('\n');
+};
+
 // 格式化预览文本 - 支持图片和富文本
 const formatInlinePreviewText = (value: string) => {
   // 检测是否为 TipTap JSON
@@ -2727,7 +2765,8 @@ const formatInlinePreviewText = (value: string) => {
   }
 
   // 替换图片标记为 [图片]
-  return value.replace(/\[\[图片:[^\]]+\]\]/g, '[图片]');
+  const replaced = value.replace(/\[\[图片:[^\]]+\]\]/g, '[图片]');
+  return normalizePlaceholderWhitespace(replaced);
 };
 
 // 从 TipTap JSON 提取纯文本
