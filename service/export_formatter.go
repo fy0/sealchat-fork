@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	htmltemplate "html/template"
 	"io"
@@ -198,6 +199,11 @@ func stripRichText(input string) string {
 	if input == "" {
 		return ""
 	}
+
+	if plain, ok := extractTipTapPlainText(input); ok {
+		return normalizePlainText(plain)
+	}
+
 	s := strings.TrimSpace(input)
 	if s == "" {
 		return ""
@@ -255,6 +261,147 @@ func stripRichText(input string) string {
 				writeNewline()
 			}
 		}
+	}
+}
+
+func extractTipTapPlainText(input string) (string, bool) {
+	trimmed := strings.TrimSpace(input)
+	if trimmed == "" || !strings.HasPrefix(trimmed, "{") {
+		return "", false
+	}
+	decoder := json.NewDecoder(strings.NewReader(trimmed))
+	var fragments []string
+	for {
+		var node tiptapNode
+		if err := decoder.Decode(&node); err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			return "", false
+		}
+		if strings.ToLower(strings.TrimSpace(node.Type)) != "doc" {
+			return "", false
+		}
+		writer := newPlainTextWriter()
+		writeTipTapNode(writer, &node)
+		fragments = append(fragments, writer.String())
+	}
+	if len(fragments) == 0 {
+		return "", false
+	}
+	return strings.Join(fragments, "\n"), true
+}
+
+type tiptapNode struct {
+	Type    string         `json:"type"`
+	Text    string         `json:"text"`
+	Content []*tiptapNode  `json:"content"`
+	Attrs   map[string]any `json:"attrs"`
+}
+
+func (n *tiptapNode) attrString(key string) string {
+	if n == nil || n.Attrs == nil {
+		return ""
+	}
+	if value, ok := n.Attrs[key]; ok {
+		if str, ok := value.(string); ok {
+			return str
+		}
+	}
+	return ""
+}
+
+var tiptapBlockNodes = map[string]struct{}{
+	"paragraph":      {},
+	"heading":        {},
+	"blockquote":     {},
+	"codeblock":      {},
+	"bulletlist":     {},
+	"orderedlist":    {},
+	"listitem":       {},
+	"tasklist":       {},
+	"taskitem":       {},
+	"horizontalrule": {},
+	"table":          {},
+	"tablerow":       {},
+	"tablecell":      {},
+}
+
+func isTipTapBlockNode(nodeType string) bool {
+	_, ok := tiptapBlockNodes[nodeType]
+	return ok
+}
+
+type plainTextWriter struct {
+	sb             strings.Builder
+	lastWasNewline bool
+}
+
+func newPlainTextWriter() *plainTextWriter {
+	return &plainTextWriter{}
+}
+
+func (w *plainTextWriter) write(text string) {
+	if text == "" {
+		return
+	}
+	text = strings.ReplaceAll(text, "\u00a0", " ")
+	w.sb.WriteString(text)
+	w.lastWasNewline = strings.HasSuffix(text, "\n")
+}
+
+func (w *plainTextWriter) newline() {
+	if w.sb.Len() == 0 || w.lastWasNewline {
+		return
+	}
+	w.sb.WriteByte('\n')
+	w.lastWasNewline = true
+}
+
+func (w *plainTextWriter) String() string {
+	return w.sb.String()
+}
+
+func writeTipTapNode(w *plainTextWriter, node *tiptapNode) {
+	if node == nil || w == nil {
+		return
+	}
+	nodeType := strings.ToLower(strings.TrimSpace(node.Type))
+	switch nodeType {
+	case "doc":
+		for _, child := range node.Content {
+			writeTipTapNode(w, child)
+		}
+		return
+	case "text":
+		w.write(node.Text)
+		return
+	case "hardbreak":
+		w.newline()
+		return
+	case "mention":
+		if label := node.attrString("label"); label != "" {
+			w.write(label)
+		} else if node.Text != "" {
+			w.write(node.Text)
+		} else if name := node.attrString("name"); name != "" {
+			w.write(name)
+		} else if text := node.attrString("text"); text != "" {
+			w.write(text)
+		}
+		return
+	}
+	if len(node.Content) > 0 {
+		for _, child := range node.Content {
+			writeTipTapNode(w, child)
+		}
+	} else if node.Text != "" {
+		w.write(node.Text)
+	} else if text := node.attrString("text"); text != "" {
+		w.write(text)
+	}
+	if isTipTapBlockNode(nodeType) {
+		w.newline()
 	}
 }
 
