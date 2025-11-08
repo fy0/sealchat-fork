@@ -98,12 +98,12 @@ func Upload(c *fiber.Ctx) error {
 		if limit == 0 {
 			limit = limits.INT_MAX
 		}
-		hashCode, err := SaveMultipartFile(file, tempFile, limit)
+		hashCode, savedSize, err := SaveMultipartFile(file, tempFile, limit)
 		if err != nil {
 			return err
 		}
 		hexString := hex.EncodeToString(hashCode)
-		fn := fmt.Sprintf("%s_%d", hexString, file.Size)
+		fn := fmt.Sprintf("%s_%d", hexString, savedSize)
 		_ = tempFile.Close()
 
 		if _, err := os.Stat(fn); errors.Is(err, os.ErrNotExist) {
@@ -117,7 +117,7 @@ func Upload(c *fiber.Ctx) error {
 
 		tx, newItem := model.AttachmentCreate(&model.AttachmentModel{
 			Filename:  file.Filename,
-			Size:      file.Size,
+			Size:      savedSize,
 			Hash:      hashCode,
 			ChannelID: channelId,
 			UserID:    getCurUser(c).ID,

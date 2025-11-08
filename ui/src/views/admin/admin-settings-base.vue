@@ -19,6 +19,7 @@ const model = ref<ServerConfig>({
   chatHistoryPersistentDays: 0,
   imageSizeLimit: 2 * 1024,
   imageCompress: true,
+  imageCompressQuality: 85,
   builtInSealBotEnable: true,
 })
 
@@ -110,6 +111,10 @@ const feedbackWeburlShow = ref(false)
       </n-form-item>
       <n-form-item label="图片上传前压缩">
         <n-switch v-model:value="model.imageCompress" />
+      </n-form-item>
+      <n-form-item label="压缩质量 (1-100)">
+        <n-input-number v-model:value="model.imageCompressQuality" :min="1" :max="100"
+          :disabled="!model.imageCompress" />
       </n-form-item>
       <n-form-item label="启用内置小海豹">
         <n-switch v-model:value="model.builtInSealBotEnable" />

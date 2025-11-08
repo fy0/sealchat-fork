@@ -56,6 +56,7 @@ export interface ServerConfig {
   chatHistoryPersistentDays: number;
   imageSizeLimit: number;
   imageCompress: boolean;
+  imageCompressQuality: number;
   builtInSealBotEnable: boolean;
   logUpload?: LogUploadConfig;
 }

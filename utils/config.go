@@ -33,6 +33,7 @@ type AppConfig struct {
 	ChatHistoryPersistentDays int64           `json:"chatHistoryPersistentDays" yaml:"chatHistoryPersistentDays"`
 	ImageSizeLimit            int64           `json:"imageSizeLimit" yaml:"imageSizeLimit"` // in kb
 	ImageCompress             bool            `json:"imageCompress" yaml:"imageCompress"`
+	ImageCompressQuality      int             `json:"imageCompressQuality" yaml:"imageCompressQuality"`
 	DSN                       string          `json:"-" yaml:"dbUrl" koanf:"dbUrl"`
 	BuiltInSealBotEnable      bool            `json:"builtInSealBotEnable" yaml:"builtInSealBotEnable"` // 内置小海豹启用
 	Version                   int             `json:"version" yaml:"version"`
@@ -59,6 +60,7 @@ func ReadConfig() *AppConfig {
 		ChatHistoryPersistentDays: -1,
 		ImageSizeLimit:            8192,
 		ImageCompress:             true,
+		ImageCompressQuality:      85,
 		DSN:                       "./data/chat.db",
 		BuiltInSealBotEnable:      true,
 		Version:                   1,
@@ -118,6 +120,8 @@ func ReadConfig() *AppConfig {
 		config.ImageBaseURL = defaultImageBaseURL(config.ServeAt)
 	}
 
+	config.ImageCompressQuality = normalizeImageCompressQuality(config.ImageCompressQuality)
+
 	k.Print()
 	currentConfig = &config
 	return currentConfig
@@ -125,6 +129,7 @@ func ReadConfig() *AppConfig {
 
 func WriteConfig(config *AppConfig) {
 	if config != nil {
+		config.ImageCompressQuality = normalizeImageCompressQuality(config.ImageCompressQuality)
 		if config.ServeAt != "" {
 			_ = k.Set("serveAt", config.ServeAt)
 		}
@@ -136,6 +141,7 @@ func WriteConfig(config *AppConfig) {
 		_ = k.Set("chatHistoryPersistentDays", config.ChatHistoryPersistentDays)
 		_ = k.Set("imageSizeLimit", config.ImageSizeLimit)
 		_ = k.Set("imageCompress", config.ImageCompress)
+		_ = k.Set("imageCompressQuality", config.ImageCompressQuality)
 		_ = k.Set("builtInSealBotEnable", config.BuiltInSealBotEnable)
 		_ = k.Set("galleryQuotaMB", config.GalleryQuotaMB)
 		_ = k.Set("imageBaseUrl", config.ImageBaseURL)
@@ -224,4 +230,11 @@ func detectLocalIPv4() string {
 		}
 	}
 	return ""
+}
+
+func normalizeImageCompressQuality(val int) int {
+	if val < 1 || val > 100 {
+		return 85
+	}
+	return val
 }

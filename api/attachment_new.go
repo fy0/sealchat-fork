@@ -54,12 +54,12 @@ func uploadFiles(
 		if limit == 0 {
 			limit = limits.INT_MAX
 		}
-		hashCode, err := SaveMultipartFile(file, tempFile, limit)
+		hashCode, savedSize, err := SaveMultipartFile(file, tempFile, limit)
 		if err != nil {
 			return err, nil, nil
 		}
 		hexString := hex.EncodeToString(hashCode)
-		fn := fmt.Sprintf("%s_%d", hexString, file.Size)
+		fn := fmt.Sprintf("%s_%d", hexString, savedSize)
 
 		_ = tempFile.Close()
 		err = appFs.Rename(tempFile.Name(), "./data/upload/"+fn)
@@ -69,7 +69,7 @@ func uploadFiles(
 
 		attachment := &model.AttachmentModel{
 			Filename: file.Filename,
-			Size:     file.Size,
+			Size:     savedSize,
 			Hash:     hashCode,
 			UserID:   uid,
 		}
