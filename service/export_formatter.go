@@ -1,10 +1,8 @@
 package service
 
 import (
-	"archive/zip"
 	"bytes"
 	"encoding/json"
-	"encoding/xml"
 	"errors"
 	"fmt"
 	htmltemplate "html/template"
@@ -53,7 +51,6 @@ var formatterRegistry = map[string]exportFormatter{
 	"json": jsonFormatter{},
 	"txt":  textFormatter{},
 	"html": htmlFormatter{},
-	"docx": docxFormatter{},
 }
 
 func getFormatter(name string) (exportFormatter, bool) {
@@ -633,88 +630,4 @@ func (htmlFormatter) Build(payload *ExportPayload) ([]byte, error) {
 		return nil, err
 	}
 	return buf.Bytes(), nil
-}
-
-type docxFormatter struct{}
-
-func (docxFormatter) Ext() string {
-	return "docx"
-}
-
-func (docxFormatter) ContentType() string {
-	return "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-}
-
-func (docxFormatter) Build(payload *ExportPayload) ([]byte, error) {
-	if payload == nil {
-		return nil, fmt.Errorf("payload 为空")
-	}
-	documentXML := buildDocxDocumentXML(payload)
-	return packageDocx(documentXML)
-}
-
-func buildDocxDocumentXML(payload *ExportPayload) []byte {
-	var sb strings.Builder
-	sb.WriteString(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>`)
-	sb.WriteString(`<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">`)
-	sb.WriteString(`<w:body>`)
-	header := fmt.Sprintf("频道: %s (%s) 导出时间: %s", payload.ChannelName, payload.ChannelID, payload.GeneratedAt.Format(time.RFC3339))
-	sb.WriteString(wParagraph(header))
-	for _, msg := range payload.Messages {
-		timePrefix := ""
-		if !payload.WithoutTimestamp {
-			timePrefix = fmt.Sprintf("[%s] ", msg.CreatedAt.Format("2006-01-02 15:04:05"))
-		}
-		line := fmt.Sprintf("%s<%s> %s", timePrefix, msg.SenderName, msg.Content)
-		sb.WriteString(wParagraph(line))
-	}
-	sb.WriteString(`<w:sectPr/>`)
-	sb.WriteString(`</w:body></w:document>`)
-	return []byte(sb.String())
-}
-
-func wParagraph(text string) string {
-	var esc strings.Builder
-	_ = xml.EscapeText(&esc, []byte(text))
-	return fmt.Sprintf(`<w:p><w:r><w:t xml:space="preserve">%s</w:t></w:r></w:p>`, esc.String())
-}
-
-func packageDocx(documentXML []byte) ([]byte, error) {
-	buf := &bytes.Buffer{}
-	zw := zip.NewWriter(buf)
-
-	files := map[string]string{
-		"[Content_Types].xml": `<?xml version="1.0" encoding="UTF-8"?>
-<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
-  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
-  <Default Extension="xml" ContentType="application/xml"/>
-  <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
-</Types>`,
-		"_rels/.rels": `<?xml version="1.0" encoding="UTF-8"?>
-<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-  <Relationship Id="R1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
-</Relationships>`,
-	}
-
-	for name, content := range files {
-		if err := writeZipFile(zw, name, []byte(content)); err != nil {
-			return nil, err
-		}
-	}
-	if err := writeZipFile(zw, "word/document.xml", documentXML); err != nil {
-		return nil, err
-	}
-	if err := zw.Close(); err != nil {
-		return nil, err
-	}
-	return buf.Bytes(), nil
-}
-
-func writeZipFile(zw *zip.Writer, name string, data []byte) error {
-	w, err := zw.Create(name)
-	if err != nil {
-		return err
-	}
-	_, err = io.Copy(w, bytes.NewReader(data))
-	return err
 }

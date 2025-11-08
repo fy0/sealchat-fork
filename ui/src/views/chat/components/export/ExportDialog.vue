@@ -42,7 +42,6 @@ const formatOptions = [
   { label: '纯文本 (.txt)', value: 'txt' },
   { label: 'HTML (.html)', value: 'html' },
   { label: 'JSON (.json)', value: 'json' },
-  { label: 'Word 文档 (.docx)', value: 'docx' },
 ]
 
 const timePresets = [

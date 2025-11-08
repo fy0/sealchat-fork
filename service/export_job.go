@@ -19,7 +19,6 @@ var supportedExportFormats = map[string]struct{}{
 	"json": {},
 	"txt":  {},
 	"html": {},
-	"docx": {},
 }
 
 // ExportJobOptions 聚合创建导出任务所需的信息。
