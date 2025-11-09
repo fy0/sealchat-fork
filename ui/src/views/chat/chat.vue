@@ -1942,7 +1942,13 @@ const rowClass = (item: Message) => ({
   'message-row--drop-before': dragState.overId === item.id && dragState.position === 'before',
   'message-row--drop-after': dragState.overId === item.id && dragState.position === 'after',
   'message-row--search-hit': searchHighlightIds.value.has(item.id || ''),
+  [`message-row--tone-${getMessageTone(item)}`]: true,
 });
+
+const rowSurfaceClass = (item: Message) => [
+  'message-row__surface',
+  `message-row__surface--tone-${getMessageTone(item)}`,
+];
 
 const createGhostElement = (rowEl: HTMLElement) => {
   const rect = rowEl.getBoundingClientRect();
@@ -2230,7 +2236,16 @@ interface TypingPreviewItem {
   indicatorOnly: boolean;
   mode: 'typing' | 'editing';
   messageId?: string;
+  tone: 'ic' | 'ooc';
 }
+
+const resolveTypingTone = (typing?: { icMode?: string; ic_mode?: string; tone?: string }): 'ic' | 'ooc' => {
+  const raw = typing?.icMode ?? typing?.ic_mode ?? typing?.tone;
+  if (typeof raw === 'string' && raw.toLowerCase() === 'ooc') {
+    return 'ooc';
+  }
+  return 'ic';
+};
 
 interface EditingPreviewInfo {
   userId: string;
@@ -2274,6 +2289,11 @@ if (localStorage.getItem(legacyTypingPreviewKey) !== null) {
 const typingPreviewActive = ref(false);
 const typingPreviewList = ref<TypingPreviewItem[]>([]);
 const typingPreviewItems = computed(() => typingPreviewList.value.filter((item) => item.mode === 'typing'));
+const typingPreviewItemClass = (preview: TypingPreviewItem) => [
+  'typing-preview-item',
+  `typing-preview-item--${preview.tone}`,
+  { 'typing-preview-item--indicator': preview.indicatorOnly },
+];
 let lastTypingChannelId = '';
 let lastTypingWhisperTargetId: string | null = null;
 
@@ -4035,6 +4055,7 @@ chatEvent.on('typing-preview', (e?: Event) => {
     indicatorOnly: typingState !== 'content' || !e.typing?.content,
     mode,
     messageId: e.typing?.messageId,
+    tone: resolveTypingTone(e.typing),
   });
 });
 
@@ -4583,38 +4604,44 @@ onBeforeUnmount(() => {
           :data-message-id="itemData.id"
           :ref="el => registerMessageRow(el as HTMLElement | null, itemData.id || '')"
         >
-          <div
-            v-if="shouldShowHandle(itemData)"
-            class="message-row__handle"
-            tabindex="-1"
-            @pointerdown="onDragHandlePointerDown($event, itemData)"
-          >
-            <span class="message-row__dot" v-for="n in 6" :key="n"></span>
+          <div :class="rowSurfaceClass(itemData)">
+            <div
+              v-if="shouldShowHandle(itemData)"
+              class="message-row__handle"
+              tabindex="-1"
+              @pointerdown="onDragHandlePointerDown($event, itemData)"
+            >
+              <span class="message-row__dot" v-for="n in 6" :key="n"></span>
+            </div>
+            <chat-item
+              :avatar="getMessageAvatar(itemData)"
+              :username="getMessageDisplayName(itemData)"
+              :identity-color="getMessageIdentityColor(itemData)"
+              :content="itemData.content"
+              :item="itemData"
+              :editing-preview="editingPreviewMap[itemData.id]"
+              :tone="getMessageTone(itemData)"
+              :show-avatar="display.showAvatar"
+              :hide-avatar="display.showAvatar && isMergedWithPrev(itemData)"
+              :show-header="!isMergedWithPrev(itemData)"
+              :layout="display.layout"
+              :is-self="isSelfMessage(itemData)"
+              :is-merged="isMergedWithPrev(itemData)"
+              @avatar-longpress="avatarLongpress(itemData)"
+              @edit="beginEdit(itemData)"
+              @edit-save="saveEdit"
+              @edit-cancel="cancelEditing"
+            />
           </div>
-          <chat-item
-            :avatar="getMessageAvatar(itemData)"
-            :username="getMessageDisplayName(itemData)"
-            :identity-color="getMessageIdentityColor(itemData)"
-            :content="itemData.content"
-            :item="itemData"
-            :editing-preview="editingPreviewMap[itemData.id]"
-            :tone="getMessageTone(itemData)"
-            :show-avatar="display.showAvatar"
-            :hide-avatar="display.showAvatar && isMergedWithPrev(itemData)"
-            :show-header="!isMergedWithPrev(itemData)"
-            :layout="display.layout"
-            :is-self="isSelfMessage(itemData)"
-            :is-merged="isMergedWithPrev(itemData)"
-            @avatar-longpress="avatarLongpress(itemData)"
-            @edit="beginEdit(itemData)"
-            @edit-save="saveEdit"
-            @edit-cancel="cancelEditing"
-          />
         </div>
       </template>
 
       <div class="typing-preview-viewport" v-if="typingPreviewItems.length">
-        <div v-for="preview in typingPreviewItems" :key="`${preview.userId}-typing`" class="typing-preview-item">
+        <div
+          v-for="preview in typingPreviewItems"
+          :key="`${preview.userId}-typing`"
+          :class="typingPreviewItemClass(preview)"
+        >
           <AvatarVue :border="false" :size="40" :src="preview.avatar" />
           <div :class="['typing-preview-bubble', preview.indicatorOnly ? '' : 'typing-preview-bubble--content']">
             <div class="typing-preview-bubble__header">
@@ -5190,11 +5217,22 @@ onBeforeUnmount(() => {
 
 <style lang="scss" scoped>
 .message-row {
+  position: relative;
+}
+
+.message-row__surface {
   display: flex;
   align-items: flex-start;
   gap: 0.75rem;
-  position: relative;
+  width: 100%;
   padding-left: 0.25rem;
+  position: relative;
+  z-index: 0;
+}
+
+.message-row__surface > * {
+  position: relative;
+  z-index: 1;
 }
 
 .cloud-upload-result {
@@ -5209,6 +5247,56 @@ onBeforeUnmount(() => {
 .chat--layout-compact {
   background-color: var(--chat-stage-bg);
   transition: background-color 0.25s ease;
+}
+
+.chat--layout-compact .message-row {
+  width: 100%;
+  padding: 0;
+}
+
+.chat--layout-compact .message-row__surface {
+  padding: 0.2rem 0.5rem;
+  border-radius: 0;
+  background: transparent;
+}
+
+.chat--layout-compact .message-row__surface--tone-ic {
+  background-color: var(--chat-ic-bg);
+}
+
+.chat--layout-compact .message-row__surface--tone-ooc {
+  background-color: var(--chat-ooc-bg);
+}
+
+.chat--layout-compact .message-row__surface--tone-archived {
+  background-color: rgba(148, 163, 184, 0.2);
+}
+
+.chat--layout-compact .message-row__handle {
+  margin-top: 0.25rem;
+}
+
+.chat--layout-compact .typing-preview-item {
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.9rem;
+  background-color: var(--chat-ic-bg);
+  background-image: radial-gradient(var(--chat-preview-dot-ic) 1px, transparent 1px);
+  background-size: 6px 6px;
+}
+
+.chat--layout-compact .typing-preview-item--ooc {
+  background-color: var(--chat-ooc-bg);
+  background-image: radial-gradient(var(--chat-preview-dot-ooc) 1px, transparent 1px);
+}
+
+.chat--layout-compact .typing-preview-bubble {
+  width: 100%;
+  max-width: none;
+  background: transparent;
+  box-shadow: none;
+  border-radius: 0;
+  padding: 0;
 }
 
 .identity-drawer__header {
@@ -5289,15 +5377,12 @@ onBeforeUnmount(() => {
   bottom: -0.3rem;
 }
 
-.message-row--search-hit::before {
+.message-row--search-hit .message-row__surface::after {
   content: '';
   position: absolute;
-  left: 0;
-  right: 0;
-  top: 0;
-  bottom: 0;
-  border-radius: 0.75rem;
-  z-index: -1;
+  inset: 0;
+  border-radius: 0.9rem;
+  z-index: 0;
   background: rgba(14, 165, 233, 0.18);
   box-shadow: 0 0 0 1px rgba(14, 165, 233, 0.25);
   animation: search-hit-pulse 2s ease forwards;
@@ -5333,6 +5418,20 @@ onBeforeUnmount(() => {
 
 .chat-item {
   @apply pb-8; // margin会抖动，pb不会
+}
+
+.chat--layout-compact.chat {
+  padding-left: 0;
+  padding-right: 0;
+  padding-bottom: 0;
+}
+
+.chat--layout-compact.chat>.virtual-list__client {
+  @apply px-0 pt-2;
+}
+
+.chat--layout-compact .chat-item {
+  padding-bottom: 0.75rem;
 }
 
 .channel-switch-trigger {

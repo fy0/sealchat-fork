@@ -6,6 +6,8 @@
   --chat-ooc-bg: #ffffff;
   --chat-preview-bg: #fafafa;
   --chat-preview-dot: #dcdcdc;
+  --chat-preview-dot-ic: #e3e5de;
+  --chat-preview-dot-ooc: #e3e5de;
   --chat-text-primary: #0f172a;
   --chat-text-secondary: #475569;
   --chat-border-mute: rgba(15, 23, 42, 0.08);
@@ -22,6 +24,8 @@
   --chat-ooc-bg: #000000;
   --chat-preview-bg: #3f3f46;
   --chat-preview-dot: #55555c;
+  --chat-preview-dot-ic: #5c5d54;
+  --chat-preview-dot-ooc: #57584f;
   --chat-text-primary: #f4f4f5;
   --chat-text-secondary: #b5b5c5;
   --chat-border-mute: rgba(255, 255, 255, 0.12);

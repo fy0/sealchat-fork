@@ -504,6 +504,14 @@ watch(() => props.item?.updatedAt, () => {
   gap: 0.3rem;
 }
 
+.chat--layout-compact .chat-item {
+  gap: 0;
+}
+
+.chat--layout-compact .chat-item > .right {
+  gap: 0.05rem;
+}
+
 .right--hidden-header {
   gap: 0;
 }
@@ -587,9 +595,32 @@ watch(() => props.item?.updatedAt, () => {
   text-align: left;
 }
 
+.chat-item--layout-compact {
+  width: 100%;
+}
+
+.chat-item--layout-compact > .right {
+  width: 100%;
+  flex: 1;
+}
+
 .chat-item--layout-compact > .right > .content {
-  background: var(--chat-ic-bg);
-  box-shadow: var(--chat-message-shadow);
+  display: block;
+  width: 100%;
+  max-width: none;
+  padding: 0.25rem 0;
+  background: transparent;
+  box-shadow: none;
+  border-radius: 0;
+}
+
+.chat--layout-compact .chat-item > .right > .content {
+  width: 100%;
+  max-width: none;
+}
+
+.chat--layout-compact .chat-item--merged > .right > .content {
+  padding-top: 0.1rem;
 }
 
 .content img {
@@ -881,5 +912,48 @@ watch(() => props.item?.updatedAt, () => {
 .chat-item--archived .right .content {
   background: rgba(248, 250, 252, 0.8);
   border: 1px solid rgba(209, 213, 219, 0.5);
+}
+
+.chat--layout-compact .chat-item--archived .right .content,
+.chat--layout-compact .chat-item--ooc .right .content {
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  padding: 0;
+  box-shadow: none;
+}
+
+.chat--layout-compact .chat-item--ooc .right .content {
+  color: var(--chat-text-secondary);
+}
+
+.chat--layout-compact .chat-item > .right > .content.whisper-content {
+  background: transparent;
+  border: none;
+  color: var(--chat-text-primary);
+  padding-left: 0;
+  padding-right: 0;
+}
+
+.chat--layout-compact .whisper-label,
+.chat--layout-compact .whisper-label--quote {
+  background: transparent;
+  padding-left: 0;
+  padding-right: 0;
+  border-radius: 0;
+  color: var(--chat-text-secondary);
+}
+
+.chat--layout-compact .chat-item--ooc {
+  width: 100%;
+  background: transparent;
+  border-radius: 0;
+  padding: 0;
+}
+
+.chat--layout-compact .chat-item--ooc > .right > .content {
+  padding: 0;
+  background: transparent;
+  color: var(--chat-text-secondary);
 }
 </style>
