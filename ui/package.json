@@ -5,6 +5,9 @@
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "run-p type-check \"build-only {@}\" --",
+    "build-viewer": "vite build --config export.vite.config.ts",
+    "sync-viewer": "node scripts/sync-viewer-assets.mjs",
+    "build-export-viewer": "run-s build-viewer sync-viewer",
     "preview": "vite preview",
     "build-only": "vite build",
     "type-check": "vue-tsc --noEmit -p tsconfig.app.json --composite false"

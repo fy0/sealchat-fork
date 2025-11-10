@@ -18,6 +18,8 @@ const draft = reactive<DisplaySettings>({
   palette: 'day',
   showAvatar: true,
   mergeNeighbors: true,
+  maxExportMessages: 5000,
+  maxExportConcurrency: 2,
 })
 
 watch(
@@ -28,6 +30,8 @@ watch(
     draft.palette = value.palette
     draft.showAvatar = value.showAvatar
     draft.mergeNeighbors = value.mergeNeighbors
+    draft.maxExportMessages = value.maxExportMessages
+    draft.maxExportConcurrency = value.maxExportConcurrency
   },
   { deep: true, immediate: true },
 )

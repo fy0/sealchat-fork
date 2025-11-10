@@ -1324,6 +1324,24 @@ const pollExportTask = async (taskId: string, opts?: { autoUpload?: boolean; for
   message.warning('导出仍在处理，请稍后再试或重新发起下载请求');
 };
 
+const EXPORT_SLICE_LIMIT_MIN = 1000;
+const EXPORT_SLICE_LIMIT_MAX = 20000;
+const EXPORT_CONCURRENCY_MIN = 1;
+const EXPORT_CONCURRENCY_MAX = 8;
+const EXPORT_SLICE_LIMIT_DEFAULT = 5000;
+const EXPORT_CONCURRENCY_DEFAULT = 2;
+
+const clampExportValue = (value: number | undefined, min: number, max: number, fallback: number) => {
+  const parsed = Number(value ?? fallback);
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+  const rounded = Math.round(parsed);
+  if (rounded < min) return min;
+  if (rounded > max) return max;
+  return rounded;
+};
+
 const handleExportMessages = async (params: {
   format: string;
   timeRange: [number, number] | null;
@@ -1332,12 +1350,28 @@ const handleExportMessages = async (params: {
   withoutTimestamp: boolean;
   mergeMessages: boolean;
   autoUpload: boolean;
+  maxExportMessages: number;
+  maxExportConcurrency: number;
 }) => {
   if (!chat.curChannel?.id) {
     message.error('请选择需要导出的频道');
     return;
   }
   try {
+    const sliceLimit = clampExportValue(
+      params.maxExportMessages,
+      EXPORT_SLICE_LIMIT_MIN,
+      EXPORT_SLICE_LIMIT_MAX,
+      display.settings.maxExportMessages ?? EXPORT_SLICE_LIMIT_DEFAULT,
+    );
+    const maxConcurrency = clampExportValue(
+      params.maxExportConcurrency,
+      EXPORT_CONCURRENCY_MIN,
+      EXPORT_CONCURRENCY_MAX,
+      display.settings.maxExportConcurrency ?? EXPORT_CONCURRENCY_DEFAULT,
+    );
+    const displayOptions = { ...display.settings };
+
     const payload = {
       channelId: chat.curChannel.id,
       format: params.format,
@@ -1346,6 +1380,9 @@ const handleExportMessages = async (params: {
       includeArchived: params.includeArchived,
       withoutTimestamp: params.withoutTimestamp,
       mergeMessages: params.mergeMessages,
+      sliceLimit,
+      maxConcurrency,
+      displaySettings: displayOptions,
     };
     const result = await chat.createExportTask(payload);
     message.info(`导出任务已创建（#${result.task_id}），正在生成文件…`);

@@ -2,6 +2,7 @@
 import { computed, nextTick, reactive, ref, watch } from 'vue'
 import { useMessage } from 'naive-ui'
 import { useUtilsStore } from '@/stores/utils'
+import { useDisplayStore } from '@/stores/display'
 
 interface ExportParams {
   format: string
@@ -11,6 +12,8 @@ interface ExportParams {
   withoutTimestamp: boolean
   mergeMessages: boolean
   autoUpload: boolean
+  maxExportMessages: number
+  maxExportConcurrency: number
 }
 
 interface Props {
@@ -26,8 +29,32 @@ interface Emits {
 const props = defineProps<Props>()
 const emit = defineEmits<Emits>()
 
+const SLICE_LIMIT_MIN = 1000
+const SLICE_LIMIT_MAX = 20000
+const SLICE_LIMIT_DEFAULT = 5000
+const CONCURRENCY_MIN = 1
+const CONCURRENCY_MAX = 8
+const CONCURRENCY_DEFAULT = 2
+
+const clampSliceLimit = (value?: number): number => {
+  if (!Number.isFinite(value)) return SLICE_LIMIT_DEFAULT
+  const n = Math.round(value as number)
+  if (n < SLICE_LIMIT_MIN) return SLICE_LIMIT_MIN
+  if (n > SLICE_LIMIT_MAX) return SLICE_LIMIT_MAX
+  return n
+}
+
+const clampConcurrency = (value?: number): number => {
+  if (!Number.isFinite(value)) return CONCURRENCY_DEFAULT
+  const n = Math.round(value as number)
+  if (n < CONCURRENCY_MIN) return CONCURRENCY_MIN
+  if (n > CONCURRENCY_MAX) return CONCURRENCY_MAX
+  return n
+}
+
 const message = useMessage()
 const utils = useUtilsStore()
+const display = useDisplayStore()
 const loading = ref(false)
 
 const timePreset = ref<'none' | '1d' | '7d' | '30d' | 'custom'>('none')
@@ -40,6 +67,8 @@ const form = reactive<ExportParams>({
   withoutTimestamp: false,
   mergeMessages: true,
   autoUpload: false,
+  maxExportMessages: SLICE_LIMIT_DEFAULT,
+  maxExportConcurrency: CONCURRENCY_DEFAULT,
 })
 
 const logUploadConfig = computed(() => utils.config?.logUpload)
@@ -48,6 +77,7 @@ const cloudUploadHint = computed(() => logUploadConfig.value?.note || '可上传
 const showCloudUploadOption = computed(() => cloudUploadEnabled.value && form.format === 'json')
 const cloudUploadDefaultName = '频道名_时间范围（例如：新的_20251107-20251108）'
 const isSealFormatter = computed(() => form.format === 'json')
+const showZipOptions = computed(() => form.format === 'html')
 
 watch(
   () => form.format,
@@ -59,6 +89,38 @@ watch(
     }
   },
   { immediate: true }
+)
+
+const syncExportSettingsFromStore = () => {
+  const settings = display.settings
+  if (!settings) {
+    form.maxExportMessages = SLICE_LIMIT_DEFAULT
+    form.maxExportConcurrency = CONCURRENCY_DEFAULT
+    return
+  }
+  form.maxExportMessages = clampSliceLimit(settings.maxExportMessages)
+  form.maxExportConcurrency = clampConcurrency(settings.maxExportConcurrency)
+}
+
+syncExportSettingsFromStore()
+
+watch(
+  () => props.visible,
+  (visible) => {
+    if (visible) {
+      syncExportSettingsFromStore()
+    }
+  },
+)
+
+watch(
+  () => display.settings,
+  () => {
+    if (props.visible) {
+      syncExportSettingsFromStore()
+    }
+  },
+  { deep: true }
 )
 
 const formatOptions = [
@@ -128,6 +190,15 @@ const handleExport = async () => {
     return
   }
 
+  const normalizedSliceLimit = clampSliceLimit(form.maxExportMessages)
+  const normalizedConcurrency = clampConcurrency(form.maxExportConcurrency)
+  form.maxExportMessages = normalizedSliceLimit
+  form.maxExportConcurrency = normalizedConcurrency
+  display.updateSettings({
+    maxExportMessages: normalizedSliceLimit,
+    maxExportConcurrency: normalizedConcurrency,
+  })
+
   loading.value = true
   try {
     emit('export', { ...form })
@@ -148,6 +219,7 @@ const handleClose = () => {
   form.withoutTimestamp = false
   form.mergeMessages = true
   form.autoUpload = false
+  syncExportSettingsFromStore()
   timePreset.value = 'none'
 }
 
@@ -206,6 +278,40 @@ const shortcuts = {
             JSON 导出会生成海豹染色器专用格式，可在云端转换为 BBcode 或 Docx。
           </div>
         </template>
+      </n-form-item>
+
+      <n-form-item v-if="showZipOptions" label="ZIP 分片">
+        <div class="export-slice-settings">
+          <div class="export-slice-settings__row">
+            <div>
+              <p class="row-title">单个文件消息上限</p>
+              <p class="row-desc">超过阈值会拆分为下一个 HTML 分片</p>
+            </div>
+            <n-input-number
+              v-model:value="form.maxExportMessages"
+              :min="SLICE_LIMIT_MIN"
+              :max="SLICE_LIMIT_MAX"
+              :step="500"
+              :show-button="true"
+              size="small"
+            />
+          </div>
+          <div class="export-slice-settings__row">
+            <div>
+              <p class="row-title">最大并发渲染数</p>
+              <p class="row-desc">避免并发过大占满 CPU，建议 1-4</p>
+            </div>
+            <n-input-number
+              v-model:value="form.maxExportConcurrency"
+              :min="CONCURRENCY_MIN"
+              :max="CONCURRENCY_MAX"
+              size="small"
+            />
+          </div>
+          <p class="row-hint">
+            ZIP 内会生成多个 part-xxx.html，配套 Viewer 支持分片跳转与搜索。
+          </p>
+        </div>
       </n-form-item>
 
       <n-form-item label="时间范围">
@@ -311,6 +417,35 @@ const shortcuts = {
     align-items: center;
     gap: 0.5rem;
   }
+}
+
+.export-slice-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.export-slice-settings__row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+}
+
+.row-title {
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.row-desc {
+  font-size: 0.78rem;
+  color: var(--sc-text-secondary);
+  margin-top: 0.15rem;
+}
+
+.row-hint {
+  font-size: 0.78rem;
+  color: var(--sc-text-tertiary, #6b7280);
 }
 
 .time-range {

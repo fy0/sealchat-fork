@@ -16,21 +16,26 @@ import (
 )
 
 type chatExportRequest struct {
-	ChannelID        string   `json:"channel_id"`
-	Format           string   `json:"format"`
-	TimeRange        []int64  `json:"time_range"`
-	IncludeOOC       *bool    `json:"include_ooc"`
-	IncludeArchived  *bool    `json:"include_archived"`
-	WithoutTimestamp *bool    `json:"without_timestamp"`
-	MergeMessages    *bool    `json:"merge_messages"`
-	Users            []string `json:"users"`
+	ChannelID        string         `json:"channel_id"`
+	Format           string         `json:"format"`
+	TimeRange        []int64        `json:"time_range"`
+	IncludeOOC       *bool          `json:"include_ooc"`
+	IncludeArchived  *bool          `json:"include_archived"`
+	WithoutTimestamp *bool          `json:"without_timestamp"`
+	MergeMessages    *bool          `json:"merge_messages"`
+	Users            []string       `json:"users"`
+	DisplaySettings  map[string]any `json:"display_settings"`
+	SliceLimit       int            `json:"slice_limit"`
+	MaxConcurrency   int            `json:"max_concurrency"`
 }
 
 type chatExportResponse struct {
-	TaskID      string `json:"task_id"`
-	Status      string `json:"status"`
-	Message     string `json:"message"`
-	RequestedAt int64  `json:"requested_at"`
+	TaskID         string `json:"task_id"`
+	Status         string `json:"status"`
+	Message        string `json:"message"`
+	RequestedAt    int64  `json:"requested_at"`
+	SliceLimit     int    `json:"slice_limit,omitempty"`
+	MaxConcurrency int    `json:"max_concurrency,omitempty"`
 }
 
 type chatExportStatusResponse struct {
@@ -107,6 +112,10 @@ func execChatExportCreate(userID string, req *chatExportRequest) (*chatExportRes
 		mergeMessages = *req.MergeMessages
 	}
 
+	displaySettings := normalizeDisplaySettings(req.DisplaySettings)
+	sliceLimit := service.NormalizeExportSliceLimit(req.SliceLimit)
+	maxConcurrency := service.NormalizeExportConcurrency(req.MaxConcurrency)
+
 	job, err := service.CreateMessageExportJob(&service.ExportJobOptions{
 		UserID:           userID,
 		ChannelID:        channelID,
@@ -117,15 +126,20 @@ func execChatExportCreate(userID string, req *chatExportRequest) (*chatExportRes
 		MergeMessages:    mergeMessages,
 		StartTime:        start,
 		EndTime:          end,
+		DisplaySettings:  displaySettings,
+		SliceLimit:       sliceLimit,
+		MaxConcurrency:   maxConcurrency,
 	})
 	if err != nil {
 		return nil, err
 	}
 	return &chatExportResponse{
-		TaskID:      job.ID,
-		Status:      job.Status,
-		Message:     "导出任务已创建，请稍后下载。",
-		RequestedAt: job.CreatedAt.UnixMilli(),
+		TaskID:         job.ID,
+		Status:         job.Status,
+		Message:        "导出任务已创建，请稍后下载。",
+		RequestedAt:    job.CreatedAt.UnixMilli(),
+		SliceLimit:     sliceLimit,
+		MaxConcurrency: maxConcurrency,
 	}, nil
 }
 
@@ -139,6 +153,24 @@ func parseTimeRange(values []int64) (*time.Time, *time.Time) {
 		start, end = end, start
 	}
 	return &start, &end
+}
+
+func normalizeDisplaySettings(values map[string]any) map[string]any {
+	if len(values) == 0 {
+		return nil
+	}
+	sanitized := make(map[string]any, len(values))
+	for key, value := range values {
+		trimmed := strings.TrimSpace(key)
+		if trimmed == "" {
+			continue
+		}
+		sanitized[trimmed] = value
+	}
+	if len(sanitized) == 0 {
+		return nil
+	}
+	return sanitized
 }
 
 func ChatExportCreate(c *fiber.Ctx) error {

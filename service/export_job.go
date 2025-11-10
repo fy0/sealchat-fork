@@ -1,6 +1,7 @@
 package service
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -13,6 +14,15 @@ import (
 const (
 	messageExportLimit = 65535
 	defaultExportTZ    = "2006-01-02 15:04"
+
+	// 导出切片与并发控制的全局限制，需与前端/接口保持一致
+	DefaultExportSliceLimit = 5000
+	MinExportSliceLimit     = 1000
+	MaxExportSliceLimit     = 20000
+
+	DefaultExportConcurrency = 2
+	MinExportConcurrency     = 1
+	MaxExportConcurrency     = 8
 )
 
 var supportedExportFormats = map[string]struct{}{
@@ -32,6 +42,15 @@ type ExportJobOptions struct {
 	MergeMessages    bool
 	StartTime        *time.Time
 	EndTime          *time.Time
+	DisplaySettings  map[string]any
+	SliceLimit       int
+	MaxConcurrency   int
+}
+
+type exportExtraOptions struct {
+	DisplaySettings map[string]any `json:"display,omitempty"`
+	SliceLimit      int            `json:"slice_limit,omitempty"`
+	MaxConcurrency  int            `json:"max_concurrency,omitempty"`
 }
 
 func normalizeExportFormat(format string) (string, bool) {
@@ -50,6 +69,13 @@ func CreateMessageExportJob(opts *ExportJobOptions) (*model.MessageExportJobMode
 		return nil, fmt.Errorf("不支持的导出格式: %s", opts.Format)
 	}
 
+	opts.SliceLimit = NormalizeExportSliceLimit(opts.SliceLimit)
+	opts.MaxConcurrency = NormalizeExportConcurrency(opts.MaxConcurrency)
+	extraOptions, err := buildExportExtraOptions(opts)
+	if err != nil {
+		return nil, err
+	}
+
 	job := &model.MessageExportJobModel{
 		UserID:           opts.UserID,
 		ChannelID:        opts.ChannelID,
@@ -61,6 +87,7 @@ func CreateMessageExportJob(opts *ExportJobOptions) (*model.MessageExportJobMode
 		StartTime:        opts.StartTime,
 		EndTime:          opts.EndTime,
 		Status:           model.MessageExportStatusPending,
+		ExtraOptions:     extraOptions,
 	}
 
 	if err := model.GetDB().Create(job).Error; err != nil {
@@ -210,6 +237,49 @@ func normalizeIcMode(mode string) string {
 	return mode
 }
 
+func buildExportExtraOptions(opts *ExportJobOptions) (string, error) {
+	if opts == nil {
+		return "", nil
+	}
+	extra := exportExtraOptions{
+		SliceLimit:     opts.SliceLimit,
+		MaxConcurrency: opts.MaxConcurrency,
+	}
+	if len(opts.DisplaySettings) > 0 {
+		extra.DisplaySettings = opts.DisplaySettings
+	}
+	if extra.DisplaySettings == nil && extra.SliceLimit == 0 && extra.MaxConcurrency == 0 {
+		return "", nil
+	}
+	data, err := json.Marshal(extra)
+	if err != nil {
+		return "", fmt.Errorf("导出附加参数序列化失败: %w", err)
+	}
+	return string(data), nil
+}
+
+func parseExportExtraOptions(raw string) *exportExtraOptions {
+	extra := &exportExtraOptions{
+		SliceLimit:     DefaultExportSliceLimit,
+		MaxConcurrency: DefaultExportConcurrency,
+	}
+	if strings.TrimSpace(raw) == "" {
+		return extra
+	}
+	if err := json.Unmarshal([]byte(raw), extra); err != nil {
+		// 格式异常时退回默认值
+		extra.SliceLimit = DefaultExportSliceLimit
+		extra.MaxConcurrency = DefaultExportConcurrency
+		return extra
+	}
+	extra.SliceLimit = NormalizeExportSliceLimit(extra.SliceLimit)
+	extra.MaxConcurrency = NormalizeExportConcurrency(extra.MaxConcurrency)
+	if extra.DisplaySettings != nil && len(extra.DisplaySettings) == 0 {
+		extra.DisplaySettings = nil
+	}
+	return extra
+}
+
 func cloneMessage(msg *model.MessageModel) *model.MessageModel {
 	if msg == nil {
 		return nil
@@ -238,4 +308,29 @@ func ensureOOCWrapped(content string) string {
 		return trimmed
 	}
 	return fmt.Sprintf("（%s）", trimmed)
+}
+func NormalizeExportSliceLimit(value int) int {
+	if value <= 0 {
+		value = DefaultExportSliceLimit
+	}
+	if value < MinExportSliceLimit {
+		return MinExportSliceLimit
+	}
+	if value > MaxExportSliceLimit {
+		return MaxExportSliceLimit
+	}
+	return value
+}
+
+func NormalizeExportConcurrency(value int) int {
+	if value <= 0 {
+		value = DefaultExportConcurrency
+	}
+	if value < MinExportConcurrency {
+		return MinExportConcurrency
+	}
+	if value > MaxExportConcurrency {
+		return MaxExportConcurrency
+	}
+	return value
 }

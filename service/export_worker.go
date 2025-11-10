@@ -91,7 +91,17 @@ func processExportJob(job *model.MessageExportJobModel, storageDir string) error
 		_ = markJobFailed(job, err)
 		return err
 	}
-	payload := buildExportPayload(job, channelName, messages)
+
+	extraOptions := parseExportExtraOptions(job.ExtraOptions)
+	if strings.EqualFold(job.Format, "html") {
+		if err := processViewerExportJob(job, channelName, messages, storageDir, extraOptions); err != nil {
+			_ = markJobFailed(job, err)
+			return err
+		}
+		return nil
+	}
+
+	payload := buildExportPayload(job, channelName, messages, nil)
 
 	formatter, ok := getFormatter(job.Format)
 	if !ok {
@@ -135,13 +145,18 @@ func markJobFailed(job *model.MessageExportJobModel, cause error) error {
 		Updates(updates).Error
 }
 
-func markJobDone(job *model.MessageExportJobModel, filePath, fileName string) error {
+func markJobDone(job *model.MessageExportJobModel, filePath, fileName string, formatOverride ...string) error {
 	updates := map[string]any{
 		"status":      model.MessageExportStatusDone,
 		"file_path":   filePath,
 		"file_name":   fileName,
 		"error_msg":   "",
 		"finished_at": time.Now(),
+	}
+	if len(formatOverride) > 0 {
+		if format := strings.TrimSpace(formatOverride[0]); format != "" {
+			updates["format"] = format
+		}
 	}
 	return model.GetDB().Model(&model.MessageExportJobModel{}).
 		Where("id = ?", job.ID).

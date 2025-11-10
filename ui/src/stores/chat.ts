@@ -12,6 +12,7 @@ import { useMessage } from 'naive-ui';
 import { memoizeWithTimeout } from '@/utils/tools';
 import type { MenuOptions } from '@imengyu/vue3-context-menu';
 import type { PermTreeNode } from '@/types-perm';
+import type { DisplaySettings } from './display';
 
 interface ChatState {
   subject: WebSocketSubject<any> | null;
@@ -1242,6 +1243,9 @@ export const useChatStore = defineStore({
       includeArchived?: boolean;
       withoutTimestamp?: boolean;
       mergeMessages?: boolean;
+      sliceLimit?: number;
+      maxConcurrency?: number;
+      displaySettings?: DisplaySettings;
     }) {
       const payload: Record<string, any> = {
         channel_id: params.channelId,
@@ -1253,6 +1257,15 @@ export const useChatStore = defineStore({
       };
       if (params.timeRange && params.timeRange.length === 2) {
         payload.time_range = params.timeRange;
+      }
+      if (params.sliceLimit) {
+        payload.slice_limit = params.sliceLimit;
+      }
+      if (params.maxConcurrency) {
+        payload.max_concurrency = params.maxConcurrency;
+      }
+      if (params.displaySettings) {
+        payload.display_settings = params.displaySettings;
       }
       const resp = await api.post('api/v1/chat/export', payload);
       return resp.data as {

@@ -8,6 +8,7 @@ import (
 	htmltemplate "html/template"
 	"io"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -24,11 +25,21 @@ type exportFormatter interface {
 	Build(payload *ExportPayload) ([]byte, error)
 }
 
+type payloadContext struct {
+	DisplayOptions map[string]any
+	PartIndex      int
+	PartTotal      int
+	SliceStart     *time.Time
+	SliceEnd       *time.Time
+	GeneratedAt    *time.Time
+}
+
 type ExportMessage struct {
 	ID             string    `json:"id"`
 	SenderID       string    `json:"sender_id"`
 	SenderName     string    `json:"sender_name"`
 	SenderColor    string    `json:"sender_color"`
+	SenderAvatar   string    `json:"sender_avatar,omitempty"`
 	IcMode         string    `json:"ic_mode"`
 	IsWhisper      bool      `json:"is_whisper"`
 	IsArchived     bool      `json:"is_archived"`
@@ -39,15 +50,21 @@ type ExportMessage struct {
 }
 
 type ExportPayload struct {
-	ChannelID        string          `json:"channel_id"`
-	ChannelName      string          `json:"channel_name"`
-	GeneratedAt      time.Time       `json:"generated_at"`
-	StartTime        *time.Time      `json:"start_time,omitempty"`
-	EndTime          *time.Time      `json:"end_time,omitempty"`
-	Messages         []ExportMessage `json:"messages"`
-	Meta             map[string]bool `json:"meta"`
-	Count            int             `json:"count"`
-	WithoutTimestamp bool            `json:"without_timestamp"`
+	ChannelID        string                 `json:"channel_id"`
+	ChannelName      string                 `json:"channel_name"`
+	GeneratedAt      time.Time              `json:"generated_at"`
+	StartTime        *time.Time             `json:"start_time,omitempty"`
+	EndTime          *time.Time             `json:"end_time,omitempty"`
+	SliceStart       *time.Time             `json:"slice_start,omitempty"`
+	SliceEnd         *time.Time             `json:"slice_end,omitempty"`
+	PartIndex        int                    `json:"part_index,omitempty"`
+	PartTotal        int                    `json:"part_total,omitempty"`
+	DisplayOptions   map[string]any         `json:"display_options,omitempty"`
+	Messages         []ExportMessage        `json:"messages"`
+	Meta             map[string]bool        `json:"meta"`
+	Count            int                    `json:"count"`
+	WithoutTimestamp bool                   `json:"without_timestamp"`
+	ExtraMeta        map[string]interface{} `json:"extra_meta,omitempty"`
 }
 
 const diceLogVersion = 105
@@ -85,24 +102,29 @@ func getFormatter(name string) (exportFormatter, bool) {
 	return f, ok
 }
 
-func buildExportPayload(job *model.MessageExportJobModel, channelName string, messages []*model.MessageModel) *ExportPayload {
+func buildExportPayload(job *model.MessageExportJobModel, channelName string, messages []*model.MessageModel, ctx *payloadContext) *ExportPayload {
 	identityResolver := newIdentityResolver(job.ChannelID)
 	exportMessages := make([]ExportMessage, 0, len(messages))
 	for _, msg := range messages {
 		if msg == nil {
 			continue
 		}
+		content := msg.Content
+		if html, ok := convertTipTapToHTML(content); ok {
+			content = html
+		}
 		exportMessages = append(exportMessages, ExportMessage{
 			ID:             msg.ID,
 			SenderID:       msg.UserID,
 			SenderName:     resolveSenderName(msg),
 			SenderColor:    msg.SenderIdentityColor,
+			SenderAvatar:   resolveSenderAvatar(msg),
 			IcMode:         fallbackIcMode(msg.ICMode),
 			IsWhisper:      msg.IsWhisper,
 			IsArchived:     msg.IsArchived,
 			IsBot:          msg.User != nil && msg.User.IsBot,
 			CreatedAt:      msg.CreatedAt,
-			Content:        msg.Content,
+			Content:        content,
 			WhisperTargets: extractWhisperTargets(msg, job.ChannelID, identityResolver),
 		})
 	}
@@ -110,9 +132,14 @@ func buildExportPayload(job *model.MessageExportJobModel, channelName string, me
 	return &ExportPayload{
 		ChannelID:        job.ChannelID,
 		ChannelName:      channelName,
-		GeneratedAt:      time.Now(),
+		GeneratedAt:      resolvePayloadGeneratedAt(ctx),
 		StartTime:        job.StartTime,
 		EndTime:          job.EndTime,
+		SliceStart:       safeCloneTime(ctx, true),
+		SliceEnd:         safeCloneTime(ctx, false),
+		PartIndex:        safePartIndex(ctx),
+		PartTotal:        safePartTotal(ctx),
+		DisplayOptions:   cloneDisplayOptions(ctx),
 		Messages:         exportMessages,
 		Count:            len(exportMessages),
 		WithoutTimestamp: job.WithoutTimestamp,
@@ -123,6 +150,245 @@ func buildExportPayload(job *model.MessageExportJobModel, channelName string, me
 			"without_timestamp": job.WithoutTimestamp,
 		},
 	}
+}
+
+func resolvePayloadGeneratedAt(ctx *payloadContext) time.Time {
+	if ctx != nil && ctx.GeneratedAt != nil {
+		return ctx.GeneratedAt.UTC()
+	}
+	return time.Now()
+}
+
+func safeCloneTime(ctx *payloadContext, isStart bool) *time.Time {
+	if ctx == nil {
+		return nil
+	}
+	var source *time.Time
+	if isStart {
+		source = ctx.SliceStart
+	} else {
+		source = ctx.SliceEnd
+	}
+	if source == nil {
+		return nil
+	}
+	value := *source
+	return &value
+}
+
+func safePartIndex(ctx *payloadContext) int {
+	if ctx == nil || ctx.PartIndex <= 0 {
+		return 0
+	}
+	return ctx.PartIndex
+}
+
+func safePartTotal(ctx *payloadContext) int {
+	if ctx == nil || ctx.PartTotal <= 0 {
+		return 0
+	}
+	return ctx.PartTotal
+}
+
+func cloneDisplayOptions(ctx *payloadContext) map[string]any {
+	if ctx == nil || len(ctx.DisplayOptions) == 0 {
+		return nil
+	}
+	result := make(map[string]any, len(ctx.DisplayOptions))
+	for k, v := range ctx.DisplayOptions {
+		result[k] = v
+	}
+	return result
+}
+
+func resolveSenderAvatar(msg *model.MessageModel) string {
+	if msg == nil {
+		return ""
+	}
+	if id := strings.TrimSpace(msg.SenderIdentityAvatarID); id != "" {
+		return "id:" + id
+	}
+	if msg.User != nil {
+		avatar := strings.TrimSpace(msg.User.Avatar)
+		if avatar != "" {
+			return avatar
+		}
+	}
+	return ""
+}
+
+func convertTipTapToHTML(input string) (string, bool) {
+	trimmed := strings.TrimSpace(input)
+	if trimmed == "" || trimmed[0] != '{' {
+		return "", false
+	}
+	var node tiptapNode
+	if err := json.Unmarshal([]byte(trimmed), &node); err != nil {
+		return "", false
+	}
+	if strings.ToLower(strings.TrimSpace(node.Type)) != "doc" {
+		return "", false
+	}
+	var buf strings.Builder
+	for _, child := range node.Content {
+		renderTipTapHTML(&buf, child)
+	}
+	return buf.String(), true
+}
+
+func renderTipTapHTML(buf *strings.Builder, node *tiptapNode) {
+	if buf == nil || node == nil {
+		return
+	}
+	nodeType := strings.ToLower(strings.TrimSpace(node.Type))
+	switch nodeType {
+	case "text":
+		buf.WriteString(applyTipTapMarks(htmlEscape(node.Text), node.Marks))
+	case "paragraph":
+		if align := node.attrString("textAlign"); align != "" {
+			buf.WriteString(`<p style="text-align:` + htmlEscape(align) + `">`)
+		} else {
+			buf.WriteString("<p>")
+		}
+		if len(node.Content) == 0 {
+			buf.WriteString("<br />")
+		} else {
+			for _, child := range node.Content {
+				renderTipTapHTML(buf, child)
+			}
+		}
+		buf.WriteString("</p>")
+	case "heading":
+		level := clampInt(int(node.attrFloat("level")), 1, 6)
+		if level == 0 {
+			level = 1
+		}
+		if align := node.attrString("textAlign"); align != "" {
+			buf.WriteString(fmt.Sprintf(`<h%d style="text-align:%s">`, level, htmlEscape(align)))
+		} else {
+			buf.WriteString(fmt.Sprintf("<h%d>", level))
+		}
+		for _, child := range node.Content {
+			renderTipTapHTML(buf, child)
+		}
+		buf.WriteString(fmt.Sprintf("</h%d>", level))
+	case "bulletlist":
+		buf.WriteString("<ul>")
+		for _, child := range node.Content {
+			renderTipTapHTML(buf, child)
+		}
+		buf.WriteString("</ul>")
+	case "orderedlist":
+		buf.WriteString("<ol>")
+		for _, child := range node.Content {
+			renderTipTapHTML(buf, child)
+		}
+		buf.WriteString("</ol>")
+	case "listitem":
+		buf.WriteString("<li>")
+		for _, child := range node.Content {
+			renderTipTapHTML(buf, child)
+		}
+		buf.WriteString("</li>")
+	case "blockquote":
+		buf.WriteString("<blockquote>")
+		for _, child := range node.Content {
+			renderTipTapHTML(buf, child)
+		}
+		buf.WriteString("</blockquote>")
+	case "codeblock":
+		buf.WriteString("<pre><code>")
+		for _, child := range node.Content {
+			renderTipTapHTML(buf, child)
+		}
+		buf.WriteString("</code></pre>")
+	case "hardbreak":
+		buf.WriteString("<br />")
+	case "horizontalrule":
+		buf.WriteString("<hr />")
+	case "image":
+		src := firstNonEmpty(
+			node.attrString("src"),
+			node.attrString("dataSrc"),
+			node.attrString("attachmentId"),
+		)
+		if token := extractAttachmentToken(src); token != "" {
+			src = "id:" + token
+		}
+		alt := node.attrString("alt")
+		title := node.attrString("title")
+		buf.WriteString(`<img src="` + htmlEscape(src) + `" alt="` + htmlEscape(alt) + `"`)
+		if title != "" {
+			buf.WriteString(` title="` + htmlEscape(title) + `"`)
+		}
+		buf.WriteString(` />`)
+	default:
+		for _, child := range node.Content {
+			renderTipTapHTML(buf, child)
+		}
+	}
+}
+
+func applyTipTapMarks(content string, marks []*tiptapMark) string {
+	if content == "" || len(marks) == 0 {
+		return content
+	}
+	result := content
+	for _, mark := range marks {
+		if mark == nil {
+			continue
+		}
+		switch strings.ToLower(mark.Type) {
+		case "bold":
+			result = "<strong>" + result + "</strong>"
+		case "italic":
+			result = "<em>" + result + "</em>"
+		case "underline":
+			result = "<u>" + result + "</u>"
+		case "strike":
+			result = "<s>" + result + "</s>"
+		case "code":
+			result = "<code>" + result + "</code>"
+		case "highlight":
+			color := mark.attrString("color")
+			if color == "" {
+				color = "#fef08a"
+			}
+			result = `<mark style="background-color:` + htmlEscape(color) + `">` + result + "</mark>"
+		case "link":
+			href := htmlEscape(mark.attrString("href"))
+			if href == "" {
+				href = "#"
+			}
+			target := mark.attrString("target")
+			if target == "" {
+				target = "_blank"
+			}
+			result = `<a href="` + href + `" target="` + htmlEscape(target) + `" rel="noopener noreferrer">` + result + "</a>"
+		case "textstyle":
+			if color := mark.attrString("color"); color != "" {
+				result = `<span style="color:` + htmlEscape(color) + `">` + result + "</span>"
+			}
+		}
+	}
+	return result
+}
+
+func htmlEscape(input string) string {
+	if input == "" {
+		return ""
+	}
+	return html.EscapeString(input)
+}
+
+func clampInt(value, min, max int) int {
+	if value < min {
+		return min
+	}
+	if value > max {
+		return max
+	}
+	return value
 }
 
 func extractWhisperTargets(msg *model.MessageModel, channelID string, resolver *identityResolver) []string {
@@ -330,6 +596,12 @@ type tiptapNode struct {
 	Text    string         `json:"text"`
 	Content []*tiptapNode  `json:"content"`
 	Attrs   map[string]any `json:"attrs"`
+	Marks   []*tiptapMark  `json:"marks"`
+}
+
+type tiptapMark struct {
+	Type  string         `json:"type"`
+	Attrs map[string]any `json:"attrs"`
 }
 
 func (n *tiptapNode) attrString(key string) string {
@@ -337,6 +609,39 @@ func (n *tiptapNode) attrString(key string) string {
 		return ""
 	}
 	if value, ok := n.Attrs[key]; ok {
+		if str, ok := value.(string); ok {
+			return str
+		}
+		if num, ok := value.(float64); ok {
+			return strconv.FormatFloat(num, 'f', -1, 64)
+		}
+	}
+	return ""
+}
+
+func (n *tiptapNode) attrFloat(key string) float64 {
+	if n == nil || n.Attrs == nil {
+		return 0
+	}
+	if value, ok := n.Attrs[key]; ok {
+		switch typed := value.(type) {
+		case float64:
+			return typed
+		case int:
+			return float64(typed)
+		case string:
+			f, _ := strconv.ParseFloat(typed, 64)
+			return f
+		}
+	}
+	return 0
+}
+
+func (m *tiptapMark) attrString(key string) string {
+	if m == nil || m.Attrs == nil {
+		return ""
+	}
+	if value, ok := m.Attrs[key]; ok {
 		if str, ok := value.(string); ok {
 			return str
 		}
