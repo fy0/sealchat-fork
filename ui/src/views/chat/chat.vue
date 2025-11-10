@@ -1467,23 +1467,23 @@ const shouldMergeMessages = (prev?: Message, current?: Message) => {
   return getMessageSceneKey(prev) === getMessageSceneKey(current);
 };
 
-const mergedDisplayState = computed(() => {
-  const map = new Map<string, { merged: boolean }>();
+const isMergedWithPrev = (index: number) => {
   if (!display.settings.mergeNeighbors) {
-    return map;
+    return false;
+  }
+  if (index <= 0) {
+    return false;
   }
   const list = visibleRows.value;
-  list.forEach((message, index) => {
-    if (!message?.id) return;
-    const prev = index > 0 ? list[index - 1] : undefined;
-    map.set(message.id, { merged: shouldMergeMessages(prev, message) });
-  });
-  return map;
-});
-
-const isMergedWithPrev = (message: Message) => {
-  if (!message?.id) return false;
-  return Boolean(mergedDisplayState.value.get(message.id)?.merged);
+  if (!Array.isArray(list)) {
+    return false;
+  }
+  const current = list[index];
+  const prev = list[index - 1];
+  if (!prev || !current) {
+    return false;
+  }
+  return shouldMergeMessages(prev, current);
 };
 
 const normalizeTimestamp = (value: any): number | null => {
@@ -1946,7 +1946,7 @@ const canDragMessage = (item: Message) => {
 };
 
 const shouldShowHandle = (item: Message) => canDragMessage(item);
-const shouldShowInlineHeader = (item: Message) => !isMergedWithPrev(item);
+const shouldShowInlineHeader = (index: number) => !isMergedWithPrev(index);
 
 const rowClass = (item: Message) => ({
   'message-row': true,
@@ -4614,7 +4614,7 @@ onBeforeUnmount(() => {
       ref="messagesListRef">
       <!-- <VirtualList itemKey="id" :list="rows" :minSize="50" ref="virtualListRef" @scroll="onScroll"
               @toBottom="reachBottom" @toTop="reachTop"> -->
-      <template v-for="itemData in visibleRows" :key="`${listRevision}-${itemData.id}`">
+      <template v-for="(itemData, index) in visibleRows" :key="`${listRevision}-${itemData.id}`">
         <div
           :class="rowClass(itemData)"
           :data-message-id="itemData.id"
@@ -4635,14 +4635,14 @@ onBeforeUnmount(() => {
                 </div>
                 <div class="message-row__grid-name">
                   <span
-                    v-if="shouldShowInlineHeader(itemData)"
+                    v-if="shouldShowInlineHeader(index)"
                     class="message-row__name"
                     :style="getMessageIdentityColor(itemData) ? { color: getMessageIdentityColor(itemData) } : undefined"
                   >{{ getMessageDisplayName(itemData) }}</span>
                   <span v-else class="message-row__name message-row__name--placeholder">占位</span>
                 </div>
                 <div class="message-row__grid-colon">
-                  <span :class="['message-row__colon', { 'message-row__colon--placeholder': !shouldShowInlineHeader(itemData) }]">：</span>
+                  <span :class="['message-row__colon', { 'message-row__colon--placeholder': !shouldShowInlineHeader(index) }]">：</span>
                 </div>
                 <div class="message-row__grid-content">
                   <chat-item
@@ -4658,7 +4658,7 @@ onBeforeUnmount(() => {
                     :show-header="false"
                     :layout="display.layout"
                     :is-self="isSelfMessage(itemData)"
-                    :is-merged="isMergedWithPrev(itemData)"
+                    :is-merged="isMergedWithPrev(index)"
                     :body-only="true"
                     @avatar-longpress="avatarLongpress(itemData)"
                     @edit="beginEdit(itemData)"
@@ -4687,10 +4687,10 @@ onBeforeUnmount(() => {
                 :tone="getMessageTone(itemData)"
                 :show-avatar="false"
                 :hide-avatar="false"
-                :show-header="shouldShowInlineHeader(itemData)"
+                :show-header="shouldShowInlineHeader(index)"
                 :layout="display.layout"
                 :is-self="isSelfMessage(itemData)"
-                :is-merged="isMergedWithPrev(itemData)"
+                :is-merged="isMergedWithPrev(index)"
                 @avatar-longpress="avatarLongpress(itemData)"
                 @edit="beginEdit(itemData)"
                 @edit-save="saveEdit"
@@ -4715,11 +4715,11 @@ onBeforeUnmount(() => {
                 :editing-preview="editingPreviewMap[itemData.id]"
                 :tone="getMessageTone(itemData)"
                 :show-avatar="display.showAvatar"
-                :hide-avatar="display.showAvatar && isMergedWithPrev(itemData)"
-                :show-header="!isMergedWithPrev(itemData)"
+                :hide-avatar="display.showAvatar && isMergedWithPrev(index)"
+                :show-header="!isMergedWithPrev(index)"
                 :layout="display.layout"
                 :is-self="isSelfMessage(itemData)"
-                :is-merged="isMergedWithPrev(itemData)"
+                :is-merged="isMergedWithPrev(index)"
                 @avatar-longpress="avatarLongpress(itemData)"
                 @edit="beginEdit(itemData)"
                 @edit-save="saveEdit"
