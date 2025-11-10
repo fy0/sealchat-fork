@@ -750,6 +750,11 @@ defineExpose({
   }
 }
 
+.hybrid-input.chat-input--expanded {
+  min-height: calc(100vh / 3);
+  max-height: calc(100vh / 3);
+}
+
 .hybrid-input__placeholder {
   color: var(--sc-text-secondary, #9ca3af);
   pointer-events: none;

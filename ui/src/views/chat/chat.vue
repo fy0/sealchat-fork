@@ -6,7 +6,7 @@ import { chatEvent, useChatStore } from '@/stores/chat';
 import type { Event, Message, User, WhisperMeta } from '@satorijs/protocol'
 import type { ChannelIdentity, GalleryItem } from '@/types'
 import { useUserStore } from '@/stores/user';
-import { ArrowBarToDown, Plus, Upload, Send, ArrowBackUp, Palette, Download } from '@vicons/tabler'
+import { ArrowBarToDown, Plus, Upload, Send, ArrowBackUp, Palette, Download, ArrowsVertical } from '@vicons/tabler'
 import { NIcon, c, useDialog, useMessage, type MentionOption } from 'naive-ui';
 import VueScrollTo from 'vue-scrollto'
 import ChatInputSwitcher from './components/ChatInputSwitcher.vue'
@@ -241,6 +241,13 @@ const { t } = useI18n();
 const messagesListRef = ref<HTMLElement | null>(null);
 const textInputRef = ref<any>(null);
 const inputMode = ref<'plain' | 'rich'>('plain');
+const wideInputMode = ref(false);
+const chatInputClassList = computed(() => (wideInputMode.value ? ['chat-input--expanded'] : []));
+const wideInputTooltip = computed(() => (wideInputMode.value ? '退出广域输入模式' : '进入广域输入模式'));
+const toggleWideInputMode = () => {
+  wideInputMode.value = !wideInputMode.value;
+  nextTick(() => textInputRef.value?.focus?.());
+};
 const inlineImageInputRef = ref<HTMLInputElement | null>(null);
 
 type SelectionRange = { start: number; end: number };
@@ -5148,6 +5155,24 @@ onBeforeUnmount(() => {
                 </div>
 
                 <div class="chat-input-actions__cell">
+                  <n-tooltip trigger="hover">
+                    <template #trigger>
+                      <n-button
+                        quaternary
+                        circle
+                        :type="wideInputMode ? 'primary' : 'default'"
+                        @click="toggleWideInputMode"
+                      >
+                        <template #icon>
+                          <n-icon :component="ArrowsVertical" size="18" />
+                        </template>
+                      </n-button>
+                    </template>
+                    {{ wideInputTooltip }}
+                  </n-tooltip>
+                </div>
+
+                <div class="chat-input-actions__cell">
                   <n-popover
                     trigger="click"
                     placement="top"
@@ -5232,6 +5257,7 @@ onBeforeUnmount(() => {
               :mention-prefix="atPrefix"
               :mention-render-label="atRenderLabel"
               :rows="1"
+              :input-class="chatInputClassList"
           :inline-images="inlineImagePreviewMap"
           @mention-search="atHandleSearch"
           @mention-select="handleMentionSelect"

@@ -727,6 +727,16 @@ defineExpose({
   }
 }
 
+.tiptap-editor.chat-input--expanded .tiptap-editor-wrapper {
+  min-height: calc(100vh / 3);
+  max-height: calc(100vh / 3);
+}
+
+.tiptap-editor.chat-input--expanded .tiptap-content {
+  min-height: max(6rem, calc(100vh / 3 - 2.5rem));
+  max-height: max(6rem, calc(100vh / 3 - 2.5rem));
+}
+
 .tiptap-loading {
   display: flex;
   align-items: center;
