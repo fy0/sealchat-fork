@@ -186,6 +186,10 @@ const props = defineProps({
     type: Boolean,
     default: false,
   },
+  bodyOnly: {
+    type: Boolean,
+    default: false,
+  },
 })
 
 const timeText = ref(timeFormat(props.item?.createdAt));
@@ -373,15 +377,16 @@ watch(() => props.item?.updatedAt, () => {
       `chat-item--${props.tone}`,
       `chat-item--layout-${props.layout}`,
       { 'chat-item--self': props.isSelf },
-      { 'chat-item--merged': props.isMerged }
+      { 'chat-item--merged': props.isMerged },
+      { 'chat-item--body-only': props.bodyOnly }
     ]">
     <div v-if="props.showAvatar" class="chat-item__avatar" :class="{ 'chat-item__avatar--hidden': props.hideAvatar }">
       <Avatar :src="props.avatar" :border="false" @longpress="emit('avatar-longpress')" @click="doAvatarClick" />
     </div>
     <!-- <img class="rounded-md w-12 h-12 border-gray-500 border" :src="props.avatar" /> -->
     <!-- <n-avatar :src="imgAvatar" size="large" bordered>海豹</n-avatar> -->
-    <div class="right" :class="{ 'right--hidden-header': !props.showHeader }">
-      <span class="title" v-if="props.showHeader">
+    <div class="right" :class="{ 'right--hidden-header': !props.showHeader || props.bodyOnly }">
+      <span class="title" v-if="props.showHeader && !props.bodyOnly">
         <!-- 右侧 -->
         <n-popover trigger="hover" placement="bottom" v-if="props.isRtl">
           <template #trigger>
@@ -602,6 +607,14 @@ watch(() => props.item?.updatedAt, () => {
 }
 
 .chat-item--merged > .right > .content {
+  margin-left: 0;
+}
+
+.chat-item--body-only {
+  display: block;
+}
+
+.chat-item--body-only > .right {
   margin-left: 0;
 }
 

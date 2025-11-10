@@ -35,7 +35,7 @@ import { useUtilsStore } from '@/stores/utils';
 import { useDisplayStore } from '@/stores/display';
 import { contentEscape, contentUnescape, arrayBufferToBase64, base64ToUint8Array } from '@/utils/tools'
 import IconNumber from '@/components/icons/IconNumber.vue'
-import { computedAsync, useDebounceFn, useEventListener } from '@vueuse/core';
+import { computedAsync, useDebounceFn, useEventListener, useWindowSize } from '@vueuse/core';
 import type { UserEmojiModel } from '@/types';
 import { useGalleryStore } from '@/stores/gallery';
 import { Settings } from '@vicons/ionicons5';
@@ -56,6 +56,18 @@ const utils = useUtilsStore();
 const display = useDisplayStore();
 const isEditing = computed(() => !!chat.editing);
 const displaySettingsVisible = ref(false);
+const compactInlineLayout = computed(() => display.layout === 'compact' && !display.showAvatar);
+const INLINE_STACK_BREAKPOINT = 640;
+const { width: windowWidth } = useWindowSize();
+const compactInlineStackLayout = computed(() => {
+  if (!compactInlineLayout.value) return false;
+  const width = windowWidth.value;
+  if (!width) return false;
+  return width <= INLINE_STACK_BREAKPOINT;
+});
+const compactInlineGridLayout = computed(
+  () => compactInlineLayout.value && !compactInlineStackLayout.value,
+);
 
 watch(
   () => display.settings,
@@ -1934,6 +1946,7 @@ const canDragMessage = (item: Message) => {
 };
 
 const shouldShowHandle = (item: Message) => canDragMessage(item);
+const shouldShowInlineHeader = (item: Message) => !isMergedWithPrev(item);
 
 const rowClass = (item: Message) => ({
   'message-row': true,
@@ -4594,7 +4607,7 @@ onBeforeUnmount(() => {
 
     <div
       class="chat overflow-y-auto h-full px-4 pt-6"
-      :class="[`chat--layout-${display.layout}`, `chat--palette-${display.palette}`]"
+      :class="[`chat--layout-${display.layout}`, `chat--palette-${display.palette}`, { 'chat--no-avatar': !display.showAvatar }]"
       v-show="rows.length > 0"
       @scroll="onScroll"
       @dragover="handleGalleryDragOver" @drop="handleGalleryDrop"
@@ -4608,33 +4621,111 @@ onBeforeUnmount(() => {
           :ref="el => registerMessageRow(el as HTMLElement | null, itemData.id || '')"
         >
           <div :class="rowSurfaceClass(itemData)">
-            <div
-              v-if="shouldShowHandle(itemData)"
-              class="message-row__handle"
-              tabindex="-1"
-              @pointerdown="onDragHandlePointerDown($event, itemData)"
-            >
-              <span class="message-row__dot" v-for="n in 3" :key="n"></span>
-            </div>
-            <chat-item
-              :avatar="getMessageAvatar(itemData)"
-              :username="getMessageDisplayName(itemData)"
-              :identity-color="getMessageIdentityColor(itemData)"
-              :content="itemData.content"
-              :item="itemData"
-              :editing-preview="editingPreviewMap[itemData.id]"
-              :tone="getMessageTone(itemData)"
-              :show-avatar="display.showAvatar"
-              :hide-avatar="display.showAvatar && isMergedWithPrev(itemData)"
-              :show-header="!isMergedWithPrev(itemData)"
-              :layout="display.layout"
-              :is-self="isSelfMessage(itemData)"
-              :is-merged="isMergedWithPrev(itemData)"
-              @avatar-longpress="avatarLongpress(itemData)"
-              @edit="beginEdit(itemData)"
-              @edit-save="saveEdit"
-              @edit-cancel="cancelEditing"
-            />
+            <template v-if="compactInlineGridLayout">
+              <div class="message-row__grid">
+                <div class="message-row__grid-handle">
+                  <div
+                    v-if="shouldShowHandle(itemData)"
+                    class="message-row__handle"
+                    tabindex="-1"
+                    @pointerdown="onDragHandlePointerDown($event, itemData)"
+                  >
+                    <span class="message-row__dot" v-for="n in 3" :key="n"></span>
+                  </div>
+                </div>
+                <div class="message-row__grid-name">
+                  <span
+                    v-if="shouldShowInlineHeader(itemData)"
+                    class="message-row__name"
+                    :style="getMessageIdentityColor(itemData) ? { color: getMessageIdentityColor(itemData) } : undefined"
+                  >{{ getMessageDisplayName(itemData) }}</span>
+                  <span v-else class="message-row__name message-row__name--placeholder">占位</span>
+                </div>
+                <div class="message-row__grid-colon">
+                  <span :class="['message-row__colon', { 'message-row__colon--placeholder': !shouldShowInlineHeader(itemData) }]">：</span>
+                </div>
+                <div class="message-row__grid-content">
+                  <chat-item
+                    :avatar="getMessageAvatar(itemData)"
+                    :username="getMessageDisplayName(itemData)"
+                    :identity-color="getMessageIdentityColor(itemData)"
+                    :content="itemData.content"
+                    :item="itemData"
+                    :editing-preview="editingPreviewMap[itemData.id]"
+                    :tone="getMessageTone(itemData)"
+                    :show-avatar="false"
+                    :hide-avatar="false"
+                    :show-header="false"
+                    :layout="display.layout"
+                    :is-self="isSelfMessage(itemData)"
+                    :is-merged="isMergedWithPrev(itemData)"
+                    :body-only="true"
+                    @avatar-longpress="avatarLongpress(itemData)"
+                    @edit="beginEdit(itemData)"
+                    @edit-save="saveEdit"
+                    @edit-cancel="cancelEditing"
+                  />
+                </div>
+              </div>
+            </template>
+            <template v-else-if="compactInlineLayout">
+              <div
+                v-if="shouldShowHandle(itemData)"
+                class="message-row__handle"
+                tabindex="-1"
+                @pointerdown="onDragHandlePointerDown($event, itemData)"
+              >
+                <span class="message-row__dot" v-for="n in 3" :key="n"></span>
+              </div>
+              <chat-item
+                :avatar="getMessageAvatar(itemData)"
+                :username="getMessageDisplayName(itemData)"
+                :identity-color="getMessageIdentityColor(itemData)"
+                :content="itemData.content"
+                :item="itemData"
+                :editing-preview="editingPreviewMap[itemData.id]"
+                :tone="getMessageTone(itemData)"
+                :show-avatar="false"
+                :hide-avatar="false"
+                :show-header="shouldShowInlineHeader(itemData)"
+                :layout="display.layout"
+                :is-self="isSelfMessage(itemData)"
+                :is-merged="isMergedWithPrev(itemData)"
+                @avatar-longpress="avatarLongpress(itemData)"
+                @edit="beginEdit(itemData)"
+                @edit-save="saveEdit"
+                @edit-cancel="cancelEditing"
+              />
+            </template>
+            <template v-else>
+              <div
+                v-if="shouldShowHandle(itemData)"
+                class="message-row__handle"
+                tabindex="-1"
+                @pointerdown="onDragHandlePointerDown($event, itemData)"
+              >
+                <span class="message-row__dot" v-for="n in 3" :key="n"></span>
+              </div>
+              <chat-item
+                :avatar="getMessageAvatar(itemData)"
+                :username="getMessageDisplayName(itemData)"
+                :identity-color="getMessageIdentityColor(itemData)"
+                :content="itemData.content"
+                :item="itemData"
+                :editing-preview="editingPreviewMap[itemData.id]"
+                :tone="getMessageTone(itemData)"
+                :show-avatar="display.showAvatar"
+                :hide-avatar="display.showAvatar && isMergedWithPrev(itemData)"
+                :show-header="!isMergedWithPrev(itemData)"
+                :layout="display.layout"
+                :is-self="isSelfMessage(itemData)"
+                :is-merged="isMergedWithPrev(itemData)"
+                @avatar-longpress="avatarLongpress(itemData)"
+                @edit="beginEdit(itemData)"
+                @edit-save="saveEdit"
+                @edit-cancel="cancelEditing"
+              />
+            </template>
           </div>
         </div>
       </template>
@@ -5252,6 +5343,14 @@ onBeforeUnmount(() => {
   transition: background-color 0.25s ease;
 }
 
+.chat.chat--layout-compact.chat--no-avatar .message-row__surface {
+  padding: 0.1rem 0.35rem;
+}
+
+.chat.chat--layout-compact {
+  overflow-x: hidden;
+}
+
 .chat--layout-compact .message-row {
   width: 100%;
   padding: 0;
@@ -5357,6 +5456,85 @@ onBeforeUnmount(() => {
   margin: 0.08rem 0;
 }
 
+.chat--layout-compact.chat--no-avatar {
+  --inline-handle-width: 1.5rem;
+  --inline-grid-gap: 0.2rem;
+  --inline-colon-anchor: 25%;
+  --inline-colon-width: 1.2ch;
+  --inline-name-max: 40ch;
+}
+
+.chat--layout-compact.chat--no-avatar .message-row__grid {
+  display: grid;
+  grid-template-columns:
+    var(--inline-handle-width)
+    minmax(
+      0,
+      clamp(
+        0px,
+        calc(
+          var(--inline-colon-anchor) - var(--inline-handle-width) - (var(--inline-grid-gap) * 2)
+        ),
+        var(--inline-name-max)
+      )
+    )
+    var(--inline-colon-width)
+    minmax(0, 1fr);
+  align-items: flex-start;
+  column-gap: var(--inline-grid-gap);
+  width: 100%;
+}
+
+.chat--layout-compact.chat--no-avatar .message-row__grid-handle {
+  display: flex;
+  justify-content: center;
+  width: var(--inline-handle-width);
+  min-width: var(--inline-handle-width);
+}
+
+.chat--layout-compact.chat--no-avatar .message-row__grid-name {
+  font-weight: 600;
+  color: var(--chat-text-primary, #1f2937);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  text-align: right;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.chat--layout-compact.chat--no-avatar .message-row__name {
+  font-weight: 600;
+  color: var(--chat-text-primary, #1f2937);
+  white-space: nowrap;
+}
+
+.chat--layout-compact.chat--no-avatar .message-row__name--placeholder {
+  visibility: hidden;
+  pointer-events: none;
+  display: inline-block;
+  min-width: 2ch;
+}
+
+.chat--layout-compact.chat--no-avatar .message-row__grid-colon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--chat-text-primary, #1f2937);
+}
+
+.chat--layout-compact.chat--no-avatar .message-row__colon--placeholder {
+  visibility: hidden;
+}
+
+.chat--layout-compact.chat--no-avatar .message-row__grid-content {
+  min-width: 0;
+}
+
+.chat--layout-compact.chat--no-avatar .message-row__grid-content :deep(.chat-item) {
+  padding: 0;
+}
 .message-row--drag-source {
   opacity: 0.4;
 }
