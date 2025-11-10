@@ -786,6 +786,40 @@ defineExpose({
   background-color: #e5e7eb;
   margin: 0 0.25rem;
 }
+
+:global(:root[data-display-palette='night']) {
+  .tiptap-editor {
+    background-color: #3f3f46;
+    border-color: #52525b;
+  }
+
+  .tiptap-editor.is-focused {
+    border-color: #60a5fa;
+    box-shadow: 0 0 0 1px rgba(96, 165, 250, 0.35);
+  }
+
+  .tiptap-editor.whisper-mode {
+    background-color: rgba(76, 29, 149, 0.25);
+    border-color: rgba(167, 139, 250, 0.85);
+  }
+
+  .tiptap-toolbar {
+    background-color: #27272a;
+    border-bottom-color: #52525b;
+  }
+
+  .tiptap-toolbar__divider,
+  .tiptap-bubble-menu__divider {
+    background-color: #3f3f46;
+  }
+
+  .tiptap-bubble-menu {
+    background: #27272a;
+    border-color: #3f3f46;
+    color: #f4f4f5;
+    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.55);
+  }
+}
 </style>
 
 <style lang="scss">
@@ -959,6 +993,42 @@ defineExpose({
 
   [style*="text-align: justify"] {
     text-align: justify;
+  }
+}
+
+:root[data-display-palette='night'] .tiptap-content {
+  background-color: #3f3f46;
+  color: #f4f4f5;
+}
+
+:root[data-display-palette='night'] .tiptap-content p.is-editor-empty:first-child::before {
+  color: #a1a1aa;
+}
+
+:root[data-display-palette='night'] .tiptap-content blockquote {
+  border-left-color: #60a5fa;
+  color: #d4d4d8;
+}
+
+:root[data-display-palette='night'] .tiptap-content code {
+  background-color: #52525b;
+  color: #fafafa;
+}
+
+:root[data-display-palette='night'] .tiptap-content pre {
+  background-color: #18181b;
+  color: #f4f4f5;
+}
+
+:root[data-display-palette='night'] .tiptap-content hr {
+  border-top-color: #52525b;
+}
+
+:root[data-display-palette='night'] .tiptap-content a {
+  color: #93c5fd;
+
+  &:hover {
+    color: #bfdbfe;
   }
 }
 </style>
