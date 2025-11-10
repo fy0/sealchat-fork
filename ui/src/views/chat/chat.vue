@@ -5169,10 +5169,10 @@ onBeforeUnmount(() => {
               </div>
 
               <div class="chat-input-actions__cell chat-input-actions__send">
-                <n-button type="primary" circle size="large" @click="send"
+                <n-button type="primary" circle size="medium" @click="send"
                   :disabled="chat.connectState !== 'connected' || isEditing">
                   <template #icon>
-                    <n-icon :component="Send" size="20" />
+                    <n-icon :component="Send" size="18" />
                   </template>
                 </n-button>
               </div>
@@ -6123,8 +6123,8 @@ onBeforeUnmount(() => {
 }
 
 .chat-input-actions__cell.chat-input-actions__send .n-button {
-  width: 44px;
-  height: 44px;
+  width: 36px;
+  height: 36px;
 }
 
 .chat-input-actions__cell .n-button:disabled {
@@ -6249,8 +6249,8 @@ onBeforeUnmount(() => {
 }
 
 .chat-input-actions__send .n-button {
-  width: 44px;
-  height: 44px;
+  width: 36px;
+  height: 36px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
