@@ -6118,6 +6118,42 @@ onBeforeUnmount(() => {
     margin-top: 0.5rem;
   }
 
+  :deep(img) {
+    max-width: min(36vw, 200px);
+    height: auto;
+    border-radius: 0.5rem;
+    display: inline-block;
+  }
+
+  :deep(.preview-inline-image) {
+    max-width: min(36vw, 200px);
+    max-height: 12rem;
+    width: auto;
+    height: auto;
+    border-radius: 0.5rem;
+    display: inline-block;
+    object-fit: contain;
+  }
+
+  :deep(.inline-image) {
+    max-height: 6rem;
+    width: auto;
+    border-radius: 0.375rem;
+    vertical-align: middle;
+    margin: 0.25rem;
+    object-fit: contain;
+  }
+
+  :deep(.rich-inline-image) {
+    max-width: 100%;
+    max-height: 12rem;
+    height: auto;
+    border-radius: 0.5rem;
+    margin: 0.5rem 0.25rem;
+    display: inline-block;
+    object-fit: contain;
+  }
+
   strong {
     font-weight: 600;
   }
@@ -6143,14 +6179,6 @@ onBeforeUnmount(() => {
   }
 }
 
-.preview-inline-image {
-  max-height: 2rem;
-  max-width: 3rem;
-  border-radius: 0.375rem;
-  vertical-align: middle;
-  margin: 0 0.25rem;
-  object-fit: contain;
-}
 
 .preview-image-placeholder {
   display: inline-block;
