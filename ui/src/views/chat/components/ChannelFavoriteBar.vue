@@ -107,38 +107,48 @@ const handleManageClick = () => emit('manage')
     {{ missingCount }} 个失效
   </span>
 
-  <n-button text size="tiny" class="favorite-bar__manage" @click="handleManageClick">
-    <template #icon>
-      <n-icon :component="SettingsIcon" size="14" />
+  <n-tooltip trigger="hover">
+    <template #trigger>
+      <n-button
+        quaternary
+        circle
+        size="tiny"
+        class="favorite-bar__manage"
+        aria-label="管理收藏频道"
+        @click="handleManageClick"
+      >
+        <n-icon :component="SettingsIcon" size="14" />
+      </n-button>
     </template>
-    管理
-  </n-button>
+    管理收藏
+  </n-tooltip>
 </section>
 </template>
 
 <style scoped lang="scss">
 .favorite-bar {
   width: 100%;
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.35rem;
   padding: 0;
   margin: 0;
   background: transparent;
   border: none;
+  min-height: 1.7rem;
 }
 
 .favorite-bar__label {
-  font-size: 0.82rem;
+  font-size: 0.78rem;
   font-weight: 600;
   color: var(--sc-text-primary);
   white-space: nowrap;
 }
 
 .favorite-bar__list {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 0.35rem;
+  gap: 0.25rem;
   overflow-x: auto;
   padding: 0;
   margin: 0;
@@ -154,12 +164,13 @@ const handleManageClick = () => emit('manage')
   border: 1px solid transparent;
   background-color: transparent;
   color: var(--sc-text-primary);
-  font-size: 0.82rem;
-  padding: 0.1rem 0.6rem;
+  font-size: 0.78rem;
+  padding: 0.05rem 0.5rem;
   font-weight: 500;
   cursor: pointer;
   transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
   white-space: nowrap;
+  line-height: 1.2;
 }
 
 .favorite-bar__pill:hover {
@@ -188,12 +199,12 @@ const handleManageClick = () => emit('manage')
 }
 
 .favorite-bar__placeholder {
-  font-size: 0.82rem;
+  font-size: 0.78rem;
   color: var(--sc-text-secondary);
 }
 
 .favorite-bar__warning {
-  font-size: 0.75rem;
+  font-size: 0.72rem;
   color: #f97316;
   white-space: nowrap;
 }
@@ -201,5 +212,6 @@ const handleManageClick = () => emit('manage')
 .favorite-bar__manage {
   margin-left: auto;
   padding: 0;
+  color: var(--sc-text-secondary);
 }
 </style>
