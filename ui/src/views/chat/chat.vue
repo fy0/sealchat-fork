@@ -5516,6 +5516,18 @@ onBeforeUnmount(() => {
   margin-top: var(--chat-bubble-gap, 0.85rem);
 }
 
+.message-row--tone-ic,
+.message-row--tone-ooc {
+  margin: 0;
+  padding: 0;
+  border: none;
+}
+
+.message-row + .message-row--tone-ic,
+.message-row + .message-row--tone-ooc {
+  margin-top: 0;
+}
+
 .message-row__surface {
   display: flex;
   align-items: flex-start;
@@ -5524,6 +5536,14 @@ onBeforeUnmount(() => {
   padding-left: 0.25rem;
   position: relative;
   z-index: 0;
+}
+
+.message-row--tone-ic .message-row__surface,
+.message-row--tone-ooc .message-row__surface {
+  padding: 0;
+  margin: 0;
+  border: none;
+  background: transparent;
 }
 
 .message-row__surface > * {

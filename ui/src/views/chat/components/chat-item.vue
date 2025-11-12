@@ -563,7 +563,7 @@ watch(() => props.item?.updatedAt, () => {
   background: var(--chat-ic-bg, #f5f5f5);
   color: var(--chat-text-primary, #111827);
   text-align: left;
-  border: 1px solid var(--chat-bubble-border, transparent);
+  border: none;
   box-shadow: var(--chat-message-shadow, none);
   transition: background-color 0.25s ease, border-color 0.25s ease, color 0.25s ease, box-shadow 0.25s ease;
   font-size: var(--chat-font-size, 0.95rem);
@@ -979,7 +979,7 @@ watch(() => props.item?.updatedAt, () => {
 /* Tone 样式 */
 .chat-item--ooc .right .content {
   background: var(--chat-ooc-bg, rgba(156, 163, 175, 0.1));
-  border: 1px dashed var(--chat-ooc-border, rgba(156, 163, 175, 0.3));
+  border: none;
   color: var(--chat-text-secondary, #6b7280);
   --editing-preview-border: rgba(156, 163, 175, 0.55);
   --editing-preview-bg: rgba(243, 244, 246, 0.95);
