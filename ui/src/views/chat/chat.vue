@@ -6,7 +6,7 @@ import { chatEvent, useChatStore } from '@/stores/chat';
 import type { Event, Message, User, WhisperMeta } from '@satorijs/protocol'
 import type { ChannelIdentity, GalleryItem } from '@/types'
 import { useUserStore } from '@/stores/user';
-import { ArrowBarToDown, Plus, Upload, Send, ArrowBackUp, Palette, Download, ArrowsVertical } from '@vicons/tabler'
+import { ArrowBarToDown, Plus, Upload, Send, ArrowBackUp, Palette, Download, ArrowsVertical, Broadcast } from '@vicons/tabler'
 import { NIcon, c, useDialog, useMessage, type MentionOption } from 'naive-ui';
 import VueScrollTo from 'vue-scrollto'
 import ChatInputSwitcher from './components/ChatInputSwitcher.vue'
@@ -5110,7 +5110,11 @@ onBeforeUnmount(() => {
                     <template #trigger>
                       <n-button quaternary circle class="typing-toggle" :class="typingToggleClass"
                         @click="toggleTypingPreview" :disabled="isEditing">
-                        <span class="chat-input-actions__icon">👁</span>
+                        <n-icon
+                          class="chat-input-actions__icon"
+                          :component="Broadcast"
+                          size="18"
+                        />
                       </n-button>
                     </template>
                     {{ typingPreviewTooltip }}
@@ -6600,6 +6604,16 @@ onBeforeUnmount(() => {
 :root[data-display-palette='night'] .input-floating-toolbar :deep(.n-button:not([disabled]) .n-button__icon > svg),
 :root[data-display-palette='night'] .input-floating-toolbar :deep(.n-button:not([disabled]) .n-button__icon) {
   color: rgba(255, 255, 255, 0.88);
+}
+
+:root[data-display-palette='night'] :deep(.n-dropdown-menu.n-popover-shared.n-dropdown) {
+  color: rgba(248, 250, 252, 0.95);
+}
+
+:root[data-display-palette='night'] :deep(.n-dropdown-menu.n-popover-shared.n-dropdown .n-dropdown-option__label),
+:root[data-display-palette='night'] :deep(.n-dropdown-menu.n-popover-shared.n-dropdown .n-dropdown-option__extra),
+:root[data-display-palette='night'] :deep(.n-dropdown-menu.n-popover-shared.n-dropdown .n-dropdown-option__content) {
+  color: rgba(248, 250, 252, 0.95);
 }
 
 @media (max-width: 600px) {
