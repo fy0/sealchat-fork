@@ -517,6 +517,10 @@ watch(() => props.item?.updatedAt, () => {
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
+  height: 0.25rem;
+  min-height: 0;
+  margin-top: 0;
+  overflow: hidden;
 }
 
 .chat-item > .right {
