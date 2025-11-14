@@ -5637,12 +5637,22 @@ onBeforeUnmount(() => {
 
 .message-row--self.message-row--tone-ic:not(:first-child),
 .message-row--self.message-row--tone-ooc:not(:first-child) {
-  margin-top: calc(var(--chat-bubble-gap, 0.85rem) * 0.35);
+  margin-top: 0;
 }
 
 .chat--layout-compact .message-row--self.message-row--tone-ic:not(:first-child),
 .chat--layout-compact .message-row--self.message-row--tone-ooc:not(:first-child) {
-  margin-top: calc(var(--chat-bubble-gap, 0.85rem) * 0.15);
+  margin-top: 0;
+}
+
+.message-row--tone-ic:not(:first-child),
+.message-row--tone-ooc:not(:first-child) {
+  margin-top: 0;
+}
+
+.chat--layout-compact .message-row--tone-ic:not(:first-child),
+.chat--layout-compact .message-row--tone-ooc:not(:first-child) {
+  margin-top: 0;
 }
 
 .message-row__surface {
@@ -5659,6 +5669,7 @@ onBeforeUnmount(() => {
 .message-row--tone-ooc .message-row__surface {
   padding: 0;
   margin: 0;
+  gap: 0;
   border: none;
   background: transparent;
 }
@@ -5762,6 +5773,13 @@ onBeforeUnmount(() => {
   padding: 0.1rem 0.35rem;
   border-radius: 0;
   background: transparent;
+}
+
+.chat--layout-compact .message-row--tone-ic .message-row__surface,
+.chat--layout-compact .message-row--tone-ooc .message-row__surface {
+  padding: 0;
+  gap: 0;
+  border: none;
 }
 
 .chat--layout-compact .message-row__surface--tone-ic {
