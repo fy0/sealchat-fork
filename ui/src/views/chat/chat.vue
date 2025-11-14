@@ -1453,11 +1453,29 @@ watch(() => chat.curChannel?.id, () => {
 const SCROLL_STICKY_THRESHOLD = 200;
 
 const rows = ref<Message[]>([]);
-const visibleRows = computed(() => {
+const listRevision = ref(0);
+interface VisibleRowEntry {
+  message: Message;
+  mergedWithPrev: boolean;
+  entryKey: string;
+}
+
+const isMergeCandidate = (message?: Message | null) => {
+  if (!message) return false;
+  if ((message as any).is_revoked) {
+    return false;
+  }
+  if (message.isWhisper || (message as any).is_whisper) {
+    return false;
+  }
+  return true;
+};
+
+const visibleRowEntries = computed<VisibleRowEntry[]>(() => {
   const { icOnly, showArchived, userIds } = chat.filterState;
   const filterUserIds = Array.isArray(userIds) ? userIds : [];
 
-  return rows.value.filter((message) => {
+  const filtered = rows.value.filter((message) => {
     const isArchived = Boolean(message?.isArchived || message?.is_archived);
     if (!showArchived && isArchived) {
       return false;
@@ -1475,9 +1493,35 @@ const visibleRows = computed(() => {
       }
     }
 
-  return true;
+    return true;
+  });
+
+  let lastMergeCandidate: { message: Message; index: number } | null = null;
+  return filtered.map((message, index) => {
+    let merged = false;
+    if (
+      display.settings.mergeNeighbors &&
+      lastMergeCandidate &&
+      isMergeCandidate(message) &&
+      index - lastMergeCandidate.index === 1 &&
+      shouldMergeMessages(lastMergeCandidate.message, message)
+    ) {
+      merged = true;
+    }
+    if (isMergeCandidate(message)) {
+      lastMergeCandidate = { message, index };
+    } else {
+      lastMergeCandidate = null;
+    }
+    const idPart = message.id || `temp-${index}`;
+    return {
+      message,
+      mergedWithPrev: merged,
+      entryKey: `${idPart}-${index}-${merged ? 1 : 0}`,
+    };
+  });
 });
-});
+const visibleRows = computed(() => visibleRowEntries.value.map((entry) => entry.message));
 
 const getMessageRoleKey = (message: any): string => {
   return (
@@ -1495,31 +1539,12 @@ const getMessageSceneKey = (message: any): string => {
 
 const shouldMergeMessages = (prev?: Message, current?: Message) => {
   if (!prev || !current) return false;
-  if (!prev.id || !current.id) return false;
   if (prev.isWhisper !== current.isWhisper) return false;
   const roleSame = getMessageRoleKey(prev) && getMessageRoleKey(prev) === getMessageRoleKey(current);
   if (!roleSame) return false;
   return getMessageSceneKey(prev) === getMessageSceneKey(current);
 };
 
-const isMergedWithPrev = (index: number) => {
-  if (!display.settings.mergeNeighbors) {
-    return false;
-  }
-  if (index <= 0) {
-    return false;
-  }
-  const list = visibleRows.value;
-  if (!Array.isArray(list)) {
-    return false;
-  }
-  const current = list[index];
-  const prev = list[index - 1];
-  if (!prev || !current) {
-    return false;
-  }
-  return shouldMergeMessages(prev, current);
-};
 
 const normalizeTimestamp = (value: any): number | null => {
   if (value === null || value === undefined) {
@@ -1662,6 +1687,33 @@ const sortRowsByDisplayOrder = () => {
   rows.value = rows.value
     .slice()
     .sort(compareByDisplayOrder);
+};
+
+const getMessageDisplayOrderValue = (message?: Message): number | null => {
+  if (!message) {
+    return null;
+  }
+  const raw = (message as any)?.displayOrder ?? message?.createdAt ?? null;
+  if (raw === null || raw === undefined) {
+    return null;
+  }
+  const value = Number(raw);
+  return Number.isFinite(value) ? value : null;
+};
+
+const deriveLocalDisplayOrder = (list: Message[], index: number, fallback: number) => {
+  const prevOrder = getMessageDisplayOrderValue(list[index - 1]);
+  const nextOrder = getMessageDisplayOrderValue(list[index + 1]);
+  if (prevOrder !== null && nextOrder !== null) {
+    return (prevOrder + nextOrder) / 2;
+  }
+  if (prevOrder !== null) {
+    return prevOrder + 1;
+  }
+  if (nextOrder !== null) {
+    return nextOrder - 1;
+  }
+  return fallback;
 };
 
 const localReorderOps = new Set<string>();
@@ -1981,7 +2033,7 @@ const canDragMessage = (item: Message) => {
 };
 
 const shouldShowHandle = (item: Message) => canDragMessage(item);
-const shouldShowInlineHeader = (index: number) => !isMergedWithPrev(index);
+const shouldShowInlineHeader = (entry: VisibleRowEntry) => !entry.mergedWithPrev;
 
 const rowClass = (item: Message) => ({
   'message-row': true,
@@ -2139,7 +2191,14 @@ const finalizeDrag = async () => {
     targetIndex = working.length;
   }
   working.splice(targetIndex, 0, moving);
+  const estimateOrder = deriveLocalDisplayOrder(
+    working,
+    targetIndex,
+    getMessageDisplayOrderValue(moving) ?? Date.now(),
+  );
+  (moving as any).displayOrder = estimateOrder;
   rows.value = working;
+  listRevision.value += 1;
 
   const beforeId = working[targetIndex + 1]?.id || '';
   const afterId = working[targetIndex - 1]?.id || '';
@@ -2356,7 +2415,6 @@ if (localStorage.getItem(legacyTypingPreviewKey) !== null) {
 const typingPreviewActive = ref(false);
 const typingPreviewList = ref<TypingPreviewItem[]>([]);
 const typingPreviewItems = computed(() => typingPreviewList.value.filter((item) => item.mode === 'typing'));
-const listRevision = ref(0);
 const typingPreviewItemClass = (preview: TypingPreviewItem) => [
   'typing-preview-item',
   'message-row',
@@ -4788,54 +4846,54 @@ onBeforeUnmount(() => {
       ref="messagesListRef">
       <!-- <VirtualList itemKey="id" :list="rows" :minSize="50" ref="virtualListRef" @scroll="onScroll"
               @toBottom="reachBottom" @toTop="reachTop"> -->
-      <template v-for="(itemData, index) in visibleRows" :key="`${listRevision}-${itemData.id}`">
+      <template v-for="(entry, index) in visibleRowEntries" :key="`${listRevision}-${entry.entryKey}`">
         <div
-          :class="rowClass(itemData)"
-          :data-message-id="itemData.id"
-          :ref="el => registerMessageRow(el as HTMLElement | null, itemData.id || '')"
+          :class="rowClass(entry.message)"
+          :data-message-id="entry.message.id"
+          :ref="el => registerMessageRow(el as HTMLElement | null, entry.message.id || '')"
         >
-          <div :class="rowSurfaceClass(itemData)">
+          <div :class="rowSurfaceClass(entry.message)">
             <template v-if="compactInlineGridLayout">
               <div class="message-row__grid">
                 <div class="message-row__grid-handle">
                   <div
-                    v-if="shouldShowHandle(itemData)"
+                    v-if="shouldShowHandle(entry.message)"
                     class="message-row__handle"
                     tabindex="-1"
-                    @pointerdown="onDragHandlePointerDown($event, itemData)"
+                    @pointerdown="onDragHandlePointerDown($event, entry.message)"
                   >
                     <span class="message-row__dot" v-for="n in 3" :key="n"></span>
                   </div>
                 </div>
                 <div class="message-row__grid-name">
                   <span
-                    v-if="shouldShowInlineHeader(index)"
+                    v-if="shouldShowInlineHeader(entry)"
                     class="message-row__name"
-                    :style="getMessageIdentityColor(itemData) ? { color: getMessageIdentityColor(itemData) } : undefined"
-                  >{{ getMessageDisplayName(itemData) }}</span>
+                    :style="getMessageIdentityColor(entry.message) ? { color: getMessageIdentityColor(entry.message) } : undefined"
+                  >{{ getMessageDisplayName(entry.message) }}</span>
                   <span v-else class="message-row__name message-row__name--placeholder">占位</span>
                 </div>
                 <div class="message-row__grid-colon">
-                  <span :class="['message-row__colon', { 'message-row__colon--placeholder': !shouldShowInlineHeader(index) }]">：</span>
+                  <span :class="['message-row__colon', { 'message-row__colon--placeholder': !shouldShowInlineHeader(entry) }]">：</span>
                 </div>
                 <div class="message-row__grid-content">
                   <chat-item
-                    :avatar="getMessageAvatar(itemData)"
-                    :username="getMessageDisplayName(itemData)"
-                    :identity-color="getMessageIdentityColor(itemData)"
-                    :content="itemData.content"
-                    :item="itemData"
-                    :editing-preview="editingPreviewMap[itemData.id]"
-                    :tone="getMessageTone(itemData)"
+                    :avatar="getMessageAvatar(entry.message)"
+                    :username="getMessageDisplayName(entry.message)"
+                    :identity-color="getMessageIdentityColor(entry.message)"
+                    :content="entry.message.content"
+                    :item="entry.message"
+                    :editing-preview="editingPreviewMap[entry.message.id]"
+                    :tone="getMessageTone(entry.message)"
                     :show-avatar="false"
                     :hide-avatar="false"
                     :show-header="false"
                     :layout="display.layout"
-                    :is-self="isSelfMessage(itemData)"
-                    :is-merged="isMergedWithPrev(index)"
+                    :is-self="isSelfMessage(entry.message)"
+                    :is-merged="entry.mergedWithPrev"
                     :body-only="true"
-                    @avatar-longpress="avatarLongpress(itemData)"
-                    @edit="beginEdit(itemData)"
+                    @avatar-longpress="avatarLongpress(entry.message)"
+                    @edit="beginEdit(entry.message)"
                     @edit-save="saveEdit"
                     @edit-cancel="cancelEditing"
                   />
@@ -4844,58 +4902,58 @@ onBeforeUnmount(() => {
             </template>
             <template v-else-if="compactInlineLayout">
               <div
-                v-if="shouldShowHandle(itemData)"
+                v-if="shouldShowHandle(entry.message)"
                 class="message-row__handle"
                 tabindex="-1"
-                @pointerdown="onDragHandlePointerDown($event, itemData)"
+                @pointerdown="onDragHandlePointerDown($event, entry.message)"
               >
                 <span class="message-row__dot" v-for="n in 3" :key="n"></span>
               </div>
               <chat-item
-                :avatar="getMessageAvatar(itemData)"
-                :username="getMessageDisplayName(itemData)"
-                :identity-color="getMessageIdentityColor(itemData)"
-                :content="itemData.content"
-                :item="itemData"
-                :editing-preview="editingPreviewMap[itemData.id]"
-                :tone="getMessageTone(itemData)"
+                :avatar="getMessageAvatar(entry.message)"
+                :username="getMessageDisplayName(entry.message)"
+                :identity-color="getMessageIdentityColor(entry.message)"
+                :content="entry.message.content"
+                :item="entry.message"
+                :editing-preview="editingPreviewMap[entry.message.id]"
+                :tone="getMessageTone(entry.message)"
                 :show-avatar="false"
                 :hide-avatar="false"
-                :show-header="shouldShowInlineHeader(index)"
+                :show-header="shouldShowInlineHeader(entry)"
                 :layout="display.layout"
-                :is-self="isSelfMessage(itemData)"
-                :is-merged="isMergedWithPrev(index)"
-                @avatar-longpress="avatarLongpress(itemData)"
-                @edit="beginEdit(itemData)"
+                :is-self="isSelfMessage(entry.message)"
+                :is-merged="entry.mergedWithPrev"
+                @avatar-longpress="avatarLongpress(entry.message)"
+                @edit="beginEdit(entry.message)"
                 @edit-save="saveEdit"
                 @edit-cancel="cancelEditing"
               />
             </template>
             <template v-else>
               <div
-                v-if="shouldShowHandle(itemData)"
+                v-if="shouldShowHandle(entry.message)"
                 class="message-row__handle"
                 tabindex="-1"
-                @pointerdown="onDragHandlePointerDown($event, itemData)"
+                @pointerdown="onDragHandlePointerDown($event, entry.message)"
               >
                 <span class="message-row__dot" v-for="n in 3" :key="n"></span>
               </div>
               <chat-item
-                :avatar="getMessageAvatar(itemData)"
-                :username="getMessageDisplayName(itemData)"
-                :identity-color="getMessageIdentityColor(itemData)"
-                :content="itemData.content"
-                :item="itemData"
-                :editing-preview="editingPreviewMap[itemData.id]"
-                :tone="getMessageTone(itemData)"
+                :avatar="getMessageAvatar(entry.message)"
+                :username="getMessageDisplayName(entry.message)"
+                :identity-color="getMessageIdentityColor(entry.message)"
+                :content="entry.message.content"
+                :item="entry.message"
+                :editing-preview="editingPreviewMap[entry.message.id]"
+                :tone="getMessageTone(entry.message)"
                 :show-avatar="display.showAvatar"
-                :hide-avatar="display.showAvatar && isMergedWithPrev(index)"
-                :show-header="!isMergedWithPrev(index)"
+                :hide-avatar="display.showAvatar && entry.mergedWithPrev"
+                :show-header="shouldShowInlineHeader(entry)"
                 :layout="display.layout"
-                :is-self="isSelfMessage(itemData)"
-                :is-merged="isMergedWithPrev(index)"
-                @avatar-longpress="avatarLongpress(itemData)"
-                @edit="beginEdit(itemData)"
+                :is-self="isSelfMessage(entry.message)"
+                :is-merged="entry.mergedWithPrev"
+                @avatar-longpress="avatarLongpress(entry.message)"
+                @edit="beginEdit(entry.message)"
                 @edit-save="saveEdit"
                 @edit-cancel="cancelEditing"
               />
