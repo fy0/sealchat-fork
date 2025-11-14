@@ -719,6 +719,48 @@ export const useChatStore = defineStore({
       return tree;
     },
 
+    patchChannelDefaultDice(channelId: string, expr: string) {
+      if (!channelId || !expr) {
+        return;
+      }
+      const apply = (items?: SChannel[]) => {
+        if (!Array.isArray(items)) {
+          return;
+        }
+        items.forEach((item) => {
+          if (!item) return;
+          if (item.id === channelId) {
+            item.defaultDiceExpr = expr;
+          }
+          if (item.children) {
+            apply(item.children as SChannel[]);
+          }
+        });
+      };
+      apply(this.channelTree as any);
+      apply(this.channelTreePrivate as any);
+      if (this.curChannel?.id === channelId) {
+        this.curChannel = {
+          ...this.curChannel,
+          defaultDiceExpr: expr,
+        } as Channel;
+      }
+    },
+
+    async updateChannelDefaultDice(expr: string) {
+      if (!this.curChannel?.id) {
+        return;
+      }
+      const resp = await this.sendAPI('channel.dice.default.set', {
+        channel_id: this.curChannel.id,
+        default_dice_expr: expr,
+      }) as { data?: { channel_id?: string; default_dice_expr?: string } };
+      const payload = resp?.data;
+      const channelId = payload?.channel_id || this.curChannel.id;
+      const nextExpr = payload?.default_dice_expr || expr;
+      this.patchChannelDefaultDice(channelId, nextExpr);
+    },
+
     async channelMembersCountRefresh() {
       if (this.channelTree) {
         const m: any = {}
@@ -1377,5 +1419,17 @@ chatEvent.on('message-created-notice', (data: any) => {
 
   if (chat.channelTree.find(c => c.id === chId) || chat.channelTreePrivate.find(c => c.id === chId)) {
     chat.unreadCountMap[chId] = (chat.unreadCountMap[chId] || 0) + 1;
+  }
+});
+
+chatEvent.on('channel-updated', (event) => {
+  const channelId = event?.channel?.id;
+  if (!channelId) {
+    return;
+  }
+  const chat = useChatStore();
+  const nextExpr = event.channel?.defaultDiceExpr;
+  if (nextExpr) {
+    chat.patchChannelDefaultDice(channelId, nextExpr);
   }
 });

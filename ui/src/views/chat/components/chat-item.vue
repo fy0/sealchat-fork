@@ -1,7 +1,7 @@
 <script setup lang="tsx">
 import dayjs from 'dayjs';
 import Element from '@satorijs/element'
-import { onMounted, ref, h, computed, watch, PropType, onBeforeUnmount } from 'vue';
+import { onMounted, ref, h, computed, watch, PropType, onBeforeUnmount, nextTick } from 'vue';
 import { urlBase } from '@/stores/_config';
 import DOMPurify from 'dompurify';
 import { useUserStore } from '@/stores/user';
@@ -48,6 +48,8 @@ function timeFormat2(time?: string) {
 let hasImage = ref(false);
 const messageContentRef = ref<HTMLElement | null>(null);
 let stopMessageLongPress: (() => void) | null = null;
+
+const diceChipHtmlPattern = /<span[^>]*class="[^"]*dice-chip[^"]*"/i;
 
 const parseContent = (payload: any, overrideContent?: string) => {
   const content = overrideContent ?? payload?.content ?? '';
@@ -132,9 +134,15 @@ const parseContent = (payload: any, overrideContent?: string) => {
         } else {
           textItems.push(`<span class="text-blue-500" style="white-space: pre-wrap">@${item.attrs.name}</span>`);
         }
-      default:
-        textItems.push(`<span style="white-space: pre-wrap">${item.toString()}</span>`);
+      default: {
+        const raw = item.toString();
+        if (diceChipHtmlPattern.test(raw)) {
+          textItems.push(raw);
+        } else {
+          textItems.push(`<span style="white-space: pre-wrap">${raw}</span>`);
+        }
         break;
+      }
     }
   }
 
@@ -253,6 +261,19 @@ const displayContent = computed(() => {
   return props.item?.content ?? props.content ?? '';
 });
 
+const applyDiceTone = () => {
+  nextTick(() => {
+    const host = messageContentRef.value;
+    if (!host) return;
+    const tone = (props.tone || 'ic') as 'ic' | 'ooc' | 'archived';
+    host.querySelectorAll<HTMLElement>('span.dice-chip').forEach((chip) => {
+      chip.setAttribute('data-dice-tone', tone);
+      chip.classList.remove('dice-chip--tone-ic', 'dice-chip--tone-ooc', 'dice-chip--tone-archived');
+      chip.classList.add(`dice-chip--tone-${tone}`);
+    });
+  });
+};
+
 const openContextMenu = (point: { x: number, y: number }, item: any) => {
   chat.avatarMenu.show = false;
   chat.messageMenu.optionsComponent.x = point.x;
@@ -337,6 +358,8 @@ onMounted(() => {
     }
   );
 
+  applyDiceTone();
+
   setInterval(() => {
     timeText.value = timeFormat(props.item?.createdAt);
     timeText2.value = timeFormat2(props.item?.createdAt);
@@ -346,6 +369,14 @@ onMounted(() => {
     }
   }, 10000);
 })
+
+watch([displayContent, () => props.tone], () => {
+  applyDiceTone();
+}, { immediate: true });
+
+watch(() => otherEditingPreview.value?.previewHtml, () => {
+  applyDiceTone();
+});
 
 onBeforeUnmount(() => {
   if (stopMessageLongPress) {

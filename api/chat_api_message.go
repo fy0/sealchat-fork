@@ -602,6 +602,13 @@ func apiMessageCreate(ctx *ChatContext, data *struct {
 		return nil, nil
 	}
 	channelData := channel.ToProtocolType()
+	renderResult, err := service.RenderDiceContent(content, channel.DefaultDiceExpr, nil)
+	if err != nil {
+		return nil, err
+	}
+	if renderResult != nil {
+		content = renderResult.Content
+	}
 
 	var whisperUser *model.UserModel
 	var whisperMember *model.MemberModel
@@ -682,7 +689,16 @@ func apiMessageCreate(ctx *ChatContext, data *struct {
 			m.WhisperTargetMemberName = whisperMember.Nickname
 		}
 	}
-	rows := db.Create(&m).RowsAffected
+	createResult := db.Create(&m)
+	if createResult.Error != nil {
+		return nil, createResult.Error
+	}
+	if renderResult != nil {
+		if err := model.MessageDiceRollReplace(m.ID, renderResult.Rolls); err != nil {
+			return nil, err
+		}
+	}
+	rows := createResult.RowsAffected
 
 	if rows > 0 {
 		ctx.TagCheck(data.ChannelID, m.ID, content)
@@ -1059,6 +1075,19 @@ func apiMessageUpdate(ctx *ChatContext, data *struct {
 		msg.WhisperTarget = loadWhisperTargetForChannel(data.ChannelID, msg.WhisperTo)
 	}
 
+	existingRolls, err := model.MessageDiceRollListByMessageID(msg.ID)
+	if err != nil {
+		return nil, err
+	}
+	newContent := data.Content
+	renderResult, err := service.RenderDiceContent(newContent, channel.DefaultDiceExpr, existingRolls)
+	if err != nil {
+		return nil, err
+	}
+	if renderResult != nil {
+		newContent = renderResult.Content
+	}
+
 	buildMessage := func() *protocol.Message {
 		messageData := msg.ToProtocolType2(channelData)
 		messageData.Content = msg.Content
@@ -1087,7 +1116,7 @@ func apiMessageUpdate(ctx *ChatContext, data *struct {
 	}
 
 	prevContent := msg.Content
-	if prevContent == data.Content {
+	if prevContent == newContent {
 		return &struct {
 			Message *protocol.Message `json:"message"`
 		}{Message: buildMessage()}, nil
@@ -1102,11 +1131,11 @@ func apiMessageUpdate(ctx *ChatContext, data *struct {
 	}
 	db.Create(&history)
 
-	msg.Content = data.Content
+	msg.Content = newContent
 	msg.IsEdited = true
 	msg.EditCount = msg.EditCount + 1
 	msg.UpdatedAt = time.Now()
-	err := db.Model(&model.MessageModel{}).Where("id = ?", msg.ID).Updates(map[string]any{
+	err = db.Model(&model.MessageModel{}).Where("id = ?", msg.ID).Updates(map[string]any{
 		"content":    msg.Content,
 		"is_edited":  msg.IsEdited,
 		"edit_count": msg.EditCount,
@@ -1114,6 +1143,11 @@ func apiMessageUpdate(ctx *ChatContext, data *struct {
 	}).Error
 	if err != nil {
 		return nil, err
+	}
+	if renderResult != nil {
+		if err := model.MessageDiceRollReplace(msg.ID, renderResult.Rolls); err != nil {
+			return nil, err
+		}
 	}
 
 	messageData := buildMessage()

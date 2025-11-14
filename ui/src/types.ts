@@ -17,6 +17,9 @@ declare module '@satorijs/protocol' {
   interface Message {
     whisperMeta?: WhisperMeta;
   }
+  interface Channel {
+    defaultDiceExpr?: string;
+  }
 }
 
 export interface SatoriMessage {
@@ -104,7 +107,8 @@ export interface SChannel extends Channel {
   sortOrder?: number;
   typingIndicatorSetting?: boolean;
   desc?: string;
-  note?: string;
+	note?: string;
+	defaultDiceExpr?: string;
 }
 
 export type APIMessageCreateResp = Message

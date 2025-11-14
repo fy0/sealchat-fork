@@ -21,6 +21,7 @@ import DisplaySettingsModal from './components/DisplaySettingsModal.vue'
 import ChatSearchPanel from './components/ChatSearchPanel.vue'
 import ArchiveDrawer from './components/archive/ArchiveDrawer.vue'
 import ExportDialog from './components/export/ExportDialog.vue'
+import DiceTray from './components/DiceTray.vue'
 import IFormPanelHost from '@/components/iform/IFormPanelHost.vue';
 import IFormFloatingWindows from '@/components/iform/IFormFloatingWindows.vue';
 import IFormDrawer from '@/components/iform/IFormDrawer.vue';
@@ -50,6 +51,7 @@ import { dialogAskConfirm } from '@/utils/dialog';
 import { useI18n } from 'vue-i18n';
 import { isTipTapJson, tiptapJsonToHtml, tiptapJsonToPlainText } from '@/utils/tiptap-render';
 import { resolveAttachmentUrl, fetchAttachmentMetaById, normalizeAttachmentId, type AttachmentMeta } from '@/composables/useAttachmentResolver';
+import { ensureDefaultDiceExpr, matchDiceExpressions, type DiceMatch } from '@/utils/dice';
 import DOMPurify from 'dompurify';
 import type { DisplaySettings } from '@/stores/display';
 import { useIFormStore } from '@/stores/iform';
@@ -70,6 +72,20 @@ const displaySettingsVisible = ref(false);
 const compactInlineLayout = computed(() => display.layout === 'compact' && !display.showAvatar);
 const scrollButtonColor = computed(() => (display.palette === 'night' ? 'rgba(148, 163, 184, 0.25)' : '#e5e7eb'));
 const scrollButtonTextColor = computed(() => (display.palette === 'night' ? 'rgba(248, 250, 252, 0.95)' : '#111827'));
+const diceTrayVisible = ref(false);
+const defaultDiceExpr = computed(() => ensureDefaultDiceExpr(chat.curChannel?.defaultDiceExpr));
+const canEditDefaultDice = computed(() => {
+  const channelId = chat.curChannel?.id;
+  if (!channelId) {
+    return false;
+  }
+  return chat.isChannelAdmin(channelId, user.info.id);
+});
+watch(() => chat.curChannel?.id, (id) => {
+  if (id) {
+    chat.ensureChannelPermissionCache(id);
+  }
+}, { immediate: true });
 const INLINE_STACK_BREAKPOINT = 640;
 const { width: windowWidth } = useWindowSize();
 const compactInlineStackLayout = computed(() => {
@@ -2442,11 +2458,36 @@ const stopEditingPreviewNow = () => {
   lastEditingWhisperTargetId = null;
 };
 
+const stripDiceChipMarkup = (html: string) => {
+  if (!html || !html.includes('dice-chip')) {
+    return html;
+  }
+  try {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(`<div>${html}</div>`, 'text/html');
+    doc.querySelectorAll('span.dice-chip').forEach((element) => {
+      const source = element.getAttribute('data-dice-source') || element.textContent || '';
+      if (!element.parentNode) return;
+      const replacement = doc.createTextNode(source);
+      element.parentNode.replaceChild(replacement, element);
+    });
+    const first = doc.body.firstElementChild;
+    if (first && first.tagName === 'DIV') {
+      return first.innerHTML;
+    }
+    return doc.body.innerHTML;
+  } catch (error) {
+    console.warn('stripDiceChipMarkup failed', error);
+    return html;
+  }
+};
+
 const convertMessageContentToDraft = (content?: string) => {
   resetInlineImages();
   if (!content) {
     return '';
   }
+  content = stripDiceChipMarkup(content);
   if (isTipTapJson(content)) {
     return content;
   }
@@ -2957,6 +2998,27 @@ const setInputSelection = (start: number, end: number) => {
   textInputRef.value?.getTextarea?.()?.setSelectionRange(start, end);
 };
 
+const insertDiceExpression = (expr: string) => {
+  if (!expr) {
+    return;
+  }
+  if (inputMode.value === 'rich') {
+    const editorInstance = textInputRef.value?.getEditor?.();
+    if (editorInstance) {
+      editorInstance.chain().focus().insertContent(`${expr} `).run();
+      return;
+    }
+  }
+  const selection = getInputSelection();
+  const text = textToSend.value;
+  const next = text.slice(0, selection.start) + expr + text.slice(selection.end);
+  textToSend.value = next;
+  const cursor = selection.start + expr.length;
+  nextTick(() => {
+    setInputSelection(cursor, cursor);
+  });
+};
+
 const moveInputCursorToEnd = () => {
   if (textInputRef.value?.moveCursorToEnd) {
     textInputRef.value.moveCursorToEnd();
@@ -3334,6 +3396,36 @@ const extractTipTapText = (node: any): string => {
 };
 
 // 渲染预览内容（支持图片和富文本）
+const diceChipIconSvg = '<span class="dice-chip__icon" aria-hidden="true">🎲</span>';
+const resolveDiceToneClass = () => (chat.icMode === 'ooc' ? 'ooc' : 'ic');
+const buildPreviewDiceChip = (match: DiceMatch, index: number) => {
+  const source = escapeHtml(match.source);
+  const formula = escapeHtml(match.normalized);
+  const tone = resolveDiceToneClass();
+  return `<span class="dice-chip dice-chip--preview dice-chip--tone-${tone}" data-dice-tone="${tone}" data-index="${index}" title="${source}">${diceChipIconSvg}<span class="dice-chip__formula">${formula}</span><span class="dice-chip__equals">=</span><span class="dice-chip__result">?</span></span>`;
+};
+
+const renderDicePreviewSegment = (text: string) => {
+  if (!text) return '';
+  const matches = matchDiceExpressions(text, defaultDiceExpr.value);
+  if (!matches.length) {
+    return escapeHtml(text);
+  }
+  let html = '';
+  let cursor = 0;
+  matches.forEach((match, index) => {
+    if (match.start > cursor) {
+      html += escapeHtml(text.slice(cursor, match.start));
+    }
+    html += buildPreviewDiceChip(match, index);
+    cursor = match.end;
+  });
+  if (cursor < text.length) {
+    html += escapeHtml(text.slice(cursor));
+  }
+  return html;
+};
+
 const renderPreviewContent = (value: string) => {
   // 检测是否为 TipTap JSON
   if (value.trim().startsWith('{') && value.includes('"type":"doc"')) {
@@ -3360,7 +3452,7 @@ const renderPreviewContent = (value: string) => {
   while ((match = imageMarkerRegex.exec(value)) !== null) {
     // 添加标记前的文本
     if (match.index > lastIndex) {
-      result += escapeHtml(value.substring(lastIndex, match.index));
+      result += renderDicePreviewSegment(value.substring(lastIndex, match.index));
     }
 
     // 添加图片
@@ -3385,7 +3477,7 @@ const renderPreviewContent = (value: string) => {
 
   // 添加剩余文本
   if (lastIndex < value.length) {
-    result += escapeHtml(value.substring(lastIndex));
+    result += renderDicePreviewSegment(value.substring(lastIndex));
   }
 
   return DOMPurify.sanitize(result || value);
@@ -3771,6 +3863,27 @@ const send = throttle(async () => {
     toBottom();
   }
 }, 500);
+
+const handleDiceInsert = (expr: string) => {
+  insertDiceExpression(expr.trim() ? `${expr.trim()} ` : expr);
+  diceTrayVisible.value = false;
+  ensureInputFocus();
+};
+
+const handleDiceRollNow = (expr: string) => {
+  insertDiceExpression(expr.trim());
+  diceTrayVisible.value = false;
+  send();
+};
+
+const handleDiceDefaultUpdate = async (expr: string) => {
+  try {
+    await chat.updateChannelDefaultDice(expr);
+    message.success('默认骰已更新');
+  } catch (error: any) {
+    message.error(error?.message || '更新失败');
+  }
+};
 
 watch(textToSend, (value) => {
   handleWhisperCommand(value);
@@ -5223,6 +5336,32 @@ onBeforeUnmount(() => {
                         <p class="history-panel__hint">输入内容并点击「保存当前」即可添加</p>
                       </div>
                     </div>
+                  </n-popover>
+                </div>
+                <div class="chat-input-actions__cell">
+                  <n-popover trigger="click" placement="top" :show="diceTrayVisible" @update:show="(val) => (diceTrayVisible = val)">
+                    <template #trigger>
+                      <n-tooltip trigger="hover">
+                        <template #trigger>
+                          <n-button quaternary circle :disabled="isEditing">
+                            <template #icon>
+                              <svg class="chat-input-actions__icon" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" focusable="false">
+                                <rect width="12" height="12" x="2" y="10" rx="2" ry="2"></rect>
+                                <path d="m17.92 14 3.5-3.5a2.24 2.24 0 0 0 0-3l-5-4.92a2.24 2.24 0 0 0-3 0L10 6M6 18h.01M10 14h.01M15 6h.01M18 9h.01"></path>
+                              </svg>
+                            </template>
+                          </n-button>
+                        </template>
+                        掷骰
+                      </n-tooltip>
+                    </template>
+                    <DiceTray
+                      :default-dice="defaultDiceExpr"
+                      :can-edit-default="canEditDefaultDice"
+                      @insert="handleDiceInsert"
+                      @roll="handleDiceRollNow"
+                      @update-default="handleDiceDefaultUpdate"
+                    />
                   </n-popover>
                 </div>
               </div>
@@ -6947,4 +7086,126 @@ onBeforeUnmount(() => {
 .identity-manage-drawer {
   background: var(--sc-bg-elevated, #ffffff);
   color: var(--sc-text-primary, #0f172a);
+}
+
+.dice-chip {
+  display: inline-flex !important;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.15rem 0.45rem;
+  border-radius: 0.45rem;
+  border: 1px solid rgba(15, 23, 42, 0.16);
+  background: rgba(248, 250, 252, 0.95);
+  color: #1f2937;
+  font-size: 0.82rem;
+  line-height: 1.15;
+  vertical-align: middle;
+  white-space: nowrap;
+  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+}
+
+.dice-chip__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  opacity: 0.9;
+  margin-right: 0.2rem;
+  font-size: 1em;
+  line-height: 1;
+}
+
+.dice-chip__formula {
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  margin-right: 0.15rem;
+}
+
+.dice-chip__equals {
+  font-size: 0.78em;
+  opacity: 0.65;
+  margin-right: 0.1rem;
+}
+
+.dice-chip__result {
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+}
+
+.dice-chip--preview {
+  border-style: dashed;
+  background: rgba(148, 163, 184, 0.25);
+  color: #475569;
+}
+
+.dice-chip--error {
+  border-color: rgba(220, 38, 38, 0.55);
+  background: rgba(254, 226, 226, 0.95);
+  color: #991b1b;
+}
+
+.dice-chip--error .dice-chip__result {
+  color: inherit;
+}
+
+.dice-chip--tone-ic:not(.dice-chip--preview),
+[data-dice-tone='ic']:not(.dice-chip--preview) {
+  background: #fafbf8;
+  border-color: rgba(15, 23, 42, 0.16);
+  color: #1f2937;
+}
+
+.dice-chip--tone-ooc:not(.dice-chip--preview),
+[data-dice-tone='ooc']:not(.dice-chip--preview) {
+  background: #fcfcfc;
+  border-color: rgba(15, 23, 42, 0.12);
+  color: #1f2937;
+}
+
+.dice-chip--tone-archived:not(.dice-chip--preview),
+[data-dice-tone='archived']:not(.dice-chip--preview) {
+  background: rgba(148, 163, 184, 0.2);
+  border-color: rgba(148, 163, 184, 0.4);
+  color: #334155;
+}
+
+:global([data-display-palette='night']) .dice-chip {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(148, 163, 184, 0.35);
+  color: #f3f4f6;
+}
+
+:global([data-display-palette='night']) .dice-chip--preview {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.35);
+  color: #f8fafc;
+}
+
+:global([data-display-palette='night']) .dice-chip--error {
+  background: rgba(127, 29, 29, 0.7);
+  border-color: rgba(248, 113, 113, 0.75);
+  color: #fecaca;
+}
+
+:global([data-display-palette='night']) .dice-chip--tone-ic:not(.dice-chip--preview),
+:global([data-display-palette='night']) [data-dice-tone='ic']:not(.dice-chip--preview) {
+  background: #333135;
+  border-color: rgba(255, 255, 255, 0.18);
+  color: #f4f4f5;
+}
+
+:global([data-display-palette='night']) .dice-chip--tone-ooc:not(.dice-chip--preview),
+:global([data-display-palette='night']) [data-dice-tone='ooc']:not(.dice-chip--preview) {
+  background: #2a282a;
+  border-color: rgba(255, 255, 255, 0.15);
+  color: #f5f3ff;
+}
+
+:global([data-display-palette='night']) .dice-chip--tone-archived:not(.dice-chip--preview),
+:global([data-display-palette='night']) [data-dice-tone='archived']:not(.dice-chip--preview) {
+  background: rgba(51, 65, 85, 0.65);
+  border-color: rgba(148, 163, 184, 0.4);
+  color: #e2e8f0;
 }

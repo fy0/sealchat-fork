@@ -320,7 +320,10 @@ func websocketWorks(app *fiber.App) {
 					case "channel.enter":
 						apiWrap(ctx, msg, apiChannelEnter)
 						solved = true
-					// case "guild.list":
+					case "channel.dice.default.set":
+						apiWrap(ctx, msg, apiChannelDefaultDiceUpdate)
+						solved = true
+						// case "guild.list":
 					//	 apiChannelList(c, msg, apiMsg.Echo)
 					//	 solved = true
 

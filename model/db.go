@@ -89,6 +89,7 @@ func DBInit(dsn string) {
 	db.AutoMigrate(&ChannelModel{})
 	db.AutoMigrate(&GuildModel{})
 	db.AutoMigrate(&MessageModel{})
+	db.AutoMigrate(&MessageDiceRollModel{})
 	db.AutoMigrate(&MessageEditHistoryModel{})
 	db.AutoMigrate(&MessageArchiveLogModel{})
 	db.AutoMigrate(&UserModel{})
@@ -109,6 +110,12 @@ func DBInit(dsn string) {
 	db.AutoMigrate(&FriendModel{}, &FriendRequestModel{})
 	db.AutoMigrate(&MessageExportJobModel{})
 	db.AutoMigrate(&ChannelIFormModel{})
+
+	if err := db.Model(&ChannelModel{}).
+		Where("default_dice_expr = '' OR default_dice_expr IS NULL").
+		Update("default_dice_expr", "d20").Error; err != nil {
+		log.Printf("初始化频道默认骰失败: %v", err)
+	}
 
 	if err := BackfillMessageDisplayOrder(); err != nil {
 		log.Printf("补齐消息 display_order 失败: %v", err)

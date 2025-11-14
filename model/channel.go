@@ -10,14 +10,15 @@ import (
 
 type ChannelModel struct {
 	StringPKBaseModel
-	Name         string `json:"name"`
-	Note         string `json:"note"`                   // 这是一份注释，用于管理人员辨别数据
-	RootId       string `json:"rootId"`                 // 如果未来有多级子频道，那么rootId指向顶层
-	ParentID     string `json:"parentId" gorm:"null"`   // 好像satori协议这里不统一啊
-	IsPrivate    bool   `json:"isPrivate" gorm:"index"` // 是私聊频道吗？
-	RecentSentAt int64  `json:"recentSentAt"`           // 最近发送消息的时间
-	UserID       string `json:"userId"`                 // 创建者ID
-	PermType     string `json:"permType"`               // public 公开 non-public 非公开 private 私聊
+	Name            string `json:"name"`
+	Note            string `json:"note"`                   // 这是一份注释，用于管理人员辨别数据
+	RootId          string `json:"rootId"`                 // 如果未来有多级子频道，那么rootId指向顶层
+	ParentID        string `json:"parentId" gorm:"null"`   // 好像satori协议这里不统一啊
+	IsPrivate       bool   `json:"isPrivate" gorm:"index"` // 是私聊频道吗？
+	RecentSentAt    int64  `json:"recentSentAt"`           // 最近发送消息的时间
+	UserID          string `json:"userId"`                 // 创建者ID
+	PermType        string `json:"permType"`               // public 公开 non-public 非公开 private 私聊
+	DefaultDiceExpr string `json:"defaultDiceExpr" gorm:"size:32;not null;default:d20"`
 
 	SortOrder int `json:"sortOrder" gorm:"index"` // 优先级序号，越大越靠前
 
@@ -54,9 +55,10 @@ func (c *ChannelModel) ToProtocolType() *protocol.Channel {
 		channelType = protocol.DirectChannelType
 	}
 	return &protocol.Channel{
-		ID:   c.ID,
-		Name: c.Name,
-		Type: channelType,
+		ID:              c.ID,
+		Name:            c.Name,
+		Type:            channelType,
+		DefaultDiceExpr: c.DefaultDiceExpr,
 	}
 }
 
@@ -94,6 +96,7 @@ func ChannelPrivateNew(userID1, userID2 string) (ch *ChannelModel, isNew bool) {
 		Name:              "@私聊频道",
 		PermType:          "private",
 		Note:              fmt.Sprintf("%s-%s", u1.Username, u2.Username),
+		DefaultDiceExpr:   "d20",
 	}
 	db.Create(ch)
 

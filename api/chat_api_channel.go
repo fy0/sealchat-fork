@@ -1,6 +1,7 @@
 package api
 
 import (
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -200,4 +201,46 @@ func apiChannelMemberList(ctx *ChatContext, data *struct {
 		}
 		q = q.Where("id in ?", arr)
 	})
+}
+
+func apiChannelDefaultDiceUpdate(ctx *ChatContext, data *struct {
+	ChannelID       string `json:"channel_id"`
+	DefaultDiceExpr string `json:"default_dice_expr"`
+}) (any, error) {
+	if data.ChannelID == "" {
+		return nil, fmt.Errorf("频道ID不能为空")
+	}
+	if !pm.CanWithChannelRole(ctx.User.ID, data.ChannelID, pm.PermFuncChannelManageInfo, pm.PermFuncChannelRoleLink) {
+		return nil, fmt.Errorf("您没有权限修改默认骰")
+	}
+	channel, err := model.ChannelGet(data.ChannelID)
+	if err != nil {
+		return nil, err
+	}
+	if channel.ID == "" {
+		return nil, fmt.Errorf("频道不存在")
+	}
+	normalized, err := service.NormalizeDefaultDiceExpr(data.DefaultDiceExpr)
+	if err != nil {
+		return nil, err
+	}
+	if err := model.GetDB().Model(&model.ChannelModel{}).
+		Where("id = ?", channel.ID).
+		Update("default_dice_expr", normalized).Error; err != nil {
+		return nil, err
+	}
+	channel.DefaultDiceExpr = normalized
+	channelData := channel.ToProtocolType()
+	ev := &protocol.Event{
+		Type:    protocol.EventChannelUpdated,
+		Channel: channelData,
+		User:    ctx.User.ToProtocolType(),
+	}
+	ctx.BroadcastEventInChannel(channel.ID, ev)
+	ctx.BroadcastEventInChannelForBot(channel.ID, ev)
+
+	return &struct {
+		ChannelID       string `json:"channel_id"`
+		DefaultDiceExpr string `json:"default_dice_expr"`
+	}{ChannelID: channel.ID, DefaultDiceExpr: normalized}, nil
 }

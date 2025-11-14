@@ -583,7 +583,7 @@ func extractTipTapPlainText(input string) (string, bool) {
 		}
 		writer := newPlainTextWriter()
 		writeTipTapNode(writer, &node)
-		fragments = append(fragments, writer.String())
+		fragments = append(fragments, strings.TrimRight(writer.String(), "\n"))
 	}
 	if len(fragments) == 0 {
 		return "", false

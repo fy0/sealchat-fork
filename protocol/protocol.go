@@ -1,11 +1,12 @@
 package protocol
 
 type Channel struct {
-	ID       string      `json:"id"`
-	Type     ChannelType `json:"type"`
-	Name     string      `json:"name"`
-	ParentID string      `json:"parent_id" gorm:"null"`
-	PermType string      `json:"permType"`
+	ID              string      `json:"id"`
+	Type            ChannelType `json:"type"`
+	Name            string      `json:"name"`
+	ParentID        string      `json:"parent_id" gorm:"null"`
+	PermType        string      `json:"permType"`
+	DefaultDiceExpr string      `json:"defaultDiceExpr,omitempty"`
 }
 
 type ChannelType int
@@ -270,6 +271,7 @@ const (
 	EventGuildMemberRequest     EventName = "guild-member-request"
 	EventTypingPreview          EventName = "typing-preview"
 	EventChannelPresenceUpdated EventName = "channel-presence-updated"
+	EventChannelUpdated         EventName = "channel-updated"
 	EventAudioStateUpdated      EventName = "audio-state-updated"
 	EventChannelIFormUpdated    EventName = "channel-iform-updated"
 	EventChannelIFormPushed     EventName = "channel-iform-pushed"
