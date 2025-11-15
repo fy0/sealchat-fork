@@ -16,6 +16,7 @@ export interface WhisperMeta {
 declare module '@satorijs/protocol' {
   interface Message {
     whisperMeta?: WhisperMeta;
+    senderRoleId?: string;
   }
   interface Channel {
     defaultDiceExpr?: string;
@@ -30,6 +31,7 @@ export interface SatoriMessage {
   guild?: Guild;
   user?: User;
   identity?: MessageIdentity;
+  senderRoleId?: string;
   member?: GuildMember;
   content?: string;
   elements?: any[]; // Element[] 这个好像会让vscode提示一个错误
@@ -40,6 +42,7 @@ export interface SatoriMessage {
   displayOrder?: number;
 
   sender_member_name?: string;
+  sender_role_id?: string;
   isWhisper?: boolean;
   whisperTo?: User | null;
 }

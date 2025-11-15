@@ -93,6 +93,7 @@ type Message struct {
 	Guild         *Guild           `json:"guild"`
 	User          *User            `json:"user"`
 	Identity      *MessageIdentity `json:"identity,omitempty"`
+	SenderRoleID  string           `json:"senderRoleId,omitempty"`
 	Member        *GuildMember     `json:"member"`
 	Content       string           `json:"content"`
 	Elements      []*Element       `json:"elements"`

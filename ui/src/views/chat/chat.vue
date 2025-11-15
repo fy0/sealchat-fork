@@ -2094,6 +2094,9 @@ const visibleRows = computed(() => visibleRowEntries.value.map((entry) => entry.
 
 const getMessageRoleKey = (message: any): string => {
   return (
+    message?.senderRoleId ||
+    message?.sender_role_id ||
+    (message as any)?.sender_identity_id ||
     message?.identity?.id ||
     message?.member?.id ||
     message?.member?.member_id ||
@@ -2162,6 +2165,19 @@ const normalizeMessageShape = (msg: any): Message => {
   }
   if (msg.whisperMeta === undefined && msg.whisper_meta !== undefined) {
     msg.whisperMeta = msg.whisper_meta;
+  }
+
+  if (msg.senderRoleId === undefined && msg.sender_role_id !== undefined) {
+    msg.senderRoleId = msg.sender_role_id;
+  }
+  if (!msg.senderRoleId) {
+    const fallbackRoleId = msg.sender_role_id || (msg as any)?.sender_identity_id || msg.identity?.id || '';
+    if (fallbackRoleId) {
+      msg.senderRoleId = fallbackRoleId;
+    }
+  }
+  if (!msg.sender_role_id && msg.senderRoleId) {
+    msg.sender_role_id = msg.senderRoleId;
   }
   const mergeLegacyWhisperMeta = () => {
     const legacyPairs: Array<[keyof WhisperMeta, any]> = [
@@ -4451,6 +4467,23 @@ const send = throttle(async () => {
     member: chat.curMember || undefined,
     quote: replyTo,
   };
+  const activeIdentity = chat.getActiveIdentity(chat.curChannel?.id);
+  if (activeIdentity) {
+    const normalizedIdentityColor = normalizeHexColor(activeIdentity.color || '') || undefined;
+    (tmpMsg as any).senderRoleId = activeIdentity.id;
+    (tmpMsg as any).sender_role_id = activeIdentity.id;
+    if (!tmpMsg.identity) {
+      tmpMsg.identity = {
+        id: activeIdentity.id,
+        displayName: activeIdentity.displayName,
+        color: normalizedIdentityColor,
+        avatarAttachment: activeIdentity.avatarAttachmentId,
+      } as any;
+    }
+    if (activeIdentity.displayName) {
+      (tmpMsg as any).sender_member_name = activeIdentity.displayName;
+    }
+  }
   (tmpMsg as any).clientId = clientId;
   if (chat.curChannel) {
     (tmpMsg as any).channel = chat.curChannel;

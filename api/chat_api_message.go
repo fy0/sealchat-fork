@@ -669,6 +669,7 @@ func apiMessageCreate(ctx *ChatContext, data *struct {
 		WhisperTo:        data.WhisperTo,
 	}
 	if identity != nil {
+		m.SenderRoleID = identity.ID
 		m.SenderIdentityID = identity.ID
 		m.SenderIdentityName = identity.DisplayName
 		m.SenderIdentityColor = identity.Color

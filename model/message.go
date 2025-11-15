@@ -44,6 +44,7 @@ type MessageModel struct {
 	SenderIdentityName     string `json:"sender_identity_name"`
 	SenderIdentityColor    string `json:"sender_identity_color"`
 	SenderIdentityAvatarID string `json:"sender_identity_avatar_id"`
+	SenderRoleID           string `json:"sender_role_id" gorm:"size:100"`
 
 	User   *UserModel    `json:"user"`           // 嵌套 User 结构体
 	Member *MemberModel  `json:"member"`         // 嵌套 Member 结构体
@@ -102,6 +103,9 @@ func (m *MessageModel) ToProtocolType2(channelData *protocol.Channel) *protocol.
 	}
 	if meta := m.buildWhisperMeta(); meta != nil {
 		msg.WhisperMeta = meta
+	}
+	if m.SenderRoleID != "" {
+		msg.SenderRoleID = m.SenderRoleID
 	}
 	return msg
 }
