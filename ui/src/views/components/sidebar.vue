@@ -3,7 +3,7 @@ import router from '@/router';
 import { chatEvent, useChatStore } from '@/stores/chat';
 import { useUserStore } from '@/stores/user';
 import { Plus } from '@vicons/tabler';
-import { Menu, SettingsSharp } from '@vicons/ionicons5';
+import { Menu, SettingsSharp, ChevronDown, ChevronForward } from '@vicons/ionicons5';
 import { NIcon, useDialog, useMessage } from 'naive-ui';
 import { ref, type Component, h, defineAsyncComponent, watch, onMounted, onUnmounted } from 'vue';
 import Notif from '../notif.vue'
@@ -176,6 +176,18 @@ const suffix = (item: SChannel) => {
 }
 
 const aaa = ref(false);
+
+const toggleParentCollapse = (channelId: string) => {
+  chat.toggleChannelCollapse(channelId);
+};
+
+const handleCollapseAllChannels = () => {
+  chat.collapseAllChannelGroups(true);
+};
+
+const handleChannelSortEntry = () => {
+  message.info('频道排序功能建设中');
+};
 </script>
 
 <template>
@@ -200,6 +212,20 @@ const aaa = ref(false);
                 @click="doChannelSwitch(i)">
 
                 <div class="flex space-x-1 items-center">
+                  <n-button
+                    v-if="(i.children?.length ?? 0) > 0"
+                    quaternary
+                    circle
+                    size="tiny"
+                    class="channel-collapse-trigger"
+                    :aria-expanded="!chat.channelCollapseState[i.id]"
+                    :aria-label="chat.channelCollapseState[i.id] ? '展开子频道' : '折叠子频道'"
+                    @click.stop="toggleParentCollapse(i.id)"
+                  >
+                    <template #icon>
+                      <n-icon :component="chat.channelCollapseState[i.id] ? ChevronForward : ChevronDown" />
+                    </template>
+                  </n-button>
                   <template v-if="(i.type === 3 || (i as any).isPrivate)">
                     <!-- 私聊 -->
                     <n-icon :component="IconFluentMention24Filled"></n-icon>
@@ -253,11 +279,25 @@ const aaa = ref(false);
               </div>
               -->
 
-              <div v-if="(i.children?.length ?? 0) > 0">
+              <div v-if="(i.children?.length ?? 0) > 0 && !chat.channelCollapseState[i.id]">
                 <template v-for="child in i.children">
                   <div class="sider-item" :class="child.id === chat.curChannel?.id ? ['active'] : []"
                     @click="doChannelSwitch(child)">
                     <div class="flex space-x-1 items-center pl-4">
+                      <n-button
+                        v-if="(child.children?.length ?? 0) > 0"
+                        quaternary
+                        circle
+                        size="tiny"
+                        class="channel-collapse-trigger"
+                        :aria-expanded="!chat.channelCollapseState[child.id]"
+                        :aria-label="chat.channelCollapseState[child.id] ? '展开子频道' : '折叠子频道'"
+                        @click.stop="toggleParentCollapse(child.id)"
+                      >
+                        <template #icon>
+                          <n-icon :component="chat.channelCollapseState[child.id] ? ChevronForward : ChevronDown" />
+                        </template>
+                      </n-button>
                       <template v-if="(child.type === 3 || (child as any).isPrivate)">
                         <n-icon :component="IconFluentMention24Filled"></n-icon>
                         <span>{{ `${child.name}` }}</span>
@@ -322,6 +362,15 @@ const aaa = ref(false);
               <n-icon :component="Plus"></n-icon>
               <span>{{ t('channelListNew') }}</span>
             </div>
+          </div>
+
+          <div class="sidebar-footer-actions">
+            <n-button size="tiny" quaternary block @click="handleCollapseAllChannels">
+              折叠全部
+            </n-button>
+            <n-button size="tiny" quaternary block @click="handleChannelSortEntry">
+              频道排序
+            </n-button>
           </div>
         </div>
       </n-tab-pane>
@@ -408,5 +457,22 @@ const aaa = ref(false);
 
 .sider-item:hover > .right-num {
   display: none;
+}
+
+.channel-collapse-trigger {
+  width: 22px;
+  height: 22px;
+  line-height: 1;
+}
+
+.sidebar-footer-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0 0.5rem 0.75rem;
+}
+
+.sidebar-footer-actions .n-button {
+  justify-content: center;
 }
 </style>

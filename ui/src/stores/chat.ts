@@ -23,6 +23,7 @@ interface ChatState {
   channelTreePrivate: SChannel[],
   curChannel: Channel | null,
   curMember: GuildMember | null,
+  channelCollapseState: Record<string, boolean>,
   connectState: 'connecting' | 'connected' | 'disconnected' | 'reconnecting',
   iReconnectAfterTime: number,
   curReplyTo: SatoriMessage | null; // Message 会报错
@@ -113,6 +114,7 @@ export const useChatStore = defineStore({
     channelTreePrivate: [] as any,
     curChannel: null,
     curMember: null,
+    channelCollapseState: {},
     connectState: 'connecting',
     iReconnectAfterTime: 0,
     curReplyTo: null,
@@ -687,6 +689,49 @@ export const useChatStore = defineStore({
       return !!this.channelAdminMap[channelId]?.[userId];
     },
 
+    toggleChannelCollapse(channelId: string) {
+      const next = !this.channelCollapseState[channelId];
+      this.setChannelCollapse(channelId, next);
+    },
+
+    setChannelCollapse(channelId: string, collapsed: boolean) {
+      if (!channelId) return;
+      if (this.channelCollapseState[channelId] === collapsed) {
+        return;
+      }
+      this.channelCollapseState = {
+        ...this.channelCollapseState,
+        [channelId]: collapsed,
+      };
+    },
+
+    collapseAllChannelGroups(collapsed = true) {
+      const next = { ...this.channelCollapseState };
+      this.channelTree.forEach((channel) => {
+        if (channel.children?.length) {
+          next[channel.id] = collapsed;
+        }
+      });
+      this.channelCollapseState = next;
+    },
+
+    ensureChannelCollapseState(tree?: SChannel[]) {
+      const next = { ...this.channelCollapseState };
+      const traverse = (items?: SChannel[]) => {
+        if (!items) return;
+        items.forEach((item) => {
+          if (item.children?.length) {
+            if (next[item.id] === undefined) {
+              next[item.id] = false;
+            }
+            traverse(item.children as SChannel[]);
+          }
+        });
+      };
+      traverse(tree || this.channelTree);
+      this.channelCollapseState = next;
+    },
+
     async channelList() {
       const resp = await this.sendAPI('channel.list', {}) as APIChannelListResp;
       const d = resp.data;
@@ -706,6 +751,7 @@ export const useChatStore = defineStore({
 
       const tree = buildTree('');
       this.channelTree = tree;
+      this.ensureChannelCollapseState(tree as SChannel[]);
 
       if (!this.curChannel) {
         // 这是为了正确标记人数，有点屎但实现了
