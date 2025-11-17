@@ -70,7 +70,7 @@ type NumericSettingKey =
   | 'paragraphSpacing'
   | 'messagePaddingX'
   | 'messagePaddingY'
-const handleNumericInput = (key: NumericSettingKey) => (value: number | null) => {
+const handleNumericInput = (key: NumericSettingKey, value: number | null) => {
   if (value === null) return
   draft[key] = value as DisplaySettings[NumericSettingKey]
 }
@@ -87,10 +87,11 @@ const handleConfirm = () => emit('save', { ...draft })
 
 <template>
   <n-modal
+    class="display-settings-modal"
     preset="card"
     :show="props.visible"
     title="显示模式"
-    :style="{ width: '520px' }"
+    :style="{ width: 'min(880px, 96vw)' }"
     @update:show="emit('update:visible', $event)"
   >
     <div class="display-settings">
@@ -162,11 +163,11 @@ const handleConfirm = () => emit('save', { ...draft })
             <div class="control-input">
               <n-slider v-model:value="draft.fontSize" :min="12" :max="22" :step="1" :format-tooltip="formatPxTooltip" />
               <n-input-number
-                :value="draft.fontSize"
+                v-model:value="draft.fontSize"
                 size="small"
                 :min="12"
                 :max="22"
-                @update:value="handleNumericInput('fontSize')"
+                @update:value="(v) => handleNumericInput('fontSize', v)"
               />
             </div>
           </div>
@@ -184,12 +185,12 @@ const handleConfirm = () => emit('save', { ...draft })
                 :format-tooltip="formatLineHeightTooltip"
               />
               <n-input-number
-                :value="draft.lineHeight"
+                v-model:value="draft.lineHeight"
                 size="small"
                 :min="1.2"
                 :max="2"
                 :step="0.05"
-                @update:value="handleNumericInput('lineHeight')"
+                @update:value="(v) => handleNumericInput('lineHeight', v)"
               />
             </div>
           </div>
@@ -207,12 +208,12 @@ const handleConfirm = () => emit('save', { ...draft })
                 :format-tooltip="formatLetterSpacingTooltip"
               />
               <n-input-number
-                :value="draft.letterSpacing"
+                v-model:value="draft.letterSpacing"
                 size="small"
                 :min="-1"
                 :max="2"
                 :step="0.1"
-                @update:value="handleNumericInput('letterSpacing')"
+                @update:value="(v) => handleNumericInput('letterSpacing', v)"
               />
             </div>
           </div>
@@ -235,12 +236,12 @@ const handleConfirm = () => emit('save', { ...draft })
             <div class="control-input">
               <n-slider v-model:value="draft.bubbleGap" :min="4" :max="48" :step="2" :format-tooltip="formatPxTooltip" />
               <n-input-number
-                :value="draft.bubbleGap"
+                v-model:value="draft.bubbleGap"
                 size="small"
                 :min="4"
                 :max="48"
                 :step="2"
-                @update:value="handleNumericInput('bubbleGap')"
+                @update:value="(v) => handleNumericInput('bubbleGap', v)"
               />
             </div>
           </div>
@@ -258,11 +259,11 @@ const handleConfirm = () => emit('save', { ...draft })
                 :format-tooltip="formatPxTooltip"
               />
               <n-input-number
-                :value="draft.paragraphSpacing"
+                v-model:value="draft.paragraphSpacing"
                 size="small"
                 :min="0"
                 :max="24"
-                @update:value="handleNumericInput('paragraphSpacing')"
+                @update:value="(v) => handleNumericInput('paragraphSpacing', v)"
               />
             </div>
           </div>
@@ -291,11 +292,11 @@ const handleConfirm = () => emit('save', { ...draft })
                 :format-tooltip="formatPxTooltip"
               />
               <n-input-number
-                :value="draft.messagePaddingX"
+                v-model:value="draft.messagePaddingX"
                 size="small"
                 :min="8"
                 :max="48"
-                @update:value="handleNumericInput('messagePaddingX')"
+                @update:value="(v) => handleNumericInput('messagePaddingX', v)"
               />
             </div>
           </div>
@@ -313,11 +314,11 @@ const handleConfirm = () => emit('save', { ...draft })
                 :format-tooltip="formatPxTooltip"
               />
               <n-input-number
-                :value="draft.messagePaddingY"
+                v-model:value="draft.messagePaddingY"
                 size="small"
                 :min="4"
                 :max="32"
-                @update:value="handleNumericInput('messagePaddingY')"
+                @update:value="(v) => handleNumericInput('messagePaddingY', v)"
               />
             </div>
           </div>
@@ -367,10 +368,14 @@ const handleConfirm = () => emit('save', { ...draft })
 </template>
 
 <style scoped lang="scss">
-:deep(.n-card) {
+.display-settings-modal :global(.n-card) {
   background-color: var(--sc-bg-elevated);
   border: 1px solid var(--sc-border-strong);
   color: var(--sc-text-primary);
+}
+
+.display-settings-modal :global(.n-card__content) {
+  max-width: 100%;
 }
 
 .display-settings {
@@ -389,8 +394,13 @@ const handleConfirm = () => emit('save', { ...draft })
 .control-field {
   display: flex;
   justify-content: space-between;
-  gap: 1rem;
-  align-items: center;
+  gap: 1.25rem;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+.control-field > div:first-child {
+  flex: 0 0 220px;
 }
 
 .control-title {
@@ -406,6 +416,7 @@ const handleConfirm = () => emit('save', { ...draft })
 
 .control-input {
   flex: 1;
+  min-width: 280px;
   display: grid;
   grid-template-columns: 1fr auto;
   gap: 0.6rem;
@@ -414,6 +425,10 @@ const handleConfirm = () => emit('save', { ...draft })
 
 .control-input :deep(.n-slider) {
   margin: 0;
+}
+
+.control-input :deep(.n-input-number) {
+  min-width: 120px;
 }
 
 .display-settings__section header {
@@ -520,5 +535,27 @@ const handleConfirm = () => emit('save', { ...draft })
 
 .display-settings__footer {
   margin-top: 0.5rem;
+}
+
+@media (max-width: 720px) {
+  .control-field {
+    flex-direction: column;
+  }
+
+  .control-field > div:first-child {
+    flex: 1;
+    width: 100%;
+  }
+
+  .control-input {
+    width: 100%;
+    min-width: 0;
+    grid-template-columns: 1fr;
+    gap: 0.4rem;
+  }
+
+  .control-input :deep(.n-input-number) {
+    width: 100%;
+  }
 }
 </style>

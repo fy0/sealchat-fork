@@ -4,10 +4,12 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/spf13/afero"
@@ -186,6 +188,7 @@ func AttachmentGet(c *fiber.Ctx) error {
 	if strings.TrimSpace(att.ObjectKey) != "" {
 		if path, err := service.ResolveLocalAttachmentPath(att.ObjectKey); err == nil {
 			if _, err := os.Stat(path); err == nil {
+				setAttachmentCacheHeaders(c, &att)
 				return c.SendFile(path)
 			}
 		}
@@ -205,6 +208,7 @@ func AttachmentGet(c *fiber.Ctx) error {
 		}
 		return wrapError(c, err, "读取附件失败")
 	}
+	setAttachmentCacheHeaders(c, &att)
 	return c.SendFile(fullPath)
 }
 
@@ -280,6 +284,7 @@ func trySendUploadFile(c *fiber.Ctx, token string) (bool, error) {
 		}
 		return true, wrapError(c, err, "读取附件失败")
 	}
+	setAttachmentCacheHeaders(c, nil)
 	return true, c.SendFile(fullPath)
 }
 
@@ -307,4 +312,24 @@ func redirectAttachmentToRemote(c *fiber.Ctx, att *model.AttachmentModel) bool {
 	}
 	_ = c.Redirect(target, fiber.StatusTemporaryRedirect)
 	return true
+}
+
+const attachmentCacheTTL = 365 * 24 * time.Hour
+
+func setAttachmentCacheHeaders(c *fiber.Ctx, att *model.AttachmentModel) {
+	maxAge := int(attachmentCacheTTL / time.Second)
+	c.Set("Cache-Control", fmt.Sprintf("public, max-age=%d, immutable", maxAge))
+	c.Set("Expires", time.Now().Add(attachmentCacheTTL).UTC().Format(http.TimeFormat))
+	if att == nil {
+		return
+	}
+	lastModified := att.UpdatedAt
+	if lastModified.IsZero() && !att.CreatedAt.IsZero() {
+		lastModified = att.CreatedAt
+	}
+	if !lastModified.IsZero() {
+		c.Set("Last-Modified", lastModified.UTC().Format(http.TimeFormat))
+	}
+	etag := fmt.Sprintf(`W/"%s-%d"`, att.ID, att.Size)
+	c.Set("ETag", etag)
 }
