@@ -255,6 +255,17 @@ const otherEditingPreview = computed(() => (
   props.editingPreview && !props.editingPreview.isSelf ? props.editingPreview : null
 ));
 
+const contentClassList = computed(() => {
+  const classes: Record<string, boolean> = {
+    'whisper-content': Boolean(props.item?.isWhisper),
+    'content--editing-preview': Boolean(otherEditingPreview.value),
+  };
+  if (otherEditingPreview.value && props.layout === 'bubble') {
+    classes['content--editing-preview--bubble'] = true;
+  }
+  return classes;
+});
+
 const isEditing = computed(() => chat.isEditingMessage(props.item?.id));
 const canEdit = computed(() => props.item?.user?.id === user.info.id);
 
@@ -467,7 +478,7 @@ watch(() => props.item?.updatedAt, () => {
           class=" bg-blue-500 rounded-md px-2 text-white">bot</span>
       </span>
       <div class="content break-all relative" ref="messageContentRef" @contextmenu="onContextMenu($event, item)"
-        :class="[{ 'whisper-content': props.item?.isWhisper }, { 'content--editing-preview': !!otherEditingPreview }]">
+        :class="contentClassList">
         <div v-if="canEdit && !selfEditingPreview" class="message-action-bar"
           :class="{ 'message-action-bar--active': isEditing }">
           <n-tooltip trigger="hover">
@@ -513,12 +524,13 @@ watch(() => props.item?.updatedAt, () => {
           </div>
         </template>
         <template v-else>
-          <div class="editing-preview__bubble editing-preview__bubble--inline">
-            <div class="editing-preview__header">
-              <span class="editing-preview__name">{{ otherEditingPreview?.displayName || '未知成员' }}</span>
-              <span class="editing-preview__tag">正在编辑</span>
-            </div>
-          <div class="editing-preview__body" :class="{ 'is-placeholder': otherEditingPreview?.indicatorOnly }">
+          <div
+            :class="[
+              'editing-preview__bubble',
+              'editing-preview__bubble--inline',
+            ]"
+          >
+            <div class="editing-preview__body" :class="{ 'is-placeholder': otherEditingPreview?.indicatorOnly }">
             <template v-if="otherEditingPreview?.indicatorOnly">
               正在更新内容...
             </template>
@@ -530,7 +542,7 @@ watch(() => props.item?.updatedAt, () => {
               ></div>
               <span v-else>{{ otherEditingPreview?.summary || '[图片]' }}</span>
             </template>
-          </div>
+            </div>
           </div>
         </template>
         <div v-if="props.item?.failed" class="failed absolute bg-red-600 rounded-md px-2 text-white">!</div>
@@ -545,10 +557,6 @@ watch(() => props.item?.updatedAt, () => {
   width: 100%;
   align-items: flex-start;
   gap: 0.4rem;
-  --editing-preview-border: rgba(59, 130, 246, 0.55);
-  --editing-preview-bg: rgba(219, 234, 254, 0.92);
-  --editing-preview-text: #1d4ed8;
-  --editing-preview-shadow: rgba(59, 130, 246, 0.12);
 }
 
 .chat-item__avatar {
@@ -628,10 +636,6 @@ watch(() => props.item?.updatedAt, () => {
   background: var(--chat-whisper-bg, #eef2ff);
   border: 1px solid var(--chat-whisper-border, rgba(99, 102, 241, 0.35));
   color: var(--chat-text-primary, #1f2937);
-  --editing-preview-border: rgba(109, 40, 217, 0.55);
-  --editing-preview-bg: rgba(233, 213, 255, 0.92);
-  --editing-preview-text: #5b21b6;
-  --editing-preview-shadow: rgba(109, 40, 217, 0.15);
 }
 
 .chat-item--layout-bubble > .right {
@@ -895,50 +899,36 @@ watch(() => props.item?.updatedAt, () => {
   background: transparent;
 }
 
-.content--editing-preview .editing-preview__bubble--inline {
-  border: 1px dashed var(--editing-preview-border);
-  background-color: var(--editing-preview-bg);
-  color: var(--editing-preview-text);
-  border-radius: 0.75rem;
-  padding: 0.55rem 0.75rem;
-  max-width: 32rem;
-  box-shadow: 0 4px 10px var(--editing-preview-shadow);
-}
 
 .editing-preview__bubble {
-  border: 1px dashed var(--editing-preview-border);
-  background-color: var(--editing-preview-bg);
-  color: var(--editing-preview-text);
-  border-radius: 0.75rem;
-  padding: 0.55rem 0.75rem;
+  width: 100%;
+  border-radius: var(--chat-message-radius, 0.85rem);
+  padding: 0.6rem 0.9rem;
   max-width: 32rem;
-  box-shadow: 0 4px 10px var(--editing-preview-shadow);
+  background-color: var(--chat-preview-bg, #f6f7fb);
+  border: none;
+  box-shadow: none;
+  color: var(--chat-text-primary, #1f2937);
 }
 
-.editing-preview__header {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  margin-bottom: 0.35rem;
-}
-
-.editing-preview__name {
-  font-size: 0.75rem;
-  font-weight: 600;
-}
-
-.editing-preview__tag {
-  font-size: 0.625rem;
-  padding: 0.1rem 0.4rem;
-  border-radius: 9999px;
-  background-color: rgba(59, 130, 246, 0.18);
+.chat-item--layout-compact .content--editing-preview .editing-preview__bubble {
+  background-image: radial-gradient(var(--chat-preview-dot, rgba(148, 163, 184, 0.45)) 1px, transparent 1px);
+  background-size: 6px 6px;
 }
 
 .editing-preview__body {
   white-space: pre-wrap;
   word-break: break-word;
   font-size: 0.9rem;
-  color: var(--editing-preview-text);
+  line-height: 1.5;
+}
+
+.editing-preview__body {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  color: inherit;
 }
 
 .editing-preview__rich {
@@ -947,7 +937,7 @@ watch(() => props.item?.updatedAt, () => {
 }
 
 .editing-preview__body.is-placeholder {
-  color: #4b5563;
+  color: #6b7280;
 }
 
 .editing-self-actions {
@@ -1030,10 +1020,6 @@ watch(() => props.item?.updatedAt, () => {
   background: var(--chat-ooc-bg, rgba(156, 163, 175, 0.1));
   border: none;
   color: var(--chat-text-secondary, #6b7280);
-  --editing-preview-border: rgba(156, 163, 175, 0.55);
-  --editing-preview-bg: rgba(243, 244, 246, 0.95);
-  --editing-preview-text: #4b5563;
-  --editing-preview-shadow: rgba(107, 114, 128, 0.15);
 }
 
 .chat-item--archived {

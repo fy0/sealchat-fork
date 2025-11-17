@@ -5658,23 +5658,12 @@ onBeforeUnmount(() => {
                   <AvatarVue :border="false" :size="40" :src="preview.avatar" />
                 </div>
                 <div class="typing-preview-main">
-                  <div :class="['typing-preview-bubble', preview.indicatorOnly ? '' : 'typing-preview-bubble--content']">
-                    <div class="typing-preview-bubble__header">
-                      <div class="typing-preview-bubble__meta">
-                        <span
-                          class="typing-preview-bubble__name"
-                          :style="preview.color ? { color: preview.color } : undefined"
-                        >{{ preview.displayName }}</span>
-                        <span class="typing-preview-bubble__tag">
-                          {{ preview.indicatorOnly ? '正在输入' : '实时内容' }}
-                        </span>
-                      </div>
-                      <span class="typing-dots">
-                        <span></span>
-                        <span></span>
-                        <span></span>
-                      </span>
-                    </div>
+                  <div
+                    :class="[
+                      'typing-preview-bubble',
+                      preview.indicatorOnly ? '' : 'typing-preview-bubble--content',
+                    ]"
+                  >
                     <div
                       class="typing-preview-bubble__body"
                       :class="{ 'typing-preview-bubble__placeholder': preview.indicatorOnly }"
@@ -5686,6 +5675,11 @@ onBeforeUnmount(() => {
                         <div v-html="renderPreviewContent(preview.content)" class="preview-content"></div>
                       </template>
                     </div>
+                    <span class="typing-dots typing-dots--bubble">
+                      <span></span>
+                      <span></span>
+                      <span></span>
+                    </span>
                   </div>
                 </div>
               </div>
@@ -6676,15 +6670,6 @@ onBeforeUnmount(() => {
   background-image: radial-gradient(var(--chat-preview-dot-ooc) 1px, transparent 1px);
 }
 
-.chat--layout-compact .typing-preview-bubble {
-  width: 100%;
-  max-width: none;
-  background: transparent;
-  box-shadow: none;
-  border-radius: 0;
-  padding: 0;
-}
-
 .identity-drawer__header {
   display: flex;
   align-items: center;
@@ -6985,16 +6970,23 @@ onBeforeUnmount(() => {
   flex: 1;
   max-width: 32rem;
   padding: var(--chat-message-padding-y, 0.85rem) var(--chat-message-padding-x, 1.1rem);
-  border-radius: var(--chat-message-radius);
+  border-radius: var(--chat-message-radius, 0.85rem);
   border: none;
-  background-color: var(--chat-preview-bg);
-  background-image: radial-gradient(var(--chat-preview-dot) 1px, transparent 1px);
-  background-size: 6px 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  background-color: var(--chat-preview-bg, #f6f7fb);
+  color: var(--chat-text-primary, #1f2937);
   box-shadow: none;
 }
 
+.chat--layout-compact .typing-preview-bubble {
+  background-image: radial-gradient(var(--chat-preview-dot, rgba(148, 163, 184, 0.55)) 1px, transparent 1px);
+  background-size: 6px 6px;
+}
+
 .typing-preview-bubble--content {
-  color: var(--chat-text-primary);
+  color: inherit;
 }
 
 .typing-preview-grid {
@@ -7050,51 +7042,6 @@ onBeforeUnmount(() => {
 
 .typing-preview-inline-body--placeholder .typing-preview-inline-tag {
   background-color: rgba(156, 163, 175, 0.24);
-}
-
-.typing-preview-bubble__footer {
-  margin-top: 0.5rem;
-  display: flex;
-  justify-content: flex-end;
-  gap: 0.5rem;
-}
-
-.typing-preview-bubble__header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 0.35rem;
-}
-
-.typing-preview-bubble__meta {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-}
-
-.typing-preview-bubble__name {
-  font-size: 0.75rem;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  color: #4b5563;
-}
-
-.typing-preview-bubble--content .typing-preview-bubble__name {
-  color: #1e3a8a;
-}
-
-.typing-preview-bubble__tag {
-  font-size: 0.625rem;
-  padding: 0.1rem 0.4rem;
-  border-radius: 9999px;
-  background-color: rgba(156, 163, 175, 0.18);
-  color: #4b5563;
-  font-weight: 500;
-}
-
-.typing-preview-bubble--content .typing-preview-bubble__tag {
-  background-color: rgba(59, 130, 246, 0.18);
-  color: #1d4ed8;
 }
 
 .typing-preview-bubble__body {
@@ -7207,6 +7154,11 @@ onBeforeUnmount(() => {
 
 .typing-dots--inline {
   margin-left: 0.25rem;
+}
+
+.typing-dots--bubble {
+  align-self: flex-end;
+  margin-top: 0.15rem;
 }
 
 .typing-preview-bubble--content .typing-dots span {
