@@ -161,10 +161,6 @@ func ReadConfig() *AppConfig {
 		},
 	}
 
-	if strings.TrimSpace(config.ImageBaseURL) == "" {
-		config.ImageBaseURL = defaultImageBaseURL(config.ServeAt)
-	}
-
 	lo.Must0(k.Load(structs.Provider(&config, "yaml"), nil))
 
 	f := file.Provider("config.yaml")
@@ -201,9 +197,6 @@ func ReadConfig() *AppConfig {
 		}
 	}
 
-	if strings.TrimSpace(config.ImageBaseURL) == "" {
-		config.ImageBaseURL = defaultImageBaseURL(config.ServeAt)
-	}
 	if strings.TrimSpace(config.PageTitle) == "" {
 		config.PageTitle = defaultPageTitle
 	}
@@ -214,6 +207,7 @@ func ReadConfig() *AppConfig {
 	if strings.TrimSpace(config.Storage.Local.AudioDir) == "" {
 		config.Storage.Local.AudioDir = config.Audio.StorageDir
 	}
+	applyImageBaseURLFallback(&config)
 
 	k.Print()
 	currentConfig = &config
@@ -297,6 +291,15 @@ func WriteConfig(config *AppConfig) {
 	err = os.WriteFile("./config.yaml", content, 0644)
 	if err != nil {
 		fmt.Println("错误: 配置文件写入失败")
+	}
+}
+
+func applyImageBaseURLFallback(config *AppConfig) {
+	if config == nil {
+		return
+	}
+	if strings.TrimSpace(config.ImageBaseURL) == "" && strings.TrimSpace(config.Domain) == "" {
+		config.ImageBaseURL = defaultImageBaseURL(config.ServeAt)
 	}
 }
 
