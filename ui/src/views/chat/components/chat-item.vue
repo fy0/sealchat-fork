@@ -32,6 +32,10 @@ const chat = useChatStore();
 const utils = useUtilsStore();
 const { t } = useI18n();
 
+const isMobileUa = typeof navigator !== 'undefined'
+  ? /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
+  : false;
+
 function timeFormat(time?: string) {
   if (!time) return '未知';
   // console.log('???', time, typeof time)
@@ -348,6 +352,9 @@ onMounted(() => {
   stopMessageLongPress = onLongPress(
     messageContentRef,
     (event) => {
+      if (!isMobileUa) {
+        return;
+      }
       const isTouchEvent =
         ('touches' in event) ||
         ('pointerType' in event && event.pointerType === 'touch');
