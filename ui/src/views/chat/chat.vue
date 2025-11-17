@@ -2343,25 +2343,25 @@ const mergeIncomingMessages = (items: Message[]) => {
   if (!Array.isArray(items) || items.length === 0) {
     return;
   }
+  const nextRows = rows.value.slice();
   let mutated = false;
   items.forEach((incoming) => {
     if (!incoming || !incoming.id) {
       return;
     }
-    const index = rows.value.findIndex((msg) => msg.id === incoming.id);
+    const index = nextRows.findIndex((msg) => msg.id === incoming.id);
     if (index >= 0) {
-      const merged = {
-        ...rows.value[index],
+      nextRows[index] = {
+        ...nextRows[index],
         ...incoming,
       };
-      rows.value.splice(index, 1, merged);
     } else {
-      rows.value.push(incoming);
+      nextRows.push(incoming);
     }
     mutated = true;
   });
   if (mutated) {
-    sortRowsByDisplayOrder();
+    rows.value = nextRows.sort(compareByDisplayOrder);
   }
 };
 
