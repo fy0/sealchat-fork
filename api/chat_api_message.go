@@ -846,6 +846,7 @@ func apiMessageList(ctx *ChatContext, data *struct {
 	IncludeArchived bool     `json:"include_archived"`
 	ArchivedOnly    bool     `json:"archived_only"`
 	UserIDs         []string `json:"user_ids"`
+	Limit           int      `json:"limit"`
 }) (any, error) {
 	db := model.GetDB()
 
@@ -938,6 +939,14 @@ func apiMessageList(ctx *ChatContext, data *struct {
 		}
 	}
 
+	limit := data.Limit
+	if limit <= 0 {
+		limit = 30
+	}
+	if limit > 50 {
+		limit = 50
+	}
+
 	q.Order("display_order desc").
 		Order("created_at desc").
 		Order("id desc").
@@ -946,7 +955,7 @@ func apiMessageList(ctx *ChatContext, data *struct {
 		}).
 		Preload("Member", func(db *gorm.DB) *gorm.DB {
 			return db.Select("id, nickname, channel_id")
-		}).Limit(30).Find(&items)
+		}).Limit(limit).Find(&items)
 
 	utils.QueryOneToManyMap(model.GetDB(), items, func(i *model.MessageModel) []string {
 		return []string{i.QuoteID}

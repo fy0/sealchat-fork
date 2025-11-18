@@ -2020,6 +2020,7 @@ watch(() => chat.curChannel?.id, () => {
 });
 
 const SCROLL_STICKY_THRESHOLD = 200;
+const INITIAL_MESSAGE_LOAD_LIMIT = 10;
 
 const rows = ref<Message[]>([]);
 const listRevision = ref(0);
@@ -5040,11 +5041,45 @@ onBeforeUnmount(() => {
 });
 
 const messagesNextFlag = ref("");
+let initialHistoryPrefetched = false;
+let initialHistoryPrefetching = false;
+
+const prefetchInitialHistory = async () => {
+  if (initialHistoryPrefetched || initialHistoryPrefetching) return;
+  if (!messagesNextFlag.value || !chat.curChannel?.id) {
+    return;
+  }
+  initialHistoryPrefetching = true;
+  try {
+    const older = await chat.messageList(chat.curChannel.id, messagesNextFlag.value, {
+      includeArchived: chat.filterState.showArchived,
+    });
+    messagesNextFlag.value = older.next || "";
+
+    if (older?.data?.length) {
+      const normalized = normalizeMessageList(older.data);
+      rows.value.unshift(...normalized);
+      sortRowsByDisplayOrder();
+      nextTick(() => {
+        scrollToBottom();
+        showButton.value = false;
+      });
+    }
+    initialHistoryPrefetched = true;
+  } catch (error) {
+    console.warn('预取历史消息失败', error);
+  } finally {
+    initialHistoryPrefetching = false;
+  }
+};
 
 const loadMessages = async () => {
   resetTypingPreview();
+  initialHistoryPrefetched = false;
+  initialHistoryPrefetching = false;
   const messages = await chat.messageList(chat.curChannel?.id || '', undefined, {
     includeArchived: chat.filterState.showArchived,
+    limit: INITIAL_MESSAGE_LOAD_LIMIT,
   });
   messagesNextFlag.value = messages.next || "";
   rows.value = normalizeMessageList(messages.data);
@@ -5054,6 +5089,8 @@ const loadMessages = async () => {
     scrollToBottom();
     showButton.value = false;
   })
+
+  await prefetchInitialHistory();
 }
 
 const showButton = ref(false)

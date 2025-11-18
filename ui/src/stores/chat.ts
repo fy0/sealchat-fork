@@ -1470,6 +1470,7 @@ export const useChatStore = defineStore({
       archivedOnly?: boolean;
       icOnly?: boolean;
       userIds?: string[];
+      limit?: number;
     }) {
       const payload: Record<string, any> = {
         channel_id: channelId,
@@ -1492,6 +1493,12 @@ export const useChatStore = defineStore({
         }
         if (options.userIds && options.userIds.length > 0) {
           payload.user_ids = options.userIds;
+        }
+        if (typeof options.limit === 'number') {
+          const normalizedLimit = Number(options.limit);
+          if (Number.isFinite(normalizedLimit) && normalizedLimit > 0) {
+            payload.limit = normalizedLimit;
+          }
         }
       }
       const resp = await this.sendAPI('message.list', payload as APIMessage);
