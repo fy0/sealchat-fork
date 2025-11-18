@@ -5188,13 +5188,26 @@ const keyDown = function (e: KeyboardEvent) {
     return;
   }
 
-  if (e.key === 'Enter' && (!e.ctrlKey) && (!e.shiftKey)) {
-    if (isEditing.value) {
-      saveEdit();
-    } else {
-      send();
+  if (e.key === 'Enter') {
+    if (e.isComposing) {
+      return;
     }
-    e.preventDefault();
+    const shortcut = display.settings.sendShortcut || 'enter';
+    const ctrlLike = e.ctrlKey || e.metaKey;
+    let shouldSend = false;
+    if (shortcut === 'enter') {
+      shouldSend = !ctrlLike && !e.shiftKey && !e.altKey;
+    } else {
+      shouldSend = ctrlLike && !e.shiftKey && !e.altKey;
+    }
+    if (shouldSend) {
+      if (isEditing.value) {
+        saveEdit();
+      } else {
+        send();
+      }
+      e.preventDefault();
+    }
   }
 }
 

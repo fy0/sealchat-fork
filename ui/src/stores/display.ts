@@ -18,6 +18,7 @@ export interface DisplaySettings {
   paragraphSpacing: number
   messagePaddingX: number
   messagePaddingY: number
+  sendShortcut: 'enter' | 'ctrlEnter'
   favoriteChannelBarEnabled: boolean
   favoriteChannelIdsByWorld: Record<string, string[]>
 }
@@ -54,6 +55,8 @@ const MESSAGE_PADDING_X_MAX = 48
 const MESSAGE_PADDING_Y_DEFAULT = 14
 const MESSAGE_PADDING_Y_MIN = 4
 const MESSAGE_PADDING_Y_MAX = 32
+const SEND_SHORTCUT_DEFAULT: 'enter' | 'ctrlEnter' = 'enter'
+const coerceSendShortcut = (value?: string): 'enter' | 'ctrlEnter' => (value === 'ctrlEnter' ? 'ctrlEnter' : 'enter')
 
 const coerceLayout = (value?: string): DisplayLayout => (value === 'compact' ? 'compact' : 'bubble')
 const coercePalette = (value?: string): DisplayPalette => (value === 'night' ? 'night' : 'day')
@@ -121,6 +124,7 @@ export const createDefaultDisplaySettings = (): DisplaySettings => ({
   paragraphSpacing: PARAGRAPH_SPACING_DEFAULT,
   messagePaddingX: MESSAGE_PADDING_X_DEFAULT,
   messagePaddingY: MESSAGE_PADDING_Y_DEFAULT,
+  sendShortcut: SEND_SHORTCUT_DEFAULT,
   favoriteChannelBarEnabled: false,
   favoriteChannelIdsByWorld: {},
 })
@@ -187,6 +191,7 @@ const loadSettings = (): DisplaySettings => {
         MESSAGE_PADDING_Y_MIN,
         MESSAGE_PADDING_Y_MAX,
       ),
+      sendShortcut: coerceSendShortcut((parsed as any)?.sendShortcut),
       favoriteChannelBarEnabled: coerceBoolean(parsed.favoriteChannelBarEnabled),
       favoriteChannelIdsByWorld,
     }
@@ -268,6 +273,10 @@ const normalizeWith = (base: DisplaySettings, patch?: Partial<DisplaySettings>):
           MESSAGE_PADDING_Y_MAX,
         )
       : base.messagePaddingY,
+  sendShortcut:
+    patch && Object.prototype.hasOwnProperty.call(patch, 'sendShortcut')
+      ? coerceSendShortcut((patch as any).sendShortcut)
+      : base.sendShortcut,
   favoriteChannelBarEnabled:
     patch && Object.prototype.hasOwnProperty.call(patch, 'favoriteChannelBarEnabled')
       ? coerceBoolean(patch.favoriteChannelBarEnabled)

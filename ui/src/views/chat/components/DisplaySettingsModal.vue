@@ -37,6 +37,7 @@ watch(
     draft.paragraphSpacing = value.paragraphSpacing
     draft.messagePaddingX = value.messagePaddingX
     draft.messagePaddingY = value.messagePaddingY
+    draft.sendShortcut = value.sendShortcut
     syncFavoriteBar(value)
   },
   { deep: true, immediate: true },
@@ -325,6 +326,20 @@ const handleConfirm = () => emit('save', { ...draft })
       </section>
 
       <section class="display-settings__section">
+        <header>
+          <div>
+            <p class="section-title">输入与发送</p>
+            <p class="section-desc">选择回车发送方式，另一组合则换行</p>
+          </div>
+        </header>
+        <n-radio-group v-model:value="draft.sendShortcut" size="large">
+          <n-radio-button value="enter">Enter 直接发送</n-radio-button>
+          <n-radio-button value="ctrlEnter">Ctrl / Cmd + Enter 发送</n-radio-button>
+        </n-radio-group>
+        <p class="control-desc control-desc--hint">Shift + Enter 始终换行</p>
+      </section>
+
+      <section class="display-settings__section">
         <header class="preview-header">
           <div>
             <p class="section-title">实时预览</p>
@@ -411,6 +426,9 @@ const handleConfirm = () => emit('save', { ...draft })
   font-size: 0.75rem;
   color: var(--sc-text-secondary);
   margin-top: 0.15rem;
+}
+.control-desc--hint {
+  margin-top: 0.35rem;
 }
 
 .control-input {
