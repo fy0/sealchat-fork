@@ -13,6 +13,22 @@
   webUrl: /
   pageTitle: "海豹尬聊 SealChat"
 
+  sqlite:
+    # 是否启用 WAL 日志，提高读写并发
+    wal: true
+    # busy_timeout 毫秒，避免高并发锁冲突，建议 5s-15s
+    busyTimeout: 10000
+    # page cache 大小，单位 KB；负值表示 KB。示例 512000=约512MB
+    cacheSizeKB: 512000
+    # 同步级别 OFF/NORMAL/FULL，NORMAL 在 WAL 下性能/可靠性平衡
+    synchronous: NORMAL
+    # 是否在 DSN 追加 _txlock=immediate，写事务提前拿写锁
+    txLockImmediate: true
+    # 读连接数量，通常设为 CPU 核数；写连接固定串行
+    readConnections: 2
+    # 启动时执行 PRAGMA optimize，用于清理和收敛统计信息
+    optimizeOnInit: true
+
   audio:
     storageDir: ./static/audio
     tempDir: ./data/audio-temp
