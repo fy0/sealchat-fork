@@ -14,7 +14,9 @@ const loadInvites = async () => {
   loading.value = true;
   try {
     const resp = await chat.loadWorldSections(props.worldId, ['invites']);
-    invites.value = resp.invites || [];
+    const list = Array.isArray(resp.invites) ? resp.invites : [];
+    invites.value = list.length ? [list[0]] : [];
+    latestInvite.value = invites.value[0] || null;
   } catch (e) {
     message.error('加载邀请失败');
   } finally {

@@ -411,6 +411,12 @@ func WorldInviteCreate(worldID, creatorID string, ttlMinutes int, maxUse int, me
 	if !IsWorldAdmin(worldID, creatorID) {
 		return nil, ErrWorldPermission
 	}
+	db := model.GetDB()
+	if err := db.Model(&model.WorldInviteModel{}).
+		Where("world_id = ? AND status = ?", worldID, "active").
+		Updates(map[string]any{"status": "archived", "updated_at": time.Now()}).Error; err != nil {
+		return nil, err
+	}
 	invite := &model.WorldInviteModel{
 		WorldID:   worldID,
 		CreatorID: creatorID,
@@ -425,7 +431,7 @@ func WorldInviteCreate(worldID, creatorID string, ttlMinutes int, maxUse int, me
 	if maxUse < 0 {
 		invite.MaxUse = 0
 	}
-	if err := model.GetDB().Create(invite).Error; err != nil {
+	if err := db.Create(invite).Error; err != nil {
 		return nil, err
 	}
 	return invite, nil
