@@ -371,6 +371,9 @@ func websocketWorks(app *fiber.App) {
 					case "message.delete":
 						apiWrap(ctx, msg, apiMessageDelete)
 						solved = true
+					case "message.remove":
+						apiWrap(ctx, msg, apiMessageRemove)
+						solved = true
 					case "message.reorder":
 						apiWrap(ctx, msg, apiMessageReorder)
 						solved = true

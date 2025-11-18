@@ -1192,6 +1192,7 @@ export const useChatStore = defineStore({
       }));
       const adminPerms = new Set([
         'func_channel_message_archive',
+        'func_channel_message_delete',
         'func_channel_manage_info',
         'func_channel_manage_role',
         'func_channel_manage_role_root',
@@ -1550,6 +1551,11 @@ export const useChatStore = defineStore({
 
     async messageDelete(channel_id: string, message_id: string) {
       const resp = await this.sendAPI('message.delete', { channel_id, message_id });
+      return resp.data;
+    },
+
+    async messageRemove(channel_id: string, message_id: string) {
+      const resp = await this.sendAPI('message.remove', { channel_id, message_id });
       return resp.data;
     },
 

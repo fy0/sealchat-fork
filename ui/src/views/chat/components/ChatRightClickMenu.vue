@@ -4,13 +4,17 @@ import type { User } from '@satorijs/protocol';
 import { useChatStore } from '@/stores/chat';
 import { computed } from 'vue';
 import Element from '@satorijs/element'
-import { useMessage } from 'naive-ui';
+import { useDialog, useMessage, useThemeVars } from 'naive-ui';
 import { useUserStore } from '@/stores/user';
 import { useI18n } from 'vue-i18n';
 import { isTipTapJson, tiptapJsonToPlainText } from '@/utils/tiptap-render';
+import { useDisplayStore } from '@/stores/display';
 
 const chat = useChatStore()
 const message = useMessage()
+const dialog = useDialog()
+const themeVars = useThemeVars()
+const display = useDisplayStore()
 const { t } = useI18n();
 const user = useUserStore()
 
@@ -156,6 +160,21 @@ const canArchiveByRule = computed(() => {
 
 const showArchiveAction = computed(() => !isArchivedMessage.value && canArchiveByRule.value);
 const showUnarchiveAction = computed(() => isArchivedMessage.value && canArchiveByRule.value);
+const canRemoveMessage = computed(() => {
+  if (!menuMessage.value.raw || !channelId.value || !targetUserId.value) {
+    return false;
+  }
+  if (isSelfMessage.value) {
+    return true;
+  }
+  if (!viewerIsAdmin.value) {
+    return false;
+  }
+  if (targetIsAdmin.value) {
+    return false;
+  }
+  return true;
+});
 
 const clickArchive = async () => {
   if (!canArchiveByRule.value) {
@@ -218,7 +237,43 @@ const clickDelete = async () => {
   }
   await chat.messageDelete(chat.curChannel.id, menuMessage.value.raw.id)
   message.success('撤回成功')
+  chat.messageMenu.show = false;
 }
+
+const performRemove = async () => {
+  if (!chat.curChannel?.id || !menuMessage.value.raw?.id) {
+    return;
+  }
+  try {
+    await chat.messageRemove(chat.curChannel.id, menuMessage.value.raw.id);
+    message.success('删除成功');
+  } catch (error) {
+    const errMsg = (error as Error)?.message || '删除失败';
+    message.error(errMsg);
+  } finally {
+    chat.messageMenu.show = false;
+  }
+};
+
+const clickRemove = () => {
+  if (!canRemoveMessage.value) {
+    return;
+  }
+  dialog.warning({
+    title: '删除消息',
+    content: '删除后所有成员将无法再看到该消息，并且无法恢复，确定继续？',
+    positiveText: '删除',
+    negativeText: '取消',
+    iconPlacement: 'top',
+    contentStyle: {
+      color: themeVars.value.textColor2,
+    },
+    maskClosable: false,
+    onPositiveClick: async () => {
+      await performRemove();
+    },
+  });
+};
 
 const clickEdit = () => {
   if (!chat.curChannel?.id || !menuMessage.value.raw?.id) {
@@ -312,7 +367,14 @@ const clickWhisper = () => {
 </script>
 
 <template>
-  <context-menu v-model:show="chat.messageMenu.show" :options="chat.messageMenu.optionsComponent">
+  <context-menu
+    v-model:show="chat.messageMenu.show"
+    :options="{
+      ...chat.messageMenu.optionsComponent,
+      theme: 'dark',
+      // 结合夜间模式使用半透明背景与浅色边框，避免默认亮色影响
+      customClass: display.palette === 'night' ? 'chat-menu--night' : 'chat-menu--day'
+    } as MenuOptions">
     <context-menu-item v-if="chat.messageMenu.hasImage" label="添加到表情收藏" @click="addToMyEmoji" />
     <context-menu-item v-if="!chat.messageMenu.hasImage" label="复制内容" @click="clickCopy" />
     <context-menu-item v-if="canWhisper" :label="t('whisper.menu')" @click="clickWhisper" />
@@ -321,5 +383,22 @@ const clickWhisper = () => {
     <context-menu-item v-if="showUnarchiveAction" label="取消归档" @click="clickUnarchive" />
     <context-menu-item label="编辑消息" @click="clickEdit" v-if="isSelfMessage" />
     <context-menu-item label="撤回" @click="clickDelete" v-if="isSelfMessage" />
+    <context-menu-item label="删除" @click="clickRemove" v-if="canRemoveMessage" />
   </context-menu>
 </template>
+
+<style scoped>
+:deep(.context-menu.chat-menu--night) {
+  background: rgba(15, 23, 42, 0.95);
+  border-color: rgba(148, 163, 184, 0.35);
+  color: #e2e8f0;
+}
+
+:deep(.context-menu.chat-menu--night .context-menu-item) {
+  color: inherit;
+}
+
+:deep(.context-menu.chat-menu--night .context-menu-item:hover) {
+  background: rgba(255, 255, 255, 0.08);
+}
+</style>

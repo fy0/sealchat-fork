@@ -55,6 +55,9 @@ func apiMessageDelete(ctx *ChatContext, data *struct {
 	item := model.MessageModel{}
 	db.Where("channel_id = ? and id = ?", data.ChannelID, data.MessageID).Limit(1).Find(&item)
 	if item.ID != "" {
+		if item.IsDeleted {
+			return nil, fmt.Errorf("消息已删除，无法撤回")
+		}
 		if item.UserID != ctx.User.ID {
 			return nil, nil // 失败了
 		}
@@ -85,6 +88,91 @@ func apiMessageDelete(ctx *ChatContext, data *struct {
 	return nil, nil
 }
 
+func apiMessageRemove(ctx *ChatContext, data *struct {
+	ChannelID string `json:"channel_id"`
+	MessageID string `json:"message_id"`
+}) (any, error) {
+	channelID := strings.TrimSpace(data.ChannelID)
+	messageID := strings.TrimSpace(data.MessageID)
+	if channelID == "" || messageID == "" {
+		return nil, fmt.Errorf("channel_id 和 message_id 不能为空")
+	}
+
+	db := model.GetDB()
+	var msg model.MessageModel
+	query := db.Preload("User", func(db *gorm.DB) *gorm.DB {
+		return db.Select("id, username, nickname, avatar, is_bot")
+	}).Preload("Member", func(db *gorm.DB) *gorm.DB {
+		return db.Select("id, nickname, user_id, channel_id")
+	}).Where("channel_id = ? AND id = ?", channelID, messageID)
+	result := query.Limit(1).Find(&msg)
+	if result.Error != nil {
+		return nil, result.Error
+	}
+	if msg.ID == "" || msg.IsDeleted {
+		return nil, fmt.Errorf("消息不存在或已删除")
+	}
+
+	channel, err := model.ChannelGet(channelID)
+	if err != nil || channel.ID == "" {
+		return nil, fmt.Errorf("频道不存在")
+	}
+
+	operatorID := ctx.User.ID
+	targetUserID := msg.UserID
+	if targetUserID != operatorID {
+		operatorIsAdmin := isChannelAdminUser(channel, channelID, operatorID)
+		if !operatorIsAdmin && !pm.CanWithSystemRole(operatorID, pm.PermModAdmin) {
+			return nil, fmt.Errorf("无权限删除该消息")
+		}
+		if isChannelAdminUser(channel, channelID, targetUserID) {
+			return nil, fmt.Errorf("无法删除拥有管理员权限的成员消息")
+		}
+	}
+
+	now := time.Now()
+	updateData := map[string]any{
+		"is_deleted": true,
+		"deleted_at": now,
+		"deleted_by": operatorID,
+		"content":    "",
+	}
+	if err := db.Model(&model.MessageModel{}).
+		Where("id = ? AND channel_id = ? AND is_deleted = ?", msg.ID, channelID, false).
+		Updates(updateData).Error; err != nil {
+		return nil, err
+	}
+
+	msg.IsDeleted = true
+	msg.DeletedBy = operatorID
+	msg.Content = ""
+	msg.DeletedAt = &now
+	msg.EnsureWhisperMeta()
+
+	channelData := channel.ToProtocolType()
+	messageData := buildProtocolMessage(&msg, channelData)
+	messageData.User = msg.User.ToProtocolType()
+
+	ev := &protocol.Event{
+		Type:    protocol.EventMessageRemoved,
+		Message: messageData,
+		Channel: channelData,
+		User:    ctx.User.ToProtocolType(),
+	}
+
+	if msg.IsWhisper && msg.WhisperTo != "" {
+		recipients := lo.Uniq([]string{ctx.User.ID, msg.WhisperTo, msg.UserID})
+		ctx.BroadcastEventInChannelToUsers(channelID, recipients, ev)
+	} else {
+		ctx.BroadcastEventInChannel(channelID, ev)
+		ctx.BroadcastEventInChannelForBot(channelID, ev)
+	}
+
+	return &struct {
+		Success bool `json:"success"`
+	}{Success: true}, nil
+}
+
 func hydrateMessagesForBroadcast(messages []*model.MessageModel) {
 	if len(messages) == 0 {
 		return
@@ -100,7 +188,7 @@ func hydrateMessagesForBroadcast(messages []*model.MessageModel) {
 			return
 		}
 		i.Quote = x[0]
-	}, "id, content, created_at, user_id, is_revoked, whisper_to, channel_id, whisper_sender_member_id, whisper_sender_member_name, whisper_sender_user_name, whisper_sender_user_nick, whisper_target_member_id, whisper_target_member_name, whisper_target_user_name, whisper_target_user_nick")
+	}, "id, content, created_at, user_id, is_revoked, is_deleted, whisper_to, channel_id, whisper_sender_member_id, whisper_sender_member_name, whisper_sender_user_name, whisper_sender_user_nick, whisper_target_member_id, whisper_target_member_name, whisper_target_user_name, whisper_target_user_nick")
 
 	whisperIDSet := map[string]struct{}{}
 	for _, item := range messages {
@@ -372,7 +460,7 @@ func loadArchiveContext(channelID string, messageIDs []string) (*model.ChannelMo
 		return db.Select("id, username, nickname, avatar, is_bot")
 	}).Preload("Member", func(db *gorm.DB) *gorm.DB {
 		return db.Select("id, nickname, channel_id, user_id")
-	}).Where("channel_id = ? AND id IN ?", channelID, messageIDs).Find(&messages).Error
+	}).Where("channel_id = ? AND id IN ? AND is_deleted = ?", channelID, messageIDs, false).Find(&messages).Error
 	if err != nil {
 		return nil, nil, err
 	}
@@ -392,6 +480,7 @@ func isChannelAdminUser(channel *model.ChannelModel, channelID, userID string) b
 		pm.PermFuncChannelManageRole,
 		pm.PermFuncChannelManageRoleRoot,
 		pm.PermFuncChannelMessageArchive,
+		pm.PermFuncChannelMessageDelete,
 		pm.PermFuncChannelRoleLinkRoot,
 		pm.PermFuncChannelRoleUnlinkRoot,
 	)
@@ -643,7 +732,7 @@ func apiMessageCreate(ctx *ChatContext, data *struct {
 			return db.Select("id, nickname, username, avatar, is_bot")
 		}).Preload("Member", func(db *gorm.DB) *gorm.DB {
 			return db.Select("id, nickname, channel_id, user_id")
-		}).Where("id = ?", data.QuoteID).Limit(1).Find(&quote)
+		}).Where("id = ? AND is_deleted = ?", data.QuoteID, false).Limit(1).Find(&quote)
 		if quote.ID == "" {
 			return nil, nil
 		}
@@ -867,6 +956,7 @@ func apiMessageList(ctx *ChatContext, data *struct {
 
 	var items []*model.MessageModel
 	q := db.Where("channel_id = ?", data.ChannelID)
+	q = q.Where("is_deleted = ?", false)
 	q = q.Where("(is_whisper = ? OR user_id = ? OR whisper_to = ?)", false, ctx.User.ID, ctx.User.ID)
 
 	if data.ArchivedOnly {
@@ -961,7 +1051,7 @@ func apiMessageList(ctx *ChatContext, data *struct {
 		return []string{i.QuoteID}
 	}, func(i *model.MessageModel, x []*model.MessageModel) {
 		i.Quote = x[0]
-	}, "id, content, created_at, user_id, is_revoked, whisper_to, channel_id, whisper_sender_member_id, whisper_sender_member_name, whisper_sender_user_name, whisper_sender_user_nick, whisper_target_member_id, whisper_target_member_name, whisper_target_user_name, whisper_target_user_nick")
+	}, "id, content, created_at, user_id, is_revoked, is_deleted, whisper_to, channel_id, whisper_sender_member_id, whisper_sender_member_name, whisper_sender_user_name, whisper_sender_user_nick, whisper_target_member_id, whisper_target_member_name, whisper_target_user_name, whisper_target_user_nick")
 
 	_ = model.ChannelReadSet(data.ChannelID, ctx.User.ID)
 
@@ -977,14 +1067,14 @@ func apiMessageList(ctx *ChatContext, data *struct {
 
 	whisperIdSet := map[string]struct{}{}
 	for _, i := range items {
-		if i.IsRevoked {
+		if i.IsRevoked || i.IsDeleted {
 			i.Content = ""
 		}
 		if i.WhisperTo != "" {
 			whisperIdSet[i.WhisperTo] = struct{}{}
 		}
 		if i.Quote != nil {
-			if i.Quote.IsRevoked {
+			if i.Quote.IsRevoked || i.Quote.IsDeleted {
 				i.Quote.Content = ""
 			}
 			if i.Quote.WhisperTo != "" {
@@ -1070,7 +1160,7 @@ func apiMessageUpdate(ctx *ChatContext, data *struct {
 	if msg.UserID != ctx.User.ID {
 		return nil, nil
 	}
-	if msg.IsRevoked {
+	if msg.IsRevoked || msg.IsDeleted {
 		return nil, nil
 	}
 
@@ -1237,6 +1327,9 @@ func apiMessageReorder(ctx *ChatContext, data *struct {
 	if msg.ID == "" {
 		return nil, nil
 	}
+	if msg.IsDeleted {
+		return nil, fmt.Errorf("该消息已删除，无法调整顺序")
+	}
 
 	channel, _ := model.ChannelGet(data.ChannelID)
 	if channel.ID == "" {
@@ -1253,7 +1346,7 @@ func apiMessageReorder(ctx *ChatContext, data *struct {
 
 	var beforeMsg, afterMsg model.MessageModel
 	if data.BeforeID != "" && data.BeforeID != data.MessageID {
-		if err := db.Where("id = ? AND channel_id = ?", data.BeforeID, data.ChannelID).Limit(1).Find(&beforeMsg).Error; err != nil {
+		if err := db.Where("id = ? AND channel_id = ? AND is_deleted = ?", data.BeforeID, data.ChannelID, false).Limit(1).Find(&beforeMsg).Error; err != nil {
 			return nil, err
 		}
 		if beforeMsg.ID == "" {
@@ -1262,7 +1355,7 @@ func apiMessageReorder(ctx *ChatContext, data *struct {
 	}
 
 	if data.AfterID != "" && data.AfterID != data.MessageID {
-		if err := db.Where("id = ? AND channel_id = ?", data.AfterID, data.ChannelID).Limit(1).Find(&afterMsg).Error; err != nil {
+		if err := db.Where("id = ? AND channel_id = ? AND is_deleted = ?", data.AfterID, data.ChannelID, false).Limit(1).Find(&afterMsg).Error; err != nil {
 			return nil, err
 		}
 		if afterMsg.ID == "" {

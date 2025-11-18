@@ -2081,7 +2081,7 @@ interface VisibleRowEntry {
 
 const isMergeCandidate = (message?: Message | null) => {
   if (!message) return false;
-  if ((message as any).is_revoked) {
+  if ((message as any).is_revoked || (message as any).is_deleted) {
     return false;
   }
   if (message.isWhisper || (message as any).is_whisper) {
@@ -2095,6 +2095,9 @@ const visibleRowEntries = computed<VisibleRowEntry[]>(() => {
   const filterUserIds = Array.isArray(userIds) ? userIds : [];
 
   const filtered = rows.value.filter((message) => {
+    if ((message as any).is_deleted) {
+      return false;
+    }
     const isArchived = Boolean(message?.isArchived || message?.is_archived);
     if (!showArchived && isArchived) {
       return false;
@@ -2222,6 +2225,9 @@ const normalizeMessageShape = (msg: any): Message => {
   }
   if (msg.whisperMeta === undefined && msg.whisper_meta !== undefined) {
     msg.whisperMeta = msg.whisper_meta;
+  }
+  if (msg.isDeleted === undefined && msg.is_deleted !== undefined) {
+    msg.isDeleted = msg.is_deleted;
   }
 
   if (msg.senderRoleId === undefined && msg.sender_role_id !== undefined) {
@@ -2665,7 +2671,7 @@ const canDragMessage = (item: Message) => {
   if (chat.editing && chat.editing.messageId === item.id) {
     return false;
   }
-  if ((item as any).is_revoked) {
+  if ((item as any).is_revoked || (item as any).is_deleted) {
     return false;
   }
   if (isSelfMessage(item)) {
@@ -2952,10 +2958,17 @@ const applyReorderPayload = (payload: any) => {
   sortRowsByDisplayOrder();
 };
 
-const normalizeMessageList = (items: any[] = []): Message[] => items.map((item) => normalizeMessageShape(item));
+const normalizeMessageList = (items: any[] = []): Message[] =>
+  items
+    .map((item) => normalizeMessageShape(item))
+    .filter((item) => !(item as any)?.is_deleted);
 
 const upsertMessage = (incoming?: Message) => {
   if (!incoming || !incoming.id) {
+    return;
+  }
+  if ((incoming as any).is_deleted || (incoming as any).isDeleted) {
+    rows.value = rows.value.filter((msg) => msg.id !== incoming.id);
     return;
   }
   const index = rows.value.findIndex((msg) => msg.id === incoming.id);
@@ -4808,6 +4821,31 @@ onMounted(async () => {
           i.quote.content = '';
           (i as any).quote.is_revoked = true;
         }
+      }
+    }
+  });
+
+  chatEvent.off('message-removed', '*');
+  chatEvent.on('message-removed', (e?: Event) => {
+    const targetId = e?.message?.id;
+    if (!targetId) {
+      return;
+    }
+    for (let i of rows.value) {
+      if (i.id === targetId) {
+        i.content = '';
+        (i as any).is_deleted = true;
+      }
+      if (i.quote && i.quote.id === targetId) {
+        i.quote.content = '';
+        (i.quote as any).is_deleted = true;
+      }
+    }
+    rows.value = rows.value.filter((msg) => !(msg as any).is_deleted);
+    if (archiveDrawerVisible.value) {
+      const index = archivedMessagesRaw.value.findIndex((item) => item.id === targetId);
+      if (index >= 0) {
+        archivedMessagesRaw.value.splice(index, 1);
       }
     }
   });

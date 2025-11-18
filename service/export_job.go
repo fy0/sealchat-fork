@@ -119,6 +119,7 @@ func loadMessagesForExport(job *model.MessageExportJobModel) ([]*model.MessageMo
 	query := db.Model(&model.MessageModel{}).
 		Where("channel_id = ?", job.ChannelID).
 		Where("is_revoked = ?", false).
+		Where("is_deleted = ?", false).
 		Preload("Member").
 		Preload("User")
 

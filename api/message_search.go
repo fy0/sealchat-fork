@@ -156,7 +156,8 @@ func ChannelMessageSearch(c *fiber.Ctx) error {
 		q := db.Model(&model.MessageModel{}).
 			Where("channel_id = ?", channelID).
 			Where("(is_whisper = ? OR user_id = ? OR whisper_to = ?)", false, user.ID, user.ID).
-			Where("is_revoked = ?", false)
+			Where("is_revoked = ?", false).
+			Where("is_deleted = ?", false)
 
 		switch archivedFilter {
 		case "only":

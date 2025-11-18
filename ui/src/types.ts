@@ -17,6 +17,9 @@ declare module '@satorijs/protocol' {
   interface Message {
     whisperMeta?: WhisperMeta;
     senderRoleId?: string;
+    isDeleted?: boolean;
+    deletedAt?: number;
+    deletedBy?: string;
   }
   interface Channel {
     defaultDiceExpr?: string;

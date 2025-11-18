@@ -112,6 +112,9 @@ type Message struct {
 	ArchivedAt    int64            `json:"archivedAt"`
 	ArchivedBy    string           `json:"archivedBy"`
 	ArchiveReason string           `json:"archiveReason"`
+	IsDeleted     bool             `json:"isDeleted"`
+	DeletedAt     int64            `json:"deletedAt"`
+	DeletedBy     string           `json:"deletedBy"`
 	ClientID      string           `json:"clientId,omitempty"`
 	WhisperMeta   *WhisperMeta     `json:"whisperMeta,omitempty"`
 }
@@ -263,6 +266,7 @@ const (
 	EventMessagePinned          EventName = "message-pinned"
 	EventMessageUnpinned        EventName = "message-unpinned"
 	EventMessageReordered       EventName = "message-reordered"
+	EventMessageRemoved         EventName = "message-removed"
 	EventInteractionCommand     EventName = "interaction/command"
 	EventReactionAdded          EventName = "reaction-added"
 	EventReactionDeleted        EventName = "reaction-deleted"

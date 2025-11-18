@@ -431,7 +431,8 @@ watch(() => props.item?.updatedAt, () => {
 </script>
 
 <template>
-  <div v-if="item?.is_revoked" class="py-4 text-center">一条消息已被撤回</div>
+  <div v-if="item?.is_deleted" class="py-4 text-center text-gray-400">一条消息已被删除</div>
+  <div v-else-if="item?.is_revoked" class="py-4 text-center">一条消息已被撤回</div>
   <div v-else :id="item?.id" class="chat-item"
     :class="[
       { 'is-rtl': props.isRtl },
@@ -497,7 +498,10 @@ watch(() => props.item?.updatedAt, () => {
               <span>{{ whisperLabel }}</span>
             </div>
             <div v-if="props.item?.quote?.id" class="border-l-4 pl-2 border-blue-500 mb-2">
-              <template v-if="props.item?.quote?.is_revoked">
+              <template v-if="(props.item as any)?.quote?.is_deleted">
+                <span class="text-gray-400">此消息已删除</span>
+              </template>
+              <template v-else-if="props.item?.quote?.is_revoked">
                 <span class="text-gray-400">此消息已撤回</span>
               </template>
               <template v-else>
