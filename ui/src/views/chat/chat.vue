@@ -78,6 +78,10 @@ const diceFeatureUpdating = ref(false);
 const botOptions = ref<UserInfo[]>([]);
 const botOptionsLoading = ref(false);
 const botOptionsFetched = ref(false);
+const isMobileUa = typeof navigator !== 'undefined'
+  ? /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
+  : false;
+const diceTrayFollowerClass = 'dice-tray-mobile-wrapper';
 const channelBotSelection = ref('');
 const channelBotsLoading = ref(false);
 const syncingChannelBot = ref(false);
@@ -142,6 +146,35 @@ watch(() => channelFeatures.botFeatureEnabled, (enabled) => {
 		diceTrayVisible.value = false;
 	}
 });
+
+const markDiceTrayMobileWrapper = (enabled: boolean) => {
+  if (!isMobileUa || typeof document === 'undefined') return;
+  const followers = Array.from(document.querySelectorAll('.v-binder-follower-content')) as HTMLElement[];
+  followers.forEach((el) => {
+    if (!el) return;
+    if (el.querySelector('.dice-tray')) {
+      if (enabled) {
+        el.classList.add(diceTrayFollowerClass);
+      } else {
+        el.classList.remove(diceTrayFollowerClass);
+      }
+    } else if (!enabled) {
+      el.classList.remove(diceTrayFollowerClass);
+    }
+  });
+};
+
+watch(
+  () => diceTrayVisible.value,
+  (visible) => {
+    if (!isMobileUa) return;
+    if (visible) {
+      nextTick(() => markDiceTrayMobileWrapper(true));
+    } else {
+      markDiceTrayMobileWrapper(false);
+    }
+  },
+);
 watch(diceTrayVisible, (visible) => {
   if (!visible) {
     diceSettingsVisible.value = false;
@@ -2148,6 +2181,13 @@ const normalizeTimestamp = (value: any): number | null => {
 const normalizeMessageShape = (msg: any): Message => {
   if (!msg) {
     return msg as Message;
+  }
+  // 统一主键，避免不同接口返回 message_id/_id 导致重复插入
+  if (!msg.id) {
+    msg.id = msg.message_id || msg.messageId || msg._id || '';
+  }
+  if (msg.id && typeof msg.id !== 'string') {
+    msg.id = String(msg.id);
   }
   if (msg.isEdited === undefined && msg.is_edited !== undefined) {
     msg.isEdited = msg.is_edited;
@@ -5128,9 +5168,8 @@ const keyDown = function (e: KeyboardEvent) {
     return;
   }
 
-  // 检查是否为移动端
-  if (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)) {
-    // 如果是移动端,直接返回,不执行后续代码
+  // 移动端不触发桌面快捷键
+  if (isMobileUa) {
     return;
   }
 
@@ -5478,6 +5517,9 @@ onBeforeUnmount(() => {
   revokeIdentityObjectURL();
   searchHighlightTimers.forEach((timer) => window.clearTimeout(timer));
   searchHighlightTimers.clear();
+  if (isMobileUa) {
+    markDiceTrayMobileWrapper(false);
+  }
 });
 </script>
 
@@ -8342,6 +8384,33 @@ onBeforeUnmount(() => {
   padding: 0.75rem 1.25rem;
   border-radius: 0.85rem;
   transition: background-color 0.25s ease, border-color 0.25s ease;
+}
+
+:global(.dice-tray-mobile-wrapper) {
+  width: min(92vw, 420px) !important;
+  max-width: 100vw;
+  left: 4vw !important;
+  right: 4vw !important;
+  position: fixed !important;
+}
+
+:global(.dice-tray-mobile-wrapper .dice-tray) {
+  width: 100%;
+  min-width: 0;
+}
+
+:global(.dice-tray-mobile-wrapper .dice-tray__body) {
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+:global(.dice-tray-mobile-wrapper .dice-tray__column--quick) {
+  flex: 1;
+}
+
+:global(.dice-tray-mobile-wrapper .dice-tray__history) {
+  max-height: 45vh;
+  overflow-y: auto;
 }
 </style>
 .identity-dialog :deep(.n-card) {

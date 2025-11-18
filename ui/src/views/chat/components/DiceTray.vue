@@ -59,21 +59,25 @@
           </div>
         </div>
       </div>
-      <div class="dice-tray__column dice-tray__column--form">
-        <div class="dice-tray__section-title">自定义</div>
-        <div class="dice-tray__form">
-          <n-form-item label="数量">
+      <div v-if="!digitSequence" class="dice-tray__column dice-tray__column--form">
+        <div class="dice-tray__section-title dice-tray__section-title--compact">自定义</div>
+        <div class="dice-tray__form dice-tray__form--grid">
+          <div class="dice-tray__form-row">
+            <label>数量</label>
             <n-input-number v-model:value="count" :min="1" size="small" />
-          </n-form-item>
-          <n-form-item label="面数">
+          </div>
+          <div class="dice-tray__form-row">
+            <label>面数</label>
             <n-input-number v-model:value="sides" :min="1" size="small" />
-          </n-form-item>
-          <n-form-item label="修正">
+          </div>
+          <div class="dice-tray__form-row">
+            <label>修正</label>
             <n-input-number v-model:value="modifier" size="small" />
-          </n-form-item>
-          <n-form-item label="理由">
+          </div>
+          <div class="dice-tray__form-row">
+            <label>理由</label>
             <n-input v-model:value="reason" size="small" placeholder="可选，例如攻击" />
-          </n-form-item>
+          </div>
           <div class="dice-tray__actions">
             <n-button size="small" :disabled="!canSubmit" @click="handleInsert">
               插入到输入框
@@ -83,60 +87,61 @@
             </n-button>
           </div>
         </div>
-      </div>
-    </div>
-    <div class="dice-tray__history">
-      <div class="dice-tray__section-title">{{ digitSequence ? '指令匹配' : '最近检定' }}</div>
-      <template v-if="digitSequence">
-        <div v-if="macroResults.length" class="dice-tray__history-list">
-          <div
-            v-for="entry in macroResults"
-            :key="entry.id"
-            class="dice-tray__macro-result"
-            :class="{ 'dice-tray__macro-result--message': entry.kind === 'message' }"
-          >
-            <template v-if="entry.kind === 'macro'">
-              <button type="button" class="dice-tray__macro-result-btn" @click="handleMacroExecute(entry.macro)">
-                <span class="dice-tray__macro-result-label">{{ entry.macro.label }}</span>
-                <span class="dice-tray__macro-result-expr">{{ formatHistoryLabel(entry.macro.expr) }}</span>
+        <div class="dice-tray__history dice-tray__history--compact">
+          <div class="dice-tray__section-title dice-tray__section-title--compact">最近检定</div>
+          <div v-if="hasHistory" class="dice-tray__history-grid">
+            <div v-for="item in displayedHistory.slice(0, 4)" :key="item.id" class="dice-tray__history-card">
+              <button type="button" class="dice-tray__history-roll" @click="handleHistoryRoll(item)">
+                <span class="dice-tray__history-label">{{ formatHistoryLabel(item.expr) }}</span>
               </button>
-              <n-button size="tiny" quaternary @click="openAdjustModal(entry.macro)">微调</n-button>
-            </template>
-            <template v-else>
-              <div class="dice-tray__macro-result-message">{{ entry.message }}</div>
-            </template>
-          </div>
-        </div>
-        <div v-else class="dice-tray__macro-empty">
-          <p>暂无匹配指令</p>
-          <n-button text size="tiny" @click="openMacroManager()">新建指令</n-button>
-        </div>
-      </template>
-      <template v-else>
-        <div v-if="hasHistory" class="dice-tray__history-list">
-          <div v-for="item in displayedHistory" :key="item.id" class="dice-tray__history-entry">
-            <button type="button" class="dice-tray__history-roll" @click="handleHistoryRoll(item)">
-              <span class="dice-tray__history-label">{{ formatHistoryLabel(item.expr) }}</span>
-            </button>
-            <div class="dice-tray__history-tools">
-              <button type="button" class="dice-tray__history-tune" @click="openAdjustModalFromHistory(item)">微调</button>
-              <button
-                type="button"
-                class="dice-tray__history-fav"
-                :class="{ 'is-active': item.favorite }"
-                :aria-pressed="item.favorite"
-                @click.stop="toggleFavorite(item.id)"
-              >
-                <span v-if="item.favorite">★</span>
-                <span v-else>☆</span>
-              </button>
+              <div class="dice-tray__history-tools">
+                <button type="button" class="dice-tray__history-tune" @click="openAdjustModalFromHistory(item)">微调</button>
+                <button
+                  type="button"
+                  class="dice-tray__history-fav"
+                  :class="{ 'is-active': item.favorite }"
+                  :aria-pressed="item.favorite"
+                  @click.stop="toggleFavorite(item.id)"
+                >
+                  <span v-if="item.favorite">★</span>
+                  <span v-else>☆</span>
+                </button>
+              </div>
             </div>
           </div>
+          <div v-else class="dice-tray__macro-empty">
+            <p>暂无检定历史</p>
+          </div>
         </div>
-        <div v-else class="dice-tray__macro-empty">
-          <p>暂无检定历史</p>
+      </div>
+      <div v-else class="dice-tray__column dice-tray__column--history">
+        <div class="dice-tray__history dice-tray__history--compact">
+          <div class="dice-tray__section-title dice-tray__section-title--compact">指令匹配</div>
+          <div v-if="macroResults.length" class="dice-tray__history-list">
+            <div
+              v-for="entry in macroResults"
+              :key="entry.id"
+              class="dice-tray__macro-result"
+              :class="{ 'dice-tray__macro-result--message': entry.kind === 'message' }"
+            >
+              <template v-if="entry.kind === 'macro'">
+                <button type="button" class="dice-tray__macro-result-btn" @click="handleMacroExecute(entry.macro)">
+                  <span class="dice-tray__macro-result-label">{{ entry.macro.label }}</span>
+                  <span class="dice-tray__macro-result-expr">{{ formatHistoryLabel(entry.macro.expr) }}</span>
+                </button>
+                <n-button size="tiny" quaternary @click="openAdjustModal(entry.macro)">微调</n-button>
+              </template>
+              <template v-else>
+                <div class="dice-tray__macro-result-message">{{ entry.message }}</div>
+              </template>
+            </div>
+          </div>
+          <div v-else class="dice-tray__macro-empty">
+            <p>暂无匹配指令</p>
+            <n-button text size="tiny" @click="openMacroManager()">新建指令</n-button>
+          </div>
         </div>
-      </template>
+      </div>
     </div>
   </div>
   <n-modal
@@ -835,12 +840,12 @@ const handleSaveDefault = () => {
 
 <style scoped>
 .dice-tray {
-  min-width: 320px;
-  max-width: 480px;
-  padding: 12px;
+  min-width: 280px;
+  max-width: 420px;
+  padding: 10px;
   background: var(--sc-bg-elevated, #fff);
   border: 1px solid var(--sc-border-strong, #e5e7eb);
-  border-radius: 12px;
+  border-radius: 10px;
   color: var(--sc-fg-primary, #111);
 }
 
@@ -860,18 +865,26 @@ const handleSaveDefault = () => {
 
 .dice-tray__body {
   display: flex;
-  gap: 12px;
+  gap: 4px;
 }
 
 .dice-tray__column {
   flex: 1;
-  padding: 8px;
-  border-radius: 10px;
+  padding: 6px;
+  border-radius: 8px;
   background: var(--sc-bg-layer, #fafafa);
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
 }
 
 .dice-tray__column--quick {
-  flex: 0 0 140px;
+  flex: 0 0 110px;
+}
+
+.dice-tray__column--form,
+.dice-tray__column--history {
+  flex: 1;
 }
 
 .dice-tray__section-title {
@@ -880,10 +893,16 @@ const handleSaveDefault = () => {
   margin-bottom: 6px;
 }
 
+.dice-tray__section-title--compact {
+  margin-bottom: 0.3rem;
+  font-size: 0.75rem;
+  color: var(--sc-text-secondary, #6b7280);
+}
+
 .dice-tray__quick-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 6px;
+  gap: 4px;
 }
 
 .dice-tray__quick-btn {
@@ -893,8 +912,8 @@ const handleSaveDefault = () => {
   justify-content: center;
   border: 1px solid var(--sc-border-mute, #d1d5db);
   border-radius: 8px;
-  padding: 0.3rem 0;
-  font-size: 0.9rem;
+  padding: 0.28rem 0;
+  font-size: 0.84rem;
   background: var(--sc-bg-layer, #fff);
   color: var(--sc-fg-primary, #111);
   transition: background 0.2s ease, color 0.2s ease;
@@ -917,14 +936,14 @@ const handleSaveDefault = () => {
 }
 
 .dice-tray__quick-summary {
-  margin-top: 0.5rem;
-  padding: 0.4rem 0.5rem;
+  margin-top: 0.45rem;
+  padding: 0.35rem 0.45rem;
   border-radius: 6px;
   background: rgba(15, 23, 42, 0.04);
-  font-size: 0.85rem;
+  font-size: 0.8rem;
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
+  gap: 0.2rem;
 }
 
 .dice-tray__quick-expression {
@@ -952,7 +971,7 @@ const handleSaveDefault = () => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  font-size: 0.85rem;
+  font-size: 0.82rem;
 }
 
 .dice-tray__macro-title {
@@ -981,14 +1000,14 @@ const handleSaveDefault = () => {
 .dice-tray__macro-keypad {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.35rem;
+  gap: 0.28rem;
 }
 
 .dice-tray__macro-key {
   border: 1px solid var(--sc-border-mute, #d1d5db);
   border-radius: 8px;
-  padding: 0.35rem 0;
-  font-size: 1rem;
+  padding: 0.3rem 0;
+  font-size: 0.95rem;
   font-weight: 600;
   background: var(--sc-bg-layer, #fff);
   color: var(--sc-fg-primary, #111);
@@ -1058,8 +1077,31 @@ const handleSaveDefault = () => {
   color: var(--sc-fg-muted, #6b7280);
 }
 
+.dice-tray__form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.dice-tray__form--grid {
+  gap: 0.3rem;
+}
+
+.dice-tray__form-row {
+  display: grid;
+  grid-template-columns: 48px 1fr;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.78rem;
+  color: var(--sc-text-secondary, #6b7280);
+}
+
+.dice-tray__form-row label {
+  font-weight: 500;
+}
+
 .dice-tray__form :deep(.n-form-item) {
-  margin-bottom: 8px;
+  margin: 0;
 }
 
 .dice-tray__actions {
@@ -1077,38 +1119,49 @@ const handleSaveDefault = () => {
 }
 
 .dice-tray__history {
-  margin-top: 0.75rem;
-  padding-top: 0.75rem;
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
   border-top: 1px solid var(--sc-border-mute, #e2e8f0);
   color: var(--sc-fg-primary, #111);
 }
 
-.dice-tray__history-list {
-  display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
+.dice-tray__history--compact {
+  border-top: none;
+  padding-top: 0;
+  margin-top: 0;
 }
 
-.dice-tray__history-entry {
+
+.dice-tray__history-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.35rem;
+}
+
+.dice-tray__history-card {
   display: flex;
-  align-items: center;
-  gap: 0.4rem;
+  flex-direction: column;
+  gap: 0.2rem;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 0.45rem;
+  padding: 0.35rem;
+  background: rgba(248, 250, 252, 0.85);
 }
 
 .dice-tray__history-roll {
   flex: 1;
-  border: 1px solid var(--sc-border-mute, #d1d5db);
-  border-radius: 6px;
-  background: var(--sc-bg-layer, #f8fafc);
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
   color: var(--sc-fg-primary, #111);
-  padding: 0.35rem 0.5rem;
-  font-size: 0.85rem;
+  padding: 0;
+  font-size: 0.75rem;
   text-align: left;
-  transition: background 0.2s ease, color 0.2s ease;
+  transition: color 0.2s ease;
 }
 
 .dice-tray__history-roll:hover {
-  background: rgba(15, 23, 42, 0.08);
+  color: var(--sc-accent, #2563eb);
 }
 
 .dice-tray__history-label {
@@ -1119,9 +1172,15 @@ const handleSaveDefault = () => {
   white-space: nowrap;
 }
 
+.dice-tray__history-tools {
+  display: inline-flex;
+  gap: 0.25rem;
+  align-items: center;
+}
+
 .dice-tray__history-fav {
-  width: 1.75rem;
-  height: 1.75rem;
+  width: 1.2rem;
+  height: 1.2rem;
   border-radius: 999px;
   border: 1px solid var(--sc-border-mute, #d1d5db);
   background: transparent;
@@ -1129,7 +1188,7 @@ const handleSaveDefault = () => {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 1rem;
+  font-size: 0.75rem;
   transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease;
 }
 
