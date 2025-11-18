@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"runtime"
 	"strings"
 
 	"github.com/knadh/koanf/parsers/yaml"
@@ -97,6 +98,25 @@ type AppConfig struct {
 	LogUpload                 LogUploadConfig `json:"logUpload" yaml:"logUpload"`
 	Audio                     AudioConfig     `json:"audio" yaml:"audio"`
 	Storage                   StorageConfig   `json:"storage" yaml:"storage"`
+	SQLite                    SQLiteConfig    `json:"sqlite" yaml:"sqlite"`
+}
+
+// SQLiteConfig 用于细化 SQLite 数据库的运行参数
+type SQLiteConfig struct {
+	// 是否启用 WAL（默认开启）
+	EnableWAL bool `json:"enableWAL" yaml:"wal"`
+	// busy_timeout 毫秒，避免高并发下频繁数据库锁冲突
+	BusyTimeoutMS int `json:"busyTimeoutMS" yaml:"busyTimeout"`
+	// cache_size 以 KB 计，负值代表 KB，默认 512MB
+	CacheSizeKB int `json:"cacheSizeKB" yaml:"cacheSizeKB"`
+	// synchronous 模式：OFF/NORMAL/FULL，默认 NORMAL
+	Synchronous string `json:"synchronous" yaml:"synchronous"`
+	// 是否在连接串追加 _txlock=immediate，提前写锁，默认开启
+	TxLockImmediate bool `json:"txLockImmediate" yaml:"txLockImmediate"`
+	// 读取连接池大小，默认按 CPU 数；写连接默认 1（共用池）
+	ReadConnections int `json:"readConnections" yaml:"readConnections"`
+	// 初始化时是否执行 PRAGMA optimize
+	OptimizeOnInit bool `json:"optimizeOnInit" yaml:"optimizeOnInit"`
 }
 
 // 注: 实验型使用koanf，其实从需求上讲目前并无必要
@@ -159,6 +179,15 @@ func ReadConfig() *AppConfig {
 				PresignTTL: 900,
 			},
 		},
+		SQLite: SQLiteConfig{
+			EnableWAL:       true,
+			BusyTimeoutMS:   10000,
+			CacheSizeKB:     512000,
+			Synchronous:     "NORMAL",
+			TxLockImmediate: true,
+			ReadConnections: runtime.NumCPU(),
+			OptimizeOnInit: true,
+		},
 	}
 
 	lo.Must0(k.Load(structs.Provider(&config, "yaml"), nil))
@@ -208,10 +237,33 @@ func ReadConfig() *AppConfig {
 		config.Storage.Local.AudioDir = config.Audio.StorageDir
 	}
 	applyImageBaseURLFallback(&config)
+	applySQLiteDefaults(&config.SQLite)
 
 	k.Print()
 	currentConfig = &config
 	return currentConfig
+}
+
+func applySQLiteDefaults(cfg *SQLiteConfig) {
+	if cfg == nil {
+		return
+	}
+	if cfg.BusyTimeoutMS <= 0 {
+		cfg.BusyTimeoutMS = 10000
+	}
+	if cfg.CacheSizeKB == 0 {
+		cfg.CacheSizeKB = 512000
+	}
+	if cfg.Synchronous == "" {
+		cfg.Synchronous = "NORMAL"
+	}
+	if cfg.ReadConnections <= 0 {
+		cfg.ReadConnections = runtime.NumCPU()
+	}
+	cfg.Synchronous = strings.ToUpper(cfg.Synchronous)
+	if cfg.Synchronous != "OFF" && cfg.Synchronous != "NORMAL" && cfg.Synchronous != "FULL" {
+		cfg.Synchronous = "NORMAL"
+	}
 }
 
 func WriteConfig(config *AppConfig) {

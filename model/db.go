@@ -3,6 +3,8 @@ package model
 import (
 	"fmt"
 	"log"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -47,12 +49,17 @@ func (m *StringPKBaseModel) BeforeCreate(tx *gorm.DB) error {
 	return nil
 }
 
-func DBInit(dsn string) {
+func DBInit(cfg *utils.AppConfig) {
+	if cfg == nil {
+		panic("配置不可为空")
+	}
+	dsn := cfg.DSN
 	resetSQLiteFTSState()
 	resetPostgresFTSState()
 	var err error
 	var dialector gorm.Dialector
-	const sqliteBusyTimeoutMS = 5000 // 处理偶发高并发时的等待时长，避免频繁 busy 错误
+	var isSQLite bool
+	sqliteCfg := cfg.SQLite
 
 	if strings.HasPrefix(dsn, "postgres://") || strings.HasPrefix(dsn, "postgresql://") {
 		dbDriver = "postgres"
@@ -62,26 +69,34 @@ func DBInit(dsn string) {
 		dsn = strings.TrimLeft(dsn, "mysql://")
 		dialector = mysql.Open(dsn)
 	} else if strings.HasSuffix(dsn, ".db") || strings.HasPrefix(dsn, "file:") || strings.HasPrefix(dsn, ":memory:") {
+		dsn = ensureSQLiteDSNPath(dsn)
+		if sqliteCfg.TxLockImmediate && !strings.Contains(strings.ToLower(dsn), "_txlock=") {
+			if strings.Contains(dsn, "?") {
+				dsn += "&_txlock=immediate"
+			} else {
+				dsn += "?_txlock=immediate"
+			}
+		}
 		dbDriver = "sqlite"
 		dialector = sqlite.Open(dsn)
+		isSQLite = true
 	} else {
 		panic("无法识别的数据库类型，请检查DSN格式")
 	}
 
-	db, err = gorm.Open(dialector, &gorm.Config{})
-
-	switch dialector.(type) {
-	case *sqlite.Dialector: // SQLite 数据库
-		dbDriver = "sqlite"
-		// WAL 模式 + busy_timeout，提升并发场景下的可用性
-		db.Exec("PRAGMA journal_mode=WAL")
-		db.Exec(fmt.Sprintf("PRAGMA busy_timeout = %d", sqliteBusyTimeoutMS))
-	case *postgres.Dialector:
-		dbDriver = "postgres"
+	gormCfg := &gorm.Config{}
+	if isSQLite {
+		gormCfg.SkipDefaultTransaction = true
 	}
 
+	db, err = gorm.Open(dialector, gormCfg)
 	if err != nil {
 		panic("连接数据库失败")
+	}
+
+	if isSQLite {
+		applySQLitePragmas(db, sqliteCfg)
+		applySQLiteConnPool(db, sqliteCfg)
 	}
 
 	if db.Migrator().HasTable(&UserModel{}) {
@@ -180,4 +195,65 @@ func FlushWAL() {
 
 	_ = db.Exec("PRAGMA wal_checkpoint(TRUNCATE);")
 	_ = db.Exec("PRAGMA shrink_memory")
+}
+
+func applySQLitePragmas(conn *gorm.DB, cfg utils.SQLiteConfig) {
+	if conn == nil {
+		return
+	}
+	if cfg.EnableWAL {
+		conn.Exec("PRAGMA journal_mode=WAL")
+	}
+	if cfg.BusyTimeoutMS > 0 {
+		conn.Exec(fmt.Sprintf("PRAGMA busy_timeout = %d", cfg.BusyTimeoutMS))
+	}
+	if cfg.CacheSizeKB != 0 {
+		size := cfg.CacheSizeKB
+		if size < 0 {
+			size = -size
+		}
+		conn.Exec(fmt.Sprintf("PRAGMA cache_size = -%d", size))
+	}
+	conn.Exec("PRAGMA temp_store = memory")
+	if cfg.Synchronous != "" {
+		conn.Exec(fmt.Sprintf("PRAGMA synchronous = %s", strings.ToUpper(cfg.Synchronous)))
+	}
+	if cfg.OptimizeOnInit {
+		conn.Exec("PRAGMA optimize")
+	}
+}
+
+func applySQLiteConnPool(conn *gorm.DB, cfg utils.SQLiteConfig) {
+	if conn == nil {
+		return
+	}
+	sqlDB, err := conn.DB()
+	if err != nil {
+		log.Printf("获取 SQLite 底层连接池失败: %v", err)
+		return
+	}
+	readConns := cfg.ReadConnections
+	if readConns <= 0 {
+		readConns = 1
+	}
+	sqlDB.SetMaxOpenConns(readConns)
+	sqlDB.SetMaxIdleConns(readConns)
+	sqlDB.SetConnMaxIdleTime(0)
+	sqlDB.SetConnMaxLifetime(0)
+}
+
+// ensureSQLiteDSNPath 确保 sqlite DSN 指向文件路径时存在目录
+func ensureSQLiteDSNPath(dsn string) string {
+	if strings.HasPrefix(dsn, "file:") || strings.HasPrefix(dsn, ":memory:") {
+		return dsn
+	}
+	base := dsn
+	if idx := strings.Index(dsn, "?"); idx >= 0 {
+		base = dsn[:idx]
+	}
+	dir := filepath.Dir(base)
+	if dir != "." && dir != "" {
+		_ = os.MkdirAll(dir, 0755)
+	}
+	return dsn
 }

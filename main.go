@@ -55,7 +55,7 @@ func main() {
 	lo.Must0(os.MkdirAll("./data", 0755))
 	config := utils.ReadConfig()
 
-	model.DBInit(config.DSN)
+	model.DBInit(config)
 	cleanUp := func() {
 		if db := model.GetDB(); db != nil {
 			if sqlDB, err := db.DB(); err == nil {
