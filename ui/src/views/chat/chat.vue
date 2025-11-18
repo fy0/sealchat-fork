@@ -7157,12 +7157,6 @@ onBeforeUnmount(() => {
   color: inherit;
 }
 
-.typing-preview-grid {
-  width: 100%;
-  flex: 1;
-  min-width: 0;
-}
-
 .typing-preview-grid__handle {
   min-height: 2rem;
 }
@@ -7177,6 +7171,8 @@ onBeforeUnmount(() => {
   color: var(--chat-text-primary);
   width: 100%;
   min-width: 0;
+  word-break: break-word;
+  overflow-wrap: anywhere;
   padding: var(--chat-message-padding-y, 0.85rem) var(--chat-message-padding-x, 1.1rem);
   border-radius: var(--chat-message-radius);
   background-color: var(--chat-preview-bg);
@@ -7184,9 +7180,17 @@ onBeforeUnmount(() => {
   background-size: 10px 10px;
 }
 
+.chat--layout-compact .typing-preview-inline-body {
+  width: 100%;
+  flex: 1 1 auto;
+  max-width: min(92vw, 1200px);
+}
+
 .typing-preview-inline-body .preview-content {
   flex: 1 1 auto;
   min-width: 0;
+  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 .typing-preview-inline-body--placeholder {
