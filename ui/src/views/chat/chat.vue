@@ -3104,23 +3104,12 @@ const shouldShowTypingHandle = (preview: TypingPreviewItem) => {
 const inputPreviewEnabled = computed(() => display.settings.showInputPreview !== false);
 const activeIdentityForPreview = computed(() => chat.getActiveIdentity(chat.curChannel?.id || ''));
 const selfPreviewUserId = computed(() => user.info?.id || '__self__');
-const typingPreviewItems = computed(() => {
-  const selfId = selfPreviewUserId.value;
-  return typingPreviewList.value
+const typingPreviewItems = computed(() =>
+  typingPreviewList.value
     .filter((item) => item.mode === 'typing')
     .slice()
-    .sort((a, b) => {
-      if (selfId) {
-        if (a.userId === selfId && b.userId !== selfId) {
-          return 1;
-        }
-        if (b.userId === selfId && a.userId !== selfId) {
-          return -1;
-        }
-      }
-      return a.orderKey - b.orderKey;
-    });
-});
+    .sort((a, b) => a.orderKey - b.orderKey),
+);
 const resolveSelfPreviewDisplayName = () => {
   const identity = activeIdentityForPreview.value;
   if (identity?.displayName) {
@@ -3186,7 +3175,8 @@ let lastTypingWhisperTargetId: string | null = null;
 
 const upsertTypingPreview = (item: TypingPreviewItem) => {
   const shouldStick = visibleRows.value.length === rows.value.length && isNearBottom();
-  const orderKey = getTypingOrderKey(item.userId, item.mode);
+  const isSelfPreview = item.userId === selfPreviewUserId.value;
+  const orderKey = isSelfPreview ? Number.MAX_SAFE_INTEGER : getTypingOrderKey(item.userId, item.mode);
   const existingIndex = typingPreviewList.value.findIndex((i) => i.userId === item.userId && i.mode === item.mode);
   if (existingIndex >= 0) {
     typingPreviewList.value.splice(existingIndex, 1, { ...item, orderKey });
@@ -7358,11 +7348,10 @@ onBeforeUnmount(() => {
   transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
 }
 
-.chat--layout-compact .typing-preview-bubble,
-.chat--layout-compact .typing-preview-bubble[data-tone],
-.chat--layout-compact .typing-preview-bubble--content {
+.chat--layout-compact.chat--palette-day:not(.chat--no-avatar) .typing-preview-surface,
+.chat--layout-compact.chat--palette-day:not(.chat--no-avatar) .typing-preview-bubble,
+.chat--layout-compact.chat--palette-day:not(.chat--no-avatar) .typing-preview-bubble__body {
   border-color: transparent !important;
-  background-color: transparent !important;
   box-shadow: none;
 }
 
