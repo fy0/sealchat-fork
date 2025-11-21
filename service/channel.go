@@ -111,10 +111,33 @@ func ChannelList(userId, worldID string) ([]*model.ChannelModel, error) {
 	if worldID == "" {
 		return []*model.ChannelModel{}, nil
 	}
-	if !IsWorldMember(worldID, userId) && !pm.CanWithSystemRole(userId, pm.PermModAdmin) {
+	isSystemAdmin := pm.CanWithSystemRole(userId, pm.PermModAdmin)
+	if !IsWorldMember(worldID, userId) && !isSystemAdmin {
 		return []*model.ChannelModel{}, nil
 	}
-	return ChannelListByWorld(worldID)
+	channels, err := ChannelListByWorld(worldID)
+	if err != nil {
+		return nil, err
+	}
+	allowed, _ := ChannelIdList(userId)
+	allowedSet := map[string]struct{}{}
+	for _, id := range allowed {
+		allowedSet[id] = struct{}{}
+	}
+	visible := make([]*model.ChannelModel, 0, len(channels))
+	for _, ch := range channels {
+		if ch == nil || strings.TrimSpace(ch.ID) == "" {
+			continue
+		}
+		if isSystemAdmin {
+			visible = append(visible, ch)
+			continue
+		}
+		if _, ok := allowedSet[ch.ID]; ok {
+			visible = append(visible, ch)
+		}
+	}
+	return visible, nil
 }
 
 func ChannelListByWorld(worldID string) ([]*model.ChannelModel, error) {
@@ -204,6 +227,8 @@ func ChannelNew(channelID, channelType, channelName, worldID, creatorId, parentI
 		}
 	})
 
+	ensureChannelSpectatorRole(channelID)
+
 	roleCreate(channelID, "visitor", "游客", func(roleId string) []gorbac.Permission {
 		return []gorbac.Permission{
 			pm.PermFuncChannelRead,
@@ -235,5 +260,21 @@ func ChannelNew(channelID, channelType, channelName, worldID, creatorId, parentI
 		RoleType: "channel",
 	})
 
+	syncWorldRolesForNewChannel(worldID, channelID)
+
 	return m
+}
+
+func ensureChannelSpectatorRole(channelID string) {
+	roleID := fmt.Sprintf("ch-%s-%s", channelID, "spectator")
+	role, err := model.ChannelRoleGet(roleID)
+	if err == nil && role != nil && role.ID != "" {
+		return
+	}
+	roleCreate(channelID, "spectator", "旁观者", func(roleId string) []gorbac.Permission {
+		return []gorbac.Permission{
+			pm.PermFuncChannelRead,
+			pm.PermFuncChannelReadAll,
+		}
+	})
 }

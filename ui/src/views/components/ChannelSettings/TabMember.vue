@@ -1,5 +1,5 @@
 <script lang="tsx" setup>
-import { ChannelType, type ChannelRoleModel, type FriendInfo, type SChannel, type UserInfo, type UserRoleModel } from '@/types';
+import { ChannelType, type ChannelRoleModel, type SChannel, type UserInfo, type UserRoleModel } from '@/types';
 import { clone, times, uniqBy } from 'lodash-es';
 import { useDialog, useMessage } from 'naive-ui';
 import { computed, onMounted, onUnmounted, ref, watch, type PropType } from 'vue';
@@ -30,17 +30,24 @@ const model = ref<SChannel>({
 const dataLoad = async () => {
   if (!props.channel?.id) return undefined;
   const resp = await chat.channelRoleList(props.channel.id);
-  if (resp.data && resp.data.items) {
-    // 对items进行排序,将id为'member'的项放到最后
-    resp.data.items.sort((a, b) => {
-      if (a.id.endsWith('-member')) return 1;
-      if (b.id.endsWith('-member')) return -1;
-      return 0;
-    });
+	if (resp.data && resp.data.items) {
+	const owners: ChannelRoleModel[] = [];
+	const members: ChannelRoleModel[] = [];
+	const others: ChannelRoleModel[] = [];
+	for (const item of resp.data.items) {
+		if (item.id.endsWith('-owner')) {
+			owners.push(item);
+			continue;
+		}
+		if (item.id.endsWith('-member')) {
+			members.push(item);
+			continue;
+		}
+		others.push(item);
+	}
 
-    // 从resp.data.items中排除掉visitor项
-    resp.data.items = resp.data.items.filter(item => !item.id.endsWith('-visitor'));
-  }
+	resp.data.items = [...owners, ...members, ...others].filter(item => !item.id.endsWith('-visitor'));
+	}
   return resp.data;
 }
 
@@ -87,25 +94,35 @@ const removeUserRole = async (userId: string | undefined, roleId: string) => {
 }
 
 
-const friendList = ref<UserInfo[]>([]);
+const worldMembers = ref<UserInfo[]>([]);
 
-const fetchFriendList = async () => {
+const loadWorldMembers = async () => {
+  if (!props.channel?.worldId) {
+    worldMembers.value = [];
+    return;
+  }
   try {
-    const response = await chat.friendList();
-    const lst = [];
-    for (let i of response.items || []) {
-      if (i.userInfo) {
-        lst.push(i.userInfo);
-      }
-    }
-    friendList.value = lst;
+    const resp = await chat.worldMemberList(props.channel.worldId, { page: 1, pageSize: 500 });
+    const items = resp?.items || [];
+    worldMembers.value = items.map(item => ({
+      id: item.userId,
+      username: item.username,
+      nick: item.nickname,
+      avatar: item.avatar,
+    })) as UserInfo[];
   } catch (error) {
-    console.error('获取好友列表失败:', error);
-    message.error('获取好友列表失败，请重试');
+    console.error('加载世界成员失败:', error);
+    message.error('加载世界成员失败');
   }
 };
 
-fetchFriendList();
+watch(
+  () => props.channel?.worldId,
+  () => {
+    loadWorldMembers();
+  },
+  { immediate: true },
+);
 
 
 const botList = ref<UserInfo[]>([]);
@@ -167,10 +184,14 @@ const getFilteredMemberList = (lst?: UserRoleModel[]) => {
     <div v-for="i in roleList?.items" class="border-b pb-1 mb-4">
       <!-- <div>{{ i }}</div> -->
       <h3 class="text-base font-semibold mt-2  text-gray-800 ">{{ i.name }}</h3>
-      <div class="text-gray-500 mb-2">
-        <span v-if="i.id.endsWith('-member')">你可以邀请好友或上级频道成员成为频道成员，之后可设置其额外角色</span>
+      <div class="text-gray-500 dark:text-white mb-2">
+        <span
+          v-if="i.id.endsWith('-owner')"
+          class="font-semibold"
+        >你可以添加当前世界用户为成员，使之可查看此非公开频道。（只有先设定为成员才能在其他角色设定列表找到用户！）</span>
         <span v-if="i.id.endsWith('-ob')">此角色能够看到所有的子频道</span>
         <span v-if="i.id.endsWith('-bot')">此角色能够在所有子频道中收发消息</span>
+        <span v-if="i.id.endsWith('-spectator')">旁观者仅可查看频道内容，无法发送消息</span>
       </div>
 
       <div class="flex flex-wrap space-x-2 ">
@@ -196,7 +217,7 @@ const getFilteredMemberList = (lst?: UserRoleModel[]) => {
 
           </template>
           <div class="max-h-60 overflow-y-auto pt-2">
-            <MemberSelector v-if="i.id.endsWith('-member')" :memberList="friendList"
+            <MemberSelector v-if="i.id.endsWith('-member')" :memberList="worldMembers"
               :startSelectedList="getFilteredMemberList(filterMembersByChannelId(i.id))"
               @confirm="(lst, startLst) => selectedMembersSet(i, lst, startLst ?? [])" />
             <MemberSelector v-else-if="i.id.endsWith('-bot')" :memberList="botList"

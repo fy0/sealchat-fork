@@ -189,7 +189,8 @@ func WorldDelete(worldID, actorID string) error {
 	})
 }
 
-func WorldJoin(worldID, userID string) (*model.WorldMemberModel, error) {
+func WorldJoin(worldID, userID, role string) (*model.WorldMemberModel, error) {
+	role = normalizeWorldRole(role)
 	db := model.GetDB()
 	var world model.WorldModel
 	if err := db.Where("id = ? AND status = ?", worldID, "active").Limit(1).Find(&world).Error; err != nil {
@@ -203,7 +204,7 @@ func WorldJoin(worldID, userID string) (*model.WorldMemberModel, error) {
 		return nil, err
 	}
 	if member.ID != "" {
-		if err := ensureWorldChannelMemberships(worldID, userID); err != nil {
+		if _, err := ensureWorldMemberChannelState(worldID, userID, member.Role); err != nil {
 			return member, err
 		}
 		return member, nil
@@ -211,13 +212,13 @@ func WorldJoin(worldID, userID string) (*model.WorldMemberModel, error) {
 	member = &model.WorldMemberModel{
 		WorldID:  worldID,
 		UserID:   userID,
-		Role:     model.WorldRoleMember,
+		Role:     role,
 		JoinedAt: time.Now(),
 	}
 	if err := db.Create(member).Error; err != nil {
 		return nil, err
 	}
-	if err := ensureWorldChannelMemberships(worldID, userID); err != nil {
+	if _, err := ensureWorldMemberChannelState(worldID, userID, role); err != nil {
 		return member, err
 	}
 	return member, nil
@@ -229,6 +230,9 @@ func WorldLeave(worldID, userID string) error {
 	}
 	db := model.GetDB()
 	if err := db.Where("world_id = ? AND user_id = ?", worldID, userID).Delete(&model.WorldMemberModel{}).Error; err != nil {
+		return err
+	}
+	if err := revokeWorldChannelRoles(worldID, userID); err != nil {
 		return err
 	}
 	_ = db.Where("world_id = ? AND user_id = ?", worldID, userID).Delete(&model.WorldFavoriteModel{})
@@ -282,6 +286,7 @@ type WorldMemberDetail struct {
 	JoinedAt time.Time `json:"joinedAt"`
 	Username string    `json:"username"`
 	Nickname string    `json:"nickname"`
+	Avatar   string    `json:"avatar"`
 }
 
 func ListWorldMembersDetail(worldID string, page, pageSize int, keyword string) ([]*WorldMemberDetail, int64, error) {
@@ -293,7 +298,7 @@ func ListWorldMembersDetail(worldID string, page, pageSize int, keyword string) 
 	}
 	db := model.GetDB()
 	query := db.Table("world_members AS wm").
-		Select("wm.id, wm.world_id, wm.user_id, wm.role, wm.joined_at, u.username, u.nickname").
+		Select("wm.id, wm.world_id, wm.user_id, wm.role, wm.joined_at, u.username, u.nickname, u.avatar").
 		Joins("LEFT JOIN users u ON u.id = wm.user_id").
 		Where("wm.world_id = ?", worldID)
 	keyword = strings.TrimSpace(keyword)
@@ -314,6 +319,7 @@ func ListWorldMembersDetail(worldID string, page, pageSize int, keyword string) 
 		JoinedAt time.Time
 		Username string
 		Nickname string
+		Avatar   string
 	}
 	if err := query.Order("wm.joined_at asc").
 		Offset(offset).
@@ -331,6 +337,7 @@ func ListWorldMembersDetail(worldID string, page, pageSize int, keyword string) 
 			JoinedAt: row.JoinedAt,
 			Username: row.Username,
 			Nickname: row.Nickname,
+			Avatar:   row.Avatar,
 		})
 	}
 	return result, total, nil
@@ -385,7 +392,7 @@ func WorldRemoveMember(worldID, actorID, targetUserID string) error {
 
 func WorldUpdateMemberRole(worldID, actorID, targetUserID, role string) error {
 	role = strings.TrimSpace(role)
-	if role != model.WorldRoleAdmin && role != model.WorldRoleMember {
+	if role != model.WorldRoleAdmin && role != model.WorldRoleMember && role != model.WorldRoleSpectator {
 		return ErrWorldMemberInvalid
 	}
 	if !IsWorldAdmin(worldID, actorID) {
@@ -404,12 +411,197 @@ func WorldUpdateMemberRole(worldID, actorID, targetUserID, role string) error {
 	if res.RowsAffected == 0 {
 		return ErrWorldMemberInvalid
 	}
+	if err := syncWorldChannelRoles(worldID, targetUserID, role); err != nil {
+		return err
+	}
 	return nil
 }
 
-func WorldInviteCreate(worldID, creatorID string, ttlMinutes int, maxUse int, memo string) (*model.WorldInviteModel, error) {
+func listWorldUserIDsByRoles(worldID string, roles ...string) ([]string, error) {
+	worldID = strings.TrimSpace(worldID)
+	if worldID == "" || len(roles) == 0 {
+		return []string{}, nil
+	}
+	var ids []string
+	err := model.GetDB().Table("world_members").
+		Where("world_id = ? AND role IN ?", worldID, roles).
+		Pluck("user_id", &ids).Error
+	return ids, err
+}
+
+func syncWorldRolesForNewChannel(worldID, channelID string) {
+	worldID = strings.TrimSpace(worldID)
+	channelID = strings.TrimSpace(channelID)
+	if worldID == "" || channelID == "" {
+		return
+	}
+	adminIDs, err := listWorldUserIDsByRoles(worldID, model.WorldRoleOwner, model.WorldRoleAdmin)
+	if err == nil {
+		for _, uid := range adminIDs {
+			if _, err := model.MemberGetByUserIDAndChannelIDBase(uid, channelID, "", true); err != nil {
+				continue
+			}
+			_ = ensureChannelRoleLink(uid, channelID, "admin")
+		}
+	}
+	spectatorIDs, err := listWorldUserIDsByRoles(worldID, model.WorldRoleSpectator)
+	if err == nil {
+		for _, uid := range spectatorIDs {
+			if _, err := model.MemberGetByUserIDAndChannelIDBase(uid, channelID, "", true); err != nil {
+				continue
+			}
+			_ = ensureChannelRoleLink(uid, channelID, "spectator")
+		}
+	}
+}
+
+func BackfillWorldRoleAssignments() error {
+	db := model.GetDB()
+	var worlds []model.WorldModel
+	if err := db.Where("status = ?", "active").Find(&worlds).Error; err != nil {
+		return err
+	}
+	for _, world := range worlds {
+		var members []model.WorldMemberModel
+		if err := db.Where("world_id = ? AND role IN ?", world.ID, []string{model.WorldRoleOwner, model.WorldRoleAdmin, model.WorldRoleSpectator}).
+			Find(&members).Error; err != nil {
+			return err
+		}
+		for _, member := range members {
+			if _, err := ensureWorldMemberChannelState(world.ID, member.UserID, member.Role); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func ensureWorldMemberChannelState(worldID, userID, role string) (*model.WorldMemberModel, error) {
+	if err := ensureWorldChannelMemberships(worldID, userID); err != nil {
+		return nil, err
+	}
+	if err := syncWorldChannelRoles(worldID, userID, role); err != nil {
+		return nil, err
+	}
+	member := &model.WorldMemberModel{}
+	if err := model.GetDB().Where("world_id = ? AND user_id = ?", worldID, userID).Limit(1).Find(member).Error; err != nil {
+		return nil, err
+	}
+	return member, nil
+}
+
+func normalizeWorldRole(role string) string {
+	switch strings.TrimSpace(role) {
+	case model.WorldRoleOwner:
+		return model.WorldRoleOwner
+	case model.WorldRoleAdmin:
+		return model.WorldRoleAdmin
+	case model.WorldRoleSpectator:
+		return model.WorldRoleSpectator
+	default:
+		return model.WorldRoleMember
+	}
+}
+
+func syncWorldChannelRoles(worldID, userID, worldRole string) error {
+	channels, err := ChannelListByWorld(worldID)
+	if err != nil {
+		return err
+	}
+	for _, ch := range channels {
+		if ch == nil || strings.TrimSpace(ch.ID) == "" {
+			continue
+		}
+		switch worldRole {
+		case model.WorldRoleOwner, model.WorldRoleAdmin:
+			if err := ensureChannelRoleLink(userID, ch.ID, "admin"); err != nil {
+				return err
+			}
+			if err := removeChannelRoleLink(userID, ch.ID, "spectator"); err != nil {
+				return err
+			}
+			if err := removeChannelRoleLink(userID, ch.ID, "member"); err != nil {
+				return err
+			}
+		case model.WorldRoleSpectator:
+			if err := ensureChannelRoleLink(userID, ch.ID, "spectator"); err != nil {
+				return err
+			}
+			if err := removeChannelRoleLink(userID, ch.ID, "admin"); err != nil {
+				return err
+			}
+			if err := removeChannelRoleLink(userID, ch.ID, "member"); err != nil {
+				return err
+			}
+		case model.WorldRoleMember:
+			if err := ensureChannelRoleLink(userID, ch.ID, "member"); err != nil {
+				return err
+			}
+			if err := removeChannelRoleLink(userID, ch.ID, "admin"); err != nil {
+				return err
+			}
+			if err := removeChannelRoleLink(userID, ch.ID, "spectator"); err != nil {
+				return err
+			}
+		default:
+			if err := removeChannelRoleLink(userID, ch.ID, "admin"); err != nil {
+				return err
+			}
+			if err := removeChannelRoleLink(userID, ch.ID, "spectator"); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func revokeWorldChannelRoles(worldID, userID string) error {
+	channels, err := ChannelListByWorld(worldID)
+	if err != nil {
+		return err
+	}
+	for _, ch := range channels {
+		if ch == nil || strings.TrimSpace(ch.ID) == "" {
+			continue
+		}
+		if err := removeChannelRoleLink(userID, ch.ID, "admin"); err != nil {
+			return err
+		}
+		if err := removeChannelRoleLink(userID, ch.ID, "spectator"); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func ensureChannelRoleLink(userID, channelID, roleKey string) error {
+	if strings.TrimSpace(userID) == "" || strings.TrimSpace(channelID) == "" {
+		return nil
+	}
+	if roleKey == "spectator" {
+		ensureChannelSpectatorRole(channelID)
+	}
+	roleID := fmt.Sprintf("ch-%s-%s", channelID, roleKey)
+	_, err := model.UserRoleLink([]string{roleID}, []string{userID})
+	return err
+}
+
+func removeChannelRoleLink(userID, channelID, roleKey string) error {
+	if strings.TrimSpace(userID) == "" || strings.TrimSpace(channelID) == "" {
+		return nil
+	}
+	roleID := fmt.Sprintf("ch-%s-%s", channelID, roleKey)
+	_, err := model.UserRoleUnlink([]string{roleID}, []string{userID})
+	return err
+}
+
+func WorldInviteCreate(worldID, creatorID string, ttlMinutes int, maxUse int, memo string, role string) (*model.WorldInviteModel, error) {
 	if !IsWorldAdmin(worldID, creatorID) {
 		return nil, ErrWorldPermission
+	}
+	role = normalizeWorldRole(role)
+	if role != model.WorldRoleMember && role != model.WorldRoleSpectator {
+		return nil, ErrWorldMemberInvalid
 	}
 	// 合法化参数：负数一律视为无限
 	if ttlMinutes < 0 {
@@ -420,13 +612,14 @@ func WorldInviteCreate(worldID, creatorID string, ttlMinutes int, maxUse int, me
 	}
 	db := model.GetDB()
 	if err := db.Model(&model.WorldInviteModel{}).
-		Where("world_id = ? AND status = ?", worldID, "active").
+		Where("world_id = ? AND status = ? AND role = ?", worldID, "active", role).
 		Updates(map[string]any{"status": "archived", "updated_at": time.Now()}).Error; err != nil {
 		return nil, err
 	}
 	invite := &model.WorldInviteModel{
 		WorldID:   worldID,
 		CreatorID: creatorID,
+		Role:      role,
 		MaxUse:    maxUse,
 		Memo:      memo,
 		Status:    "active",
@@ -467,7 +660,8 @@ func WorldInviteConsume(slug, userID string) (*model.WorldInviteModel, *model.Wo
 	existingMember := &model.WorldMemberModel{}
 	_ = db.Where("world_id = ? AND user_id = ?", invite.WorldID, userID).Limit(1).Find(existingMember).Error
 	wasMember := existingMember.ID != ""
-	member, err := WorldJoin(invite.WorldID, userID)
+	role := normalizeWorldRole(invite.Role)
+	member, err := WorldJoin(invite.WorldID, userID, role)
 	if err != nil {
 		return nil, nil, nil, false, err
 	}
@@ -477,5 +671,6 @@ func WorldInviteConsume(slug, userID string) (*model.WorldInviteModel, *model.Wo
 			Where("id = ?", invite.ID).
 			Updates(map[string]any{"used_count": gorm.Expr("used_count + 1"), "updated_at": time.Now()}).Error
 	}
+	invite.Role = role
 	return &invite, world, member, alreadyJoined, nil
 }

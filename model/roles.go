@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"sealchat/utils"
 )
@@ -210,7 +211,10 @@ func UserRoleLink(roleIds []string, userIds []string) (int64, error) {
 				RoleType: roleType,
 			}
 			item.Init()
-			tx.Create(&item)
+			if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&item).Error; err != nil {
+				tx.Rollback()
+				return 0, err
+			}
 		}
 	}
 

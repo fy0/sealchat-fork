@@ -14,9 +14,10 @@ const (
 	WorldVisibilityPrivate  = "private"
 	WorldVisibilityUnlisted = "unlisted"
 
-	WorldRoleOwner  = "owner"
-	WorldRoleAdmin  = "admin"
-	WorldRoleMember = "member"
+	WorldRoleOwner     = "owner"
+	WorldRoleAdmin     = "admin"
+	WorldRoleMember    = "member"
+	WorldRoleSpectator = "spectator"
 )
 
 // WorldModel 表示“世界”实体，承载频道集合与可见性配置。
@@ -72,6 +73,7 @@ type WorldInviteModel struct {
 	WorldID   string     `json:"worldId" gorm:"size:100;index"`
 	CreatorID string     `json:"creatorId" gorm:"size:100;index"`
 	Slug      string     `json:"slug" gorm:"size:64;uniqueIndex"`
+	Role      string     `json:"role" gorm:"size:24;default:member"`
 	ExpireAt  *time.Time `json:"expireAt"`
 	MaxUse    int        `json:"maxUse"`
 	UsedCount int        `json:"usedCount"`
@@ -89,6 +91,9 @@ func (m *WorldInviteModel) BeforeCreate(tx *gorm.DB) error {
 	}
 	if strings.TrimSpace(m.Slug) == "" {
 		m.Slug = strings.ToLower(utils.NewIDWithLength(12))
+	}
+	if strings.TrimSpace(m.Role) == "" {
+		m.Role = WorldRoleMember
 	}
 	if strings.TrimSpace(m.Status) == "" {
 		m.Status = "active"

@@ -85,7 +85,7 @@ func UserSignup(c *fiber.Ctx) error {
 	} else {
 		_, _ = service.UserRoleLink([]string{"sys-user"}, []string{user.ID})
 		if world, err := service.GetOrCreateDefaultWorld(); err == nil {
-			_, _ = service.WorldJoin(world.ID, user.ID)
+			_, _ = service.WorldJoin(world.ID, user.ID, model.WorldRoleMember)
 		}
 	}
 

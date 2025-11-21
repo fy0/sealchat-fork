@@ -54,8 +54,23 @@ const memberManagerVisible = ref(false);
 
 const isMember = computed(() => !!detail.value?.isMember);
 const memberRole = computed(() => detail.value?.memberRole || '');
+const roleLabel = computed(() => {
+  switch (memberRole.value) {
+    case 'owner':
+      return '拥有者';
+    case 'admin':
+      return '管理员';
+    case 'spectator':
+      return '旁观者';
+    case 'member':
+      return '成员';
+    default:
+      return '';
+  }
+});
 const canManageWorld = computed(() => memberRole.value === 'owner' || memberRole.value === 'admin');
 const canLeaveWorld = computed(() => isMember.value && memberRole.value !== 'owner');
+const isSpectator = computed(() => memberRole.value === 'spectator');
 
 const handleLeaveWorld = () => {
   if (!canLeaveWorld.value) {
@@ -87,7 +102,10 @@ const handleLeaveWorld = () => {
 <template>
   <div class="p-4 space-y-4" v-if="detail?.world">
     <n-card :title="detail.world.name">
-      <p class="text-gray-600">{{ detail.world.description }}</p>
+      <div class="flex items-center gap-2">
+        <p class="text-gray-600 flex-1">{{ detail.world.description }}</p>
+        <n-tag v-if="roleLabel" size="small" type="info">当前身份：{{ roleLabel }}</n-tag>
+      </div>
       <div class="mt-3 world-action-grid">
         <div class="world-action-item">
           <n-button block type="primary" @click="enterWorld">进入</n-button>
@@ -112,12 +130,13 @@ const handleLeaveWorld = () => {
           退出世界
         </n-button>
       </div>
+      <n-alert v-if="isSpectator" class="mt-3" type="info" show-icon>
+        旁观者默认可以查看全部频道，但需要被频道管理员加入成员角色后才能发言。
+      </n-alert>
     </n-card>
 
-    <n-card title="邀请链接" class="sc-card-scroll">
-      <div class="card-body-scroll">
+    <n-card title="邀请链接">
       <WorldInviteList :world-id="worldId" />
-      </div>
     </n-card>
   </div>
   <n-empty v-else description="世界不存在" />
@@ -126,15 +145,6 @@ const handleLeaveWorld = () => {
 </template>
 
 <style scoped>
-.sc-card-scroll {
-  max-height: 360px;
-}
-.card-body-scroll {
-  max-height: 300px;
-  overflow: auto;
-  padding-right: 4px;
-}
-
 .world-action-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

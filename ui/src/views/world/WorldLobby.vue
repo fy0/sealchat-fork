@@ -178,6 +178,21 @@ const toggleFavorite = async (worldId: string) => {
   }
 };
 
+const getWorldRoleTag = (role: string) => {
+  switch (role) {
+    case 'owner':
+      return { label: '拥有者', type: 'warning' as const };
+    case 'admin':
+      return { label: '管理员', type: 'info' as const };
+    case 'spectator':
+      return { label: '旁观者', type: 'default' as const };
+    case 'member':
+      return { label: '成员', type: 'success' as const };
+    default:
+      return { label: '已加入', type: 'success' as const };
+  }
+};
+
 const confirmLeaveWorld = (item: any) => {
   if (!item?.world?.id) return;
   if (item.memberRole === 'owner') {
@@ -309,7 +324,13 @@ const switchLobbyMode = async () => {
                   </div>
                 </div>
                 <div class="flex items-center gap-2">
-                  <n-tag v-if="item.isMember" size="small" type="success">已加入</n-tag>
+                  <n-tag
+                    v-if="item.isMember"
+                    size="small"
+                    :type="getWorldRoleTag(item.memberRole).type"
+                  >
+                    {{ getWorldRoleTag(item.memberRole).label }}
+                  </n-tag>
                   <n-button
                     v-if="item.isMember && item.memberRole !== 'owner'"
                     size="tiny"
@@ -348,7 +369,13 @@ const switchLobbyMode = async () => {
               </div>
             </div>
             <div class="flex items-center gap-2">
-              <n-tag v-if="item.isMember" size="small" type="success">已加入</n-tag>
+              <n-tag
+                v-if="item.isMember"
+                size="small"
+                :type="getWorldRoleTag(item.memberRole).type"
+              >
+                {{ getWorldRoleTag(item.memberRole).label }}
+              </n-tag>
               <n-button
                 v-if="item.isMember && item.memberRole !== 'owner'"
                 size="tiny"

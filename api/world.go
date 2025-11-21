@@ -244,7 +244,7 @@ func WorldJoinHandler(c *fiber.Ctx) error {
 	if world.Visibility == model.WorldVisibilityPrivate && !service.IsWorldAdmin(worldID, user.ID) {
 		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"message": "该世界仅通过邀请加入"})
 	}
-	member, err := service.WorldJoin(worldID, user.ID)
+	member, err := service.WorldJoin(worldID, user.ID, model.WorldRoleMember)
 	if err != nil {
 		return c.Status(http.StatusInternalServerError).JSON(fiber.Map{"message": "加入失败"})
 	}
@@ -327,11 +327,12 @@ func WorldInviteCreateHandler(c *fiber.Ctx) error {
 		TTLMinutes int    `json:"ttlMinutes"`
 		MaxUse     int    `json:"maxUse"`
 		Memo       string `json:"memo"`
+		Role       string `json:"role"`
 	}
 	if err := c.BodyParser(&body); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": "参数错误"})
 	}
-	invite, err := service.WorldInviteCreate(worldID, user.ID, body.TTLMinutes, body.MaxUse, body.Memo)
+	invite, err := service.WorldInviteCreate(worldID, user.ID, body.TTLMinutes, body.MaxUse, body.Memo, body.Role)
 	if err != nil {
 		switch {
 		case errors.Is(err, service.ErrWorldPermission):

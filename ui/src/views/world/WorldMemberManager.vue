@@ -35,6 +35,8 @@ const roleLabel = (role: string) => {
       return '拥有者';
     case 'admin':
       return '管理员';
+    case 'spectator':
+      return '旁观者';
     default:
       return '成员';
   }
@@ -94,6 +96,16 @@ const columns = computed(() => [
               onClick: () => handleRoleChange(row, 'member'),
             },
             { default: () => '设为成员' },
+          ),
+          h(
+            NButton,
+            {
+              size: 'tiny',
+              tertiary: true,
+              disabled: disabled || row.role === 'spectator',
+              onClick: () => handleRoleChange(row, 'spectator'),
+            },
+            { default: () => '设为旁观者' },
           ),
           h(
             NButton,

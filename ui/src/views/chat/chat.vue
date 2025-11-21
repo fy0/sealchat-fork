@@ -127,6 +127,30 @@ const botSelectOptions = computed(() => botOptions.value.map((bot) => ({
   value: bot.id,
 })));
 const hasBotOptions = computed(() => botOptions.value.length > 0);
+const channelSendAllowed = ref(true);
+let sendPermissionSeq = 0;
+watch(
+  () => chat.curChannel?.id,
+  async (channelId) => {
+    const seq = ++sendPermissionSeq;
+    if (!channelId) {
+      channelSendAllowed.value = false;
+      return;
+    }
+    try {
+      const allowed = await chat.hasChannelPermission(channelId, 'func_channel_text_send', user.info.id);
+      if (seq === sendPermissionSeq) {
+        channelSendAllowed.value = !!allowed;
+      }
+    } catch (error) {
+      if (seq === sendPermissionSeq) {
+        channelSendAllowed.value = false;
+      }
+    }
+  },
+  { immediate: true },
+);
+const spectatorInputDisabled = computed(() => !channelSendAllowed.value);
 const toggleDiceTray = () => {
   if (!channelFeatures.builtInDiceEnabled && !channelFeatures.botFeatureEnabled) {
     message.warning('内置骰点已关闭，请在设置中启用或切换机器人。');
@@ -4664,6 +4688,10 @@ watch(() => chat.editing?.messageId, (messageId, previousId) => {
 });
 
 const send = throttle(async () => {
+  if (spectatorInputDisabled.value) {
+    message.warning('旁观者仅可查看频道内容，无法发送消息');
+    return;
+  }
   if (isEditing.value) {
     await saveEdit();
     return;
@@ -5569,6 +5597,10 @@ const reachTop = throttle(async (evt: any) => {
 }, 1000)
 
 const sendImageMessage = async (attachmentId: string) => {
+  if (spectatorInputDisabled.value) {
+    message.warning('旁观者仅可查看频道内容，无法发送消息');
+    return false;
+  }
   const normalized = attachmentId.startsWith('id:') ? attachmentId : `id:${attachmentId}`;
   const rawId = normalized.startsWith('id:') ? normalized.slice(3) : normalized;
   const resp = await chat.messageCreate(`<img src="id:${rawId}" />`);
@@ -5581,6 +5613,10 @@ const sendImageMessage = async (attachmentId: string) => {
 };
 
 const sendEmoji = throttle(async (i: UserEmojiModel) => {
+  if (spectatorInputDisabled.value) {
+    message.warning('旁观者仅可查看频道内容，无法发送消息');
+    return;
+  }
   if (await sendImageMessage(i.attachmentId)) {
     recordEmojiUsage(i.id);
     emojiPopoverShow.value = false;
@@ -6452,6 +6488,7 @@ onBeforeUnmount(() => {
                   v-model:mode="inputMode"
                   :placeholder="whisperMode ? whisperPlaceholderText : $t('inputBox.placeholder')"
                   :whisper-mode="whisperMode"
+                  :disabled="spectatorInputDisabled"
                   :mention-options="atOptions"
                   :mention-loading="atLoading"
                   :mention-prefix="atPrefix"
@@ -6479,7 +6516,7 @@ onBeforeUnmount(() => {
               </div>
               <div class="chat-input-actions__cell chat-input-actions__send chat-input-send-inline">
                 <n-button type="primary" circle size="medium" @click="send"
-                  :disabled="chat.connectState !== 'connected' || isEditing">
+                  :disabled="spectatorInputDisabled || chat.connectState !== 'connected' || isEditing">
                   <template #icon>
                     <n-icon :component="Send" size="18" />
                   </template>
