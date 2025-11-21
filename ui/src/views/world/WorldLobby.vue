@@ -21,6 +21,19 @@ const createForm = ref({
   visibility: 'public',
 });
 
+const MAX_DESCRIPTION_LENGTH = 30;
+const DESCRIPTION_LINE_LENGTH = 11;
+
+const formatWorldDescription = (description?: string) => {
+  const value = (description || '暂无简介').trim() || '暂无简介';
+  const limited = Array.from(value).slice(0, MAX_DESCRIPTION_LENGTH);
+  const segments: string[] = [];
+  for (let i = 0; i < limited.length; i += DESCRIPTION_LINE_LENGTH) {
+    segments.push(limited.slice(i, i + DESCRIPTION_LINE_LENGTH).join(''));
+  }
+  return segments.join('\n');
+};
+
 const fetchList = async (keyword?: string) => {
   loading.value = true;
   try {
@@ -292,7 +305,7 @@ const switchLobbyMode = async () => {
                       {{ item.world.name }}
                       <n-tag v-if="chat.favoriteWorldIds.includes(item.world.id)" size="tiny" type="warning">收藏</n-tag>
                     </div>
-                    <div class="text-xs text-gray-500 truncate">{{ item.world.description || '暂无简介' }}</div>
+                    <div class="text-xs text-gray-500 world-desc">{{ formatWorldDescription(item.world.description) }}</div>
                   </div>
                 </div>
                 <div class="flex items-center gap-2">
@@ -331,7 +344,7 @@ const switchLobbyMode = async () => {
                   {{ item.world.name }}
                   <n-tag v-if="chat.favoriteWorldIds.includes(item.world.id)" size="tiny" type="warning">收藏</n-tag>
                 </div>
-                <div class="text-xs text-gray-500 truncate">{{ item.world.description || '暂无简介' }}</div>
+                <div class="text-xs text-gray-500 world-desc">{{ formatWorldDescription(item.world.description) }}</div>
               </div>
             </div>
             <div class="flex items-center gap-2">
@@ -392,6 +405,9 @@ const switchLobbyMode = async () => {
   max-height: 360px;
   overflow: auto;
   padding-right: 4px;
+}
+.world-desc {
+  white-space: pre-line;
 }
 .world-row {
   display: grid;
