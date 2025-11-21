@@ -47,6 +47,7 @@ const emit = defineEmits<{
 const editorRef = ref<HTMLDivElement | null>(null);
 const isFocused = ref(false);
 const isInternalUpdate = ref(false); // 标记是否是内部输入导致的更新
+const isComposing = ref(false);
 
 const PLACEHOLDER_PREFIX = '[[图片:';
 const PLACEHOLDER_SUFFIX = ']]';
@@ -56,6 +57,7 @@ const BLOCK_TAGS = new Set([
   'SECTION', 'ARTICLE', 'ASIDE', 'HEADER', 'FOOTER', 'NAV',
   'H1', 'H2', 'H3', 'H4', 'H5', 'H6'
 ]);
+const IMAGE_TOKEN_REGEX = /\[\[图片:([^\]]+)\]\]/g;
 
 const buildMarkerToken = (markerId: string) => `${PLACEHOLDER_PREFIX}${markerId}${PLACEHOLDER_SUFFIX}`;
 const getMarkerLength = (markerId: string) => buildMarkerToken(markerId).length;
@@ -306,12 +308,18 @@ const renderContent = (preserveCursor = false) => {
 
   // 渲染内容（占位符通过 CSS 实现，不需要手动插入）
   let html = '';
-  fragments.forEach((fragment) => {
+  fragments.forEach((fragment, fragmentIndex) => {
     if (fragment.type === 'text') {
       // 文本节点 - 保留换行
       const lines = fragment.content.split('\n');
+      const nextFragment = fragments[fragmentIndex + 1];
       lines.forEach((line, index) => {
         if (index > 0) html += '<br>';
+        const isLastLine = index === lines.length - 1;
+        const skipTrailingEmptyLine = line === '' && isLastLine && nextFragment;
+        if (skipTrailingEmptyLine) {
+          return;
+        }
         html += escapeHtml(line) || '<span class="empty-line">\u200B</span>';
       });
     } else if (fragment.type === 'image' && fragment.markerId) {
@@ -455,6 +463,46 @@ const getCursorPosition = (): number => {
 // 设置光标位置
 const setCursorPosition = (position: number) => {
   setSelectionRange(position, position);
+};
+
+interface MarkerInfo {
+  markerId: string;
+  start: number;
+  end: number;
+}
+
+const findMarkerInfoAt = (position: number): MarkerInfo | null => {
+  if (!props.modelValue || position < 0) {
+    return null;
+  }
+  const text = props.modelValue;
+  IMAGE_TOKEN_REGEX.lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = IMAGE_TOKEN_REGEX.exec(text)) !== null) {
+    const start = match.index;
+    const end = start + match[0].length;
+    if (position >= start && position <= end) {
+      return {
+        markerId: match[1],
+        start,
+        end,
+      };
+    }
+  }
+  return null;
+};
+
+const removeImageMarker = (marker: MarkerInfo) => {
+  const nextValue = `${props.modelValue.slice(0, marker.start)}${props.modelValue.slice(marker.end)}`;
+  isInternalUpdate.value = true;
+  emit('update:modelValue', nextValue);
+  addToHistory(nextValue, marker.start);
+  emit('remove-image', marker.markerId);
+  nextTick(() => {
+    isInternalUpdate.value = false;
+    renderContent(false);
+    setCursorPosition(marker.start);
+  });
 };
 
 const insertPlainTextAtCursor = (text: string) => {
@@ -662,6 +710,20 @@ const handleKeydown = (event: KeyboardEvent) => {
     return;
   }
 
+  const composing = event.isComposing || isComposing.value;
+  if (!composing && (event.key === 'Backspace' || event.key === 'Delete')) {
+    const selection = getSelectionRange();
+    if (selection.start === selection.end) {
+      const position = event.key === 'Backspace' ? selection.start - 1 : selection.start;
+      const marker = findMarkerInfoAt(position);
+      if (marker) {
+        event.preventDefault();
+        removeImageMarker(marker);
+        return;
+      }
+    }
+  }
+
   emit('keydown', event);
 };
 
@@ -689,10 +751,12 @@ const handleBlur = () => {
 };
 
 const handleCompositionStart = () => {
+  isComposing.value = true;
   emit('composition-start');
 };
 
 const handleCompositionEnd = () => {
+  isComposing.value = false;
   emit('composition-end');
 };
 

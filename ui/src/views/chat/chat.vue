@@ -4428,6 +4428,17 @@ const insertInlineImages = (files: File[], selection?: SelectionRange) => {
   const end = Math.max(start, Math.min(range.end, draftLength));
   let cursor = start;
   let updatedText = draftText.slice(0, start) + draftText.slice(end);
+
+  // 将多余空行折叠为单个换行，让图片占据当前空行
+  while (cursor >= 2 && updatedText[cursor - 1] === '\n' && updatedText[cursor - 2] === '\n') {
+    updatedText = updatedText.slice(0, cursor - 1) + updatedText.slice(cursor);
+    cursor -= 1;
+  }
+
+  while (cursor < updatedText.length && updatedText[cursor] === '\n' && (cursor === 0 || updatedText[cursor - 1] === '\n')) {
+    updatedText = updatedText.slice(0, cursor) + updatedText.slice(cursor + 1);
+  }
+
   imageFiles.forEach((file, index) => {
     const markerId = nanoid();
     const token = `[[图片:${markerId}]]`;
