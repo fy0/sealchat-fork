@@ -6,6 +6,7 @@ import UserPasswordResetView from '@/views/user/password-reset-view.vue'
 import WorldLobby from '@/views/world/WorldLobby.vue'
 import WorldDetail from '@/views/world/WorldDetail.vue'
 import InviteConsume from '@/views/invite/InviteConsume.vue'
+import StatusDashboard from '@/views/status/StatusDashboard.vue'
 
 
 const router = createRouter({
@@ -53,6 +54,11 @@ const router = createRouter({
       path: '/invite/:slug',
       name: 'invite-consume',
       component: InviteConsume,
+    },
+    {
+      path: '/status',
+      name: 'status',
+      component: StatusDashboard,
     }
   ]
 })

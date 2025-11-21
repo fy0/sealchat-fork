@@ -146,6 +146,9 @@ func Init(config *utils.AppConfig, uiStatic fs.FS) {
 	v1Auth.Static("/attachments", uploadRoot)
 	v1Auth.Static("/gallery/thumbs", "./data/gallery/thumbs")
 
+	v1Auth.Get("/status", StatusLatest)
+	v1Auth.Get("/status/history", StatusHistory)
+
 	audio := v1Auth.Group("/audio")
 	audio.Get("/assets", AudioAssetList)
 	audio.Get("/assets/:id", AudioAssetGet)

@@ -6,6 +6,7 @@ import (
 	"math"
 	"net/http"
 	"sealchat/service"
+	"sealchat/service/metrics"
 	"strconv"
 	"strings"
 	"time"
@@ -797,6 +798,9 @@ func apiMessageCreate(ctx *ChatContext, data *struct {
 	rows := createResult.RowsAffected
 
 	if rows > 0 {
+		if collector := metrics.Get(); collector != nil {
+			collector.RecordMessage()
+		}
 		ctx.TagCheck(data.ChannelID, m.ID, content)
 		member.UpdateRecentSent()
 

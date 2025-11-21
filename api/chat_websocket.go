@@ -12,6 +12,7 @@ import (
 
 	"sealchat/model"
 	"sealchat/protocol"
+	"sealchat/service/metrics"
 	"sealchat/utils"
 )
 
@@ -105,6 +106,10 @@ func websocketWorks(app *fiber.App) {
 				m.Store(c, curConnInfo)
 
 				curUser = user
+				if collector := metrics.Get(); collector != nil {
+					collector.RecordConnectionOpened(user.ID)
+					collector.RecordUserHeartbeat(user.ID)
+				}
 				_ = c.WriteJSON(protocol.GatewayPayloadStructure{
 					Op: protocol.OpReady,
 					Body: map[string]any{
@@ -254,6 +259,9 @@ func websocketWorks(app *fiber.App) {
 							info2.LastPingTime = now
 							activeChannel = info2.ChannelId
 						}
+					}
+					if collector := metrics.Get(); collector != nil && curUser != nil {
+						collector.RecordUserHeartbeat(curUser.ID)
 					}
 					_ = c.WriteJSON(protocol.GatewayPayloadStructure{
 						Op: protocol.OpPong,
@@ -476,6 +484,9 @@ func websocketWorks(app *fiber.App) {
 		}
 
 		// 连接断开，后续封装成函数
+		if collector := metrics.Get(); collector != nil && curUser != nil {
+			collector.RecordConnectionClosed(curUser.ID)
+		}
 		userId2ConnInfo.Range(func(key string, value *utils.SyncMap[*WsSyncConn, *ConnInfo]) bool {
 			exists := value.Delete(c)
 			if exists {

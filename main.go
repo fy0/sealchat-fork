@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"embed"
 	"fmt"
 	"log"
@@ -15,6 +16,7 @@ import (
 	"sealchat/model"
 	"sealchat/pm"
 	"sealchat/service"
+	"sealchat/service/metrics"
 	"sealchat/utils"
 )
 
@@ -55,6 +57,9 @@ func main() {
 	lo.Must0(os.MkdirAll("./data", 0755))
 	config := utils.ReadConfig()
 
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	model.DBInit(config)
 	cleanUp := func() {
 		if db := model.GetDB(); db != nil {
@@ -67,9 +72,19 @@ func main() {
 	signal.Notify(c, os.Interrupt)
 	go func() {
 		_ = <-c
+		cancel()
 		cleanUp()
 		os.Exit(0)
 	}()
+
+	collector := metrics.Init(metrics.Config{
+		Interval:  2 * time.Minute,
+		Retention: 7 * 24 * time.Hour,
+		OnlineTTL: 2 * time.Minute,
+	})
+	if collector != nil {
+		collector.Start(ctx)
+	}
 
 	pm.Init()
 
