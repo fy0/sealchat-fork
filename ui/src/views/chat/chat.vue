@@ -2119,16 +2119,30 @@ const messageWindow = reactive({
   latestTimestamp: null as number | null,
   hasReachedStart: false,
   hasReachedLatest: false,
+  lockedHistory: false,
+  beforeCursorExhausted: false,
 });
 const viewMode = computed(() => messageWindow.viewMode);
 const inHistoryMode = computed(() => viewMode.value === 'history');
+const historyLocked = computed(() => messageWindow.lockedHistory);
 const anchorMessageId = computed(() => messageWindow.anchorMessageId);
 
-const resetWindowState = (mode: ViewMode = 'live') => {
-  rows.value = [];
+interface ResetWindowOptions {
+  preserveRows?: boolean;
+  preserveHistoryLock?: boolean;
+}
+
+const resetWindowState = (mode: ViewMode = 'live', options: ResetWindowOptions = {}) => {
+  if (!options.preserveRows) {
+    rows.value = [];
+  }
   messageWindow.viewMode = mode;
+  if (!options.preserveHistoryLock) {
+    messageWindow.lockedHistory = false;
+  }
   messageWindow.anchorMessageId = null;
   messageWindow.beforeCursor = '';
+  messageWindow.beforeCursorExhausted = false;
   messageWindow.afterCursor = '';
   messageWindow.autoFillPending = false;
   messageWindow.earliestTimestamp = null;
@@ -2137,10 +2151,27 @@ const resetWindowState = (mode: ViewMode = 'live') => {
   messageWindow.hasReachedLatest = false;
 };
 
-const updateViewMode = (mode: ViewMode) => {
+const updateViewMode = (mode: ViewMode, { force } = { force: false }) => {
+  if (mode === 'live' && messageWindow.lockedHistory && !force) {
+    return;
+  }
   if (messageWindow.viewMode !== mode) {
     messageWindow.viewMode = mode;
   }
+  if (mode === 'live') {
+    messageWindow.lockedHistory = false;
+  }
+};
+
+const lockHistoryView = () => {
+  messageWindow.lockedHistory = true;
+  updateViewMode('history', { force: true });
+};
+
+const unlockHistoryView = () => {
+  messageWindow.lockedHistory = false;
+  updateViewMode('live', { force: true });
+  updateAnchorMessage(null);
 };
 
 const updateAnchorMessage = (id: string | null) => {
@@ -2151,13 +2182,14 @@ const applyCursorUpdate = (cursor?: { before?: string | null; after?: string | n
   if (!cursor) return;
   if (cursor.before !== undefined) {
     messageWindow.beforeCursor = cursor.before || '';
-    if (!messageWindow.beforeCursor) {
-      messageWindow.hasReachedStart = true;
+    messageWindow.beforeCursorExhausted = !messageWindow.beforeCursor;
+    if (messageWindow.beforeCursor) {
+      messageWindow.hasReachedStart = false;
     }
   }
   if (cursor.after !== undefined) {
     messageWindow.afterCursor = cursor.after || '';
-    if (!messageWindow.afterCursor) {
+    if (messageWindow.afterCursor) {
       messageWindow.hasReachedLatest = false;
     }
   }
@@ -2597,10 +2629,12 @@ const mountHistoricalWindowWithSpan = async (
     sortRowsByDisplayOrder();
     applyCursorUpdate({ before: resp?.next ?? '' });
     computeAfterCursorFromRows();
-    messageWindow.hasReachedStart = !resp?.next && from === 0;
+    messageWindow.hasReachedStart = false;
+    messageWindow.beforeCursorExhausted = !messageWindow.beforeCursor && from === 0;
     messageWindow.hasReachedLatest = false;
     updateAnchorMessage(payload.messageId);
     showButton.value = true;
+    lockHistoryView();
     return true;
   } catch (error) {
     console.warn('加载历史视图失败', error);
@@ -2737,7 +2771,7 @@ const handleSearchJump = async (payload: { messageId: string; displayOrder?: num
     }
   }
   if (messagesListRef.value) {
-    updateViewMode('history');
+    lockHistoryView();
     updateAnchorMessage(targetId);
     computeAfterCursorFromRows();
     VueScrollTo.scrollTo(target, {
@@ -5509,8 +5543,7 @@ chatEvent.on('channel-presence-updated', (e?: Event) => {
       nextTick(() => {
         scrollToBottom();
         showButton.value = false;
-        updateViewMode('live');
-        updateAnchorMessage(null);
+        unlockHistoryView();
       })
     } else {
       await fetchLatestMessages();
@@ -5549,7 +5582,7 @@ onBeforeUnmount(() => {
 });
 
 const showButton = ref(false);
-const historyHintVisible = computed(() => inHistoryMode.value);
+const historyHintVisible = computed(() => inHistoryMode.value || historyLocked.value);
 const historyHintLabel = computed(() => (isMobileUa ? '历史' : '当前浏览历史消息'));
 
 const computeAfterCursorFromRows = () => {
@@ -5651,7 +5684,8 @@ const fetchLatestMessages = async () => {
   if (!chat.curChannel?.id || messageWindow.loadingLatest) {
     return;
   }
-  resetWindowState('live');
+  const previousRows = rows.value.slice();
+  resetWindowState('live', { preserveRows: true });
   resetTypingPreview();
   messageWindow.loadingLatest = true;
   try {
@@ -5668,16 +5702,29 @@ const fetchLatestMessages = async () => {
     showButton.value = false;
     await autoFillIfNeeded();
     tryAutoRestoreHistory();
+  } catch (error) {
+    rows.value = previousRows;
+    resetWindowState('live', { preserveRows: true, preserveHistoryLock: false });
+    throw error;
   } finally {
     messageWindow.loadingLatest = false;
   }
+};
+
+const loadOlderMessagesByWindow = async () => {
+  const first = rows.value[0];
+  const boundary = normalizeTimestamp(first?.createdAt);
+  if (boundary === null || boundary === undefined) {
+    return { messages: [] as Message[], cursor: '', reachedStart: false };
+  }
+  const result = await fetchOlderThanTimestamp(boundary);
+  return result;
 };
 
 const loadOlderMessages = async () => {
   if (!chat.curChannel?.id || messageWindow.loadingBefore || messageWindow.hasReachedStart) {
     return false;
   }
-  const useCursor = Boolean(messageWindow.beforeCursor);
   messageWindow.loadingBefore = true;
   try {
     const container = messagesListRef.value;
@@ -5686,6 +5733,8 @@ const loadOlderMessages = async () => {
     let normalized: Message[] = [];
     let nextCursor: string | undefined;
     let reachedStart = false;
+    const useCursor = Boolean(messageWindow.beforeCursor);
+
     if (useCursor) {
       const resp = await chat.messageList(chat.curChannel.id, messageWindow.beforeCursor, {
         includeArchived: chat.filterState.showArchived,
@@ -5693,33 +5742,34 @@ const loadOlderMessages = async () => {
       });
       normalized = normalizeMessageList(resp.data);
       nextCursor = resp?.next ?? '';
-      if (!nextCursor && normalized.length === 0) {
-        reachedStart = true;
+      if (!normalized.length && !nextCursor) {
+        // Cursor已耗尽但仍有可能存在历史数据，改用时间窗口重试
+        const fallback = await loadOlderMessagesByWindow();
+        normalized = fallback.messages;
+        nextCursor = fallback.cursor;
+        reachedStart = fallback.reachedStart;
       }
     } else {
-      const first = rows.value[0];
-      const boundary = normalizeTimestamp(first?.createdAt);
-      if (boundary === null || boundary === undefined) {
-        return false;
-      }
-      const result = await fetchOlderThanTimestamp(boundary);
-      normalized = result.messages;
-      nextCursor = result.cursor;
-      reachedStart = result.reachedStart;
+      const fallback = await loadOlderMessagesByWindow();
+      normalized = fallback.messages;
+      nextCursor = fallback.cursor;
+      reachedStart = fallback.reachedStart;
     }
+
+    if (nextCursor !== undefined) {
+      applyCursorUpdate({ before: nextCursor ?? '' });
+    }
+
     if (normalized.length) {
       const cursorPayload = nextCursor !== undefined ? { before: nextCursor ?? '' } : undefined;
       mergeIncomingMessages(normalized, cursorPayload);
       updateWindowAnchorsFromRows();
-      if (!reachedStart) {
-        messageWindow.hasReachedStart = false;
-      }
-    } else if (useCursor && nextCursor !== undefined) {
-      applyCursorUpdate({ before: nextCursor ?? '' });
+      messageWindow.hasReachedStart = false;
     }
     if (reachedStart) {
       messageWindow.hasReachedStart = true;
       messageWindow.beforeCursor = '';
+      messageWindow.beforeCursorExhausted = true;
     }
     await nextTick();
     if (container) {
@@ -5774,8 +5824,7 @@ const loadNewerMessages = async () => {
 
 const handleBackToLatest = async () => {
   await fetchLatestMessages();
-  updateAnchorMessage(null);
-  updateViewMode('live');
+  unlockHistoryView();
 };
 
 const onScroll = () => {
@@ -5785,11 +5834,11 @@ const onScroll = () => {
   }
   const offset = container.scrollHeight - (container.clientHeight + container.scrollTop);
   const stuckToBottom = offset <= SCROLL_STICKY_THRESHOLD;
-  showButton.value = !stuckToBottom;
+  showButton.value = !stuckToBottom || historyLocked.value;
   if (!stuckToBottom) {
     updateViewMode('history');
     computeAfterCursorFromRows();
-  } else {
+  } else if (!historyLocked.value) {
     updateViewMode('live');
   }
   if (container.scrollTop <= 80 && firstLoad && !messageWindow.loadingBefore) {
@@ -6234,7 +6283,7 @@ onBeforeUnmount(() => {
     <div
       class="chat overflow-y-auto h-full px-4 pt-6"
       :class="[`chat--layout-${display.layout}`, `chat--palette-${display.palette}`, { 'chat--no-avatar': !display.showAvatar }]"
-      v-show="rows.length > 0"
+      v-show="rows.length > 0 || messageWindow.loadingLatest"
       @scroll="onScroll"
       @dragover="handleGalleryDragOver" @drop="handleGalleryDrop"
       ref="messagesListRef">
@@ -6463,7 +6512,10 @@ onBeforeUnmount(() => {
               </template>
             </VirtualList> -->
     </div>
-    <div v-if="rows.length === 0" class="flex h-full items-center text-2xl justify-center text-gray-400">说点什么吧</div>
+    <div
+      v-if="rows.length === 0 && !messageWindow.loadingLatest"
+      class="flex h-full items-center text-2xl justify-center text-gray-400"
+    >说点什么吧</div>
 
     <!-- flex-grow -->
     <div class="edit-area flex justify-between relative">
