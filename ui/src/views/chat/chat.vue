@@ -6653,7 +6653,10 @@ onBeforeUnmount(() => {
         <n-button @click="chat.curReplyTo = null">取消</n-button>
       </div>
 
-      <div class="chat-input-container flex flex-col w-full relative">
+      <div
+        class="chat-input-container flex flex-col w-full relative"
+        :class="{ 'chat-input-container--spectator-hidden': spectatorInputDisabled }"
+      >
         <transition name="fade">
           <div v-if="whisperPanelVisible" class="whisper-panel" @mousedown.stop>
             <div class="whisper-panel__title">{{ t('inputBox.whisperPanelTitle') }}</div>
@@ -8350,6 +8353,10 @@ onBeforeUnmount(() => {
   margin: 0;
   box-shadow: none;
   transition: background-color 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease;
+}
+
+.chat-input-container--spectator-hidden {
+  display: none;
 }
 
 :root[data-display-palette='night'] .chat-input-container {
