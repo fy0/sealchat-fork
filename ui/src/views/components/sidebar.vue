@@ -142,10 +142,63 @@ const speak = () => {
 
 const parentId = ref('');
 
-const handleSelect = (key: string, data: any) => {
+const canShowDissolve = (channel?: SChannel) => {
+  if (!channel?.id) return false;
+  const userId = user.info.id;
+  if (!userId) return false;
+  return chat.isChannelOwner(channel.id, userId) || chat.isChannelAdmin(channel.id, userId);
+};
+
+const ensureChannelManagePermission = async (channelId: string) => {
+  if (!channelId) return false;
+  const userId = user.info.id;
+  if (!userId) return false;
+  if (chat.isChannelOwner(channelId, userId)) {
+    return true;
+  }
+  try {
+    if (await chat.hasChannelPermission(channelId, 'func_channel_manage_info', userId)) {
+      return true;
+    }
+    if (await chat.hasChannelPermission(channelId, 'func_channel_manage_role_root', userId)) {
+      return true;
+    }
+  } catch (error) {
+    console.warn('check channel manage perm failed', error);
+  }
+  return false;
+};
+
+const handleChannelDissolve = async (channel: SChannel) => {
+  if (!channel?.id) return;
+  const allowed = await ensureChannelManagePermission(channel.id);
+  if (!allowed) {
+    message.error('只有群主或管理员可以解散该频道');
+    return;
+  }
+
+  dialog.warning({
+    title: '解散频道',
+    content: `确认要解散「${channel.name}」吗？该操作不可恢复。`,
+    positiveText: '解散',
+    negativeText: '取消',
+    onPositiveClick: async () => {
+      try {
+        await chat.channelDissolve(channel.id);
+        message.success('频道已解散');
+      } catch (error: any) {
+        message.error(error?.response?.data?.error || '解散失败，请重试');
+        return false;
+      }
+      return true;
+    },
+  });
+};
+
+const handleSelect = async (key: string, data: any) => {
   switch (key) {
     case 'enter':
-      doChannelSwitch(data.item);
+      await doChannelSwitch(data.item);
       break;
     case 'addSubChannel':
       // 实现添加子频道的逻辑
@@ -161,8 +214,7 @@ const handleSelect = (key: string, data: any) => {
       alert('未实现');
       break;
     case 'dissolve':
-      // 实现解散频道的逻辑
-      alert('未实现');
+      await handleChannelDissolve(data.item as SChannel);
       break;
     default:
       break;
@@ -299,7 +351,7 @@ const goWorldManage = () => {
                       { label: '添加子频道', key: 'addSubChannel', show: !Boolean(i.parentId), item: i },
                       { label: '频道管理', key: 'manage', item: i },
                       { label: '退出', key: 'leave', item: i, show: i.permType === 'non-public' },
-                      { label: '解散', key: 'dissolve', item: i, }
+                      { label: '解散', key: 'dissolve', item: i, show: canShowDissolve(i as SChannel) }
                     ]" @select="handleSelect">
                       <n-button @click.stop quaternary circle size="tiny">
                         <template #icon>
@@ -367,7 +419,7 @@ const goWorldManage = () => {
                           { label: '进入', key: 'enter', item: child },
                           { label: '频道管理', key: 'manage', item: child },
                           { label: '退出', key: 'leave', item: i, show: i.permType === 'non-public' },
-                          { label: '解散', key: 'dissolve', item: child, }
+                          { label: '解散', key: 'dissolve', item: child, show: canShowDissolve(child as SChannel) }
                         ]" @select="handleSelect">
                           <n-button @click.stop quaternary circle size="tiny">
                             <template #icon>

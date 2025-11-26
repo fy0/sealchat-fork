@@ -1,8 +1,10 @@
 package service
 
 import (
+	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/mikespook/gorbac"
 
@@ -277,4 +279,72 @@ func ensureChannelSpectatorRole(channelID string) {
 			pm.PermFuncChannelReadAll,
 		}
 	})
+}
+
+func ChannelDissolve(channelID, operatorID string) (err error) {
+	channelID = strings.TrimSpace(channelID)
+	if channelID == "" {
+		return errors.New("channelId 不能为空")
+	}
+
+	ch, err := model.ChannelGet(channelID)
+	if err != nil {
+		return err
+	}
+	if ch == nil || strings.TrimSpace(ch.ID) == "" {
+		return errors.New("频道不存在")
+	}
+	if ch.Status == "deleted" {
+		return errors.New("频道已被解散")
+	}
+	if ch.IsPrivate || strings.EqualFold(ch.PermType, "private") {
+		return errors.New("私聊频道无法解散")
+	}
+
+	if strings.TrimSpace(ch.WorldID) != "" {
+		var world model.WorldModel
+		if err := model.GetDB().Where("id = ?", ch.WorldID).Limit(1).Find(&world).Error; err == nil {
+			if world.ID != "" && strings.TrimSpace(world.DefaultChannelID) == ch.ID {
+				return errors.New("世界默认频道无法解散")
+			}
+		}
+	}
+
+	tx := model.GetDB().Begin()
+	if tx.Error != nil {
+		return tx.Error
+	}
+	defer func() {
+		if err != nil {
+			tx.Rollback()
+		} else {
+			tx.Commit()
+		}
+	}()
+
+	if err = tx.Model(&model.ChannelModel{}).
+		Where("id = ?", channelID).
+		Updates(map[string]any{
+			"status":     "deleted",
+			"updated_at": time.Now(),
+		}).Error; err != nil {
+		return err
+	}
+
+	if err = tx.Where("channel_id = ?", channelID).Delete(&model.MemberModel{}).Error; err != nil {
+		return err
+	}
+
+	rolePattern := fmt.Sprintf("ch-%s-%%", channelID)
+	if err = tx.Where("role_id LIKE ?", rolePattern).Delete(&model.UserRoleMappingModel{}).Error; err != nil {
+		return err
+	}
+	if err = tx.Where("role_id LIKE ?", rolePattern).Delete(&model.RolePermissionModel{}).Error; err != nil {
+		return err
+	}
+	if err = tx.Where("id LIKE ?", rolePattern).Delete(&model.ChannelRoleModel{}).Error; err != nil {
+		return err
+	}
+
+	return nil
 }

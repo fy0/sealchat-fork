@@ -1887,6 +1887,21 @@ export const useChatStore = defineStore({
       return resp?.data;
     },
 
+    async channelDissolve(channelId: string) {
+      if (!channelId) {
+        throw new Error('缺少频道ID');
+      }
+      await api.delete(`api/v1/channels/${channelId}`);
+      const wasCurrent = this.curChannel?.id === channelId;
+      if (wasCurrent) {
+        this.curChannel = null;
+      }
+      await this.channelList(this.currentWorldId, true);
+      if (wasCurrent && this.channelTree.length) {
+        await this.channelSwitchTo(this.channelTree[0].id);
+      }
+    },
+
     // 获取频道权限树
     async channelPermTree() {
       const resp = await api.get<{ items: PermTreeNode[] }>('api/v1/channel-perm-tree');

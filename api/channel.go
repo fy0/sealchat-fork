@@ -10,6 +10,7 @@ import (
 	"sealchat/model"
 	"sealchat/pm"
 	"sealchat/pm/perm_tree"
+	"sealchat/service"
 	"sealchat/utils"
 )
 
@@ -146,6 +147,41 @@ func ChannelInfoGet(c *fiber.Ctx) error {
 
 	return c.JSON(fiber.Map{
 		"item": channel,
+	})
+}
+
+func ChannelDissolve(c *fiber.Ctx) error {
+	channelID := strings.TrimSpace(c.Params("channelId"))
+	if channelID == "" {
+		channelID = strings.TrimSpace(c.Query("channelId"))
+	}
+	if channelID == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "频道ID不能为空",
+		})
+	}
+
+	user := getCurUser(c)
+	if user == nil {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+			"error": "未登录",
+		})
+	}
+
+	if !pm.CanWithChannelRole(user.ID, channelID, pm.PermFuncChannelManageInfo, pm.PermFuncChannelManageRoleRoot) {
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
+			"error": "只有群主或管理员可以解散频道",
+		})
+	}
+
+	if err := service.ChannelDissolve(channelID, user.ID); err != nil {
+		return c.Status(http.StatusBadRequest).JSON(fiber.Map{
+			"error": err.Error(),
+		})
+	}
+
+	return c.JSON(fiber.Map{
+		"message": "频道已解散",
 	})
 }
 
