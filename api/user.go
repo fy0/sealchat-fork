@@ -50,6 +50,12 @@ func UserSignup(c *fiber.Ctx) error {
 		})
 	}
 
+	if ok, _ := regexp.MatchString(`^[A-Za-z0-9_.-]+$`, username); !ok {
+		return c.Status(http.StatusBadRequest).JSON(fiber.Map{
+			"message": "用户名只能包含字母、数字、下划线、点或中划线",
+		})
+	}
+
 	if len(password) < 3 {
 		return c.Status(http.StatusBadRequest).JSON(fiber.Map{
 			"message": "密码长度不能小于3位",

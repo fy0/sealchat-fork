@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import router from '@/router';
-import { onMounted, reactive, ref } from 'vue';
+import { computed, onMounted, reactive, ref } from 'vue';
 import { formDataToJson } from '@/utils/tools';
 import type { AxiosError } from 'axios';
 import { flow } from 'lodash-es';
@@ -20,7 +20,23 @@ const form = reactive({
 
 const message = useMessage()
 
+const usernamePattern = /^[A-Za-z0-9_.-]+$/;
+const usernameError = computed(() => {
+  const value = form.username.trim();
+  if (!value) {
+    return '';
+  }
+  return usernamePattern.test(value) ? '' : '用户名仅能包含英文、数字、下划线、点或中划线，不能使用汉字';
+});
+
 const signUp = async () => {
+  if (usernameError.value) {
+    message.error(usernameError.value);
+    return;
+  }
+
+  form.username = form.username.trim();
+
   const ret = await userStore.signUp(form);
   if (ret) {
     message.error(ret)
@@ -78,6 +94,7 @@ onMounted(async () => {
                 class="absolute right-0 h-full top-0 px-1 mr-1 text-sm font-medium text-blue-500 capitalize" tabindex="-1">随机
               </button>
             </div>
+            <p v-if="usernameError" class="mt-1 text-xs text-red-500">{{ usernameError }}</p>
           </div>
 
           <div class="w-full mt-4">
