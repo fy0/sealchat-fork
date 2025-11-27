@@ -1985,6 +1985,7 @@ const handleExportMessages = async (params: {
   includeArchived: boolean;
   withoutTimestamp: boolean;
   mergeMessages: boolean;
+  textColorizeBBCode: boolean;
   autoUpload: boolean;
   maxExportMessages: number;
   maxExportConcurrency: number;
@@ -2017,6 +2018,7 @@ const handleExportMessages = async (params: {
       includeArchived: params.includeArchived,
       withoutTimestamp: params.withoutTimestamp,
       mergeMessages: params.mergeMessages,
+      textColorizeBBCode: params.textColorizeBBCode && params.format === 'txt',
       sliceLimit,
       maxConcurrency,
       displaySettings: displayOptions,

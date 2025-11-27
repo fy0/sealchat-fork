@@ -2133,6 +2133,7 @@ export const useChatStore = defineStore({
       includeArchived?: boolean;
       withoutTimestamp?: boolean;
       mergeMessages?: boolean;
+      textColorizeBBCode?: boolean;
       sliceLimit?: number;
       maxConcurrency?: number;
       displaySettings?: DisplaySettings;
@@ -2160,6 +2161,9 @@ export const useChatStore = defineStore({
       }
       if (params.displaySettings) {
         payload.display_settings = params.displaySettings;
+      }
+      if (params.textColorizeBBCode) {
+        payload.text_bbcode_colorize = true;
       }
       const resp = await api.post('api/v1/chat/export', payload);
       return resp.data as {

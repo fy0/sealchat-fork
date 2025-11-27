@@ -21,18 +21,19 @@ import (
 )
 
 type chatExportRequest struct {
-	ChannelID        string         `json:"channel_id"`
-	Format           string         `json:"format"`
-	DisplayName      string         `json:"display_name"`
-	TimeRange        []int64        `json:"time_range"`
-	IncludeOOC       *bool          `json:"include_ooc"`
-	IncludeArchived  *bool          `json:"include_archived"`
-	WithoutTimestamp *bool          `json:"without_timestamp"`
-	MergeMessages    *bool          `json:"merge_messages"`
-	Users            []string       `json:"users"`
-	DisplaySettings  map[string]any `json:"display_settings"`
-	SliceLimit       int            `json:"slice_limit"`
-	MaxConcurrency   int            `json:"max_concurrency"`
+	ChannelID          string         `json:"channel_id"`
+	Format             string         `json:"format"`
+	DisplayName        string         `json:"display_name"`
+	TimeRange          []int64        `json:"time_range"`
+	IncludeOOC         *bool          `json:"include_ooc"`
+	IncludeArchived    *bool          `json:"include_archived"`
+	WithoutTimestamp   *bool          `json:"without_timestamp"`
+	MergeMessages      *bool          `json:"merge_messages"`
+	Users              []string       `json:"users"`
+	DisplaySettings    map[string]any `json:"display_settings"`
+	SliceLimit         int            `json:"slice_limit"`
+	MaxConcurrency     int            `json:"max_concurrency"`
+	TextColorizeBBCode *bool          `json:"text_bbcode_colorize"`
 }
 
 type chatExportResponse struct {
@@ -143,24 +144,30 @@ func execChatExportCreate(userID string, req *chatExportRequest) (*chatExportRes
 		mergeMessages = *req.MergeMessages
 	}
 
+	textColorizeBBCode := false
+	if req.TextColorizeBBCode != nil && strings.EqualFold(format, "txt") {
+		textColorizeBBCode = *req.TextColorizeBBCode
+	}
+
 	displaySettings := normalizeDisplaySettings(req.DisplaySettings)
 	sliceLimit := service.NormalizeExportSliceLimit(req.SliceLimit)
 	maxConcurrency := service.NormalizeExportConcurrency(req.MaxConcurrency)
 
 	job, err := service.CreateMessageExportJob(&service.ExportJobOptions{
-		UserID:           userID,
-		ChannelID:        channelID,
-		Format:           format,
-		DisplayName:      req.DisplayName,
-		IncludeOOC:       includeOOC,
-		IncludeArchived:  includeArchived,
-		WithoutTimestamp: withoutTimestamp,
-		MergeMessages:    mergeMessages,
-		StartTime:        start,
-		EndTime:          end,
-		DisplaySettings:  displaySettings,
-		SliceLimit:       sliceLimit,
-		MaxConcurrency:   maxConcurrency,
+		UserID:             userID,
+		ChannelID:          channelID,
+		Format:             format,
+		DisplayName:        req.DisplayName,
+		IncludeOOC:         includeOOC,
+		IncludeArchived:    includeArchived,
+		WithoutTimestamp:   withoutTimestamp,
+		MergeMessages:      mergeMessages,
+		TextColorizeBBCode: textColorizeBBCode,
+		StartTime:          start,
+		EndTime:            end,
+		DisplaySettings:    displaySettings,
+		SliceLimit:         sliceLimit,
+		MaxConcurrency:     maxConcurrency,
 	})
 	if err != nil {
 		return nil, err

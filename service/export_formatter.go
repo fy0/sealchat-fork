@@ -1045,26 +1045,114 @@ func (textFormatter) Build(payload *ExportPayload) ([]byte, error) {
 		len(payload.Messages),
 	)
 	sb.WriteString(header)
+	useBBCode := shouldApplyBBCodeColor(payload)
 	for _, msg := range payload.Messages {
-		var prefixParts []string
-		if !payload.WithoutTimestamp {
-			prefixParts = append(prefixParts, fmt.Sprintf("[%s]", msg.CreatedAt.Format("2006-01-02 15:04:05")))
+		line := ""
+		if useBBCode {
+			line = buildBBCodeTextLine(payload, &msg)
+		} else {
+			line = buildPlainTextLine(payload, &msg)
 		}
-		var header string
-		if len(prefixParts) > 0 {
-			header = strings.Join(prefixParts, " ")
-		}
-		namePart := fmt.Sprintf("<%s>", msg.SenderName)
-		content := buildContentBody(&msg)
-		parts := []string{}
-		if header != "" {
-			parts = append(parts, header)
-		}
-		parts = append(parts, namePart)
-		parts = append(parts, content)
-		sb.WriteString(strings.Join(parts, " ") + "\n")
+		sb.WriteString(line + "\n")
 	}
 	return []byte(sb.String()), nil
+}
+
+func buildPlainTextLine(payload *ExportPayload, msg *ExportMessage) string {
+	if payload == nil || msg == nil {
+		return ""
+	}
+	var prefixParts []string
+	if !payload.WithoutTimestamp {
+		prefixParts = append(prefixParts, fmt.Sprintf("[%s]", msg.CreatedAt.Format("2006-01-02 15:04:05")))
+	}
+	header := strings.Join(prefixParts, " ")
+	namePart := fmt.Sprintf("<%s>", msg.SenderName)
+	content := buildContentBody(msg)
+	var parts []string
+	if header != "" {
+		parts = append(parts, header)
+	}
+	parts = append(parts, namePart, content)
+	return strings.TrimSpace(strings.Join(parts, " "))
+}
+
+func buildBBCodeTextLine(payload *ExportPayload, msg *ExportMessage) string {
+	if payload == nil || msg == nil {
+		return ""
+	}
+	var headerParts []string
+	if !payload.WithoutTimestamp {
+		headerParts = append(headerParts, fmt.Sprintf("[%s]", msg.CreatedAt.Format("2006-01-02 15:04:05")))
+	}
+	headerParts = append(headerParts, fmt.Sprintf("<%s>", msg.SenderName))
+	header := strings.Join(headerParts, " ")
+	content := buildContentBody(msg)
+	color := sanitizeBBCodeColor(msg.SenderColor, "#111111")
+	return fmt.Sprintf("[color=silver]%s[/color][color=%s] %s [/color]", header, color, content)
+}
+
+func shouldApplyBBCodeColor(payload *ExportPayload) bool {
+	if payload == nil || payload.ExtraMeta == nil {
+		return false
+	}
+	raw, ok := payload.ExtraMeta["text_colorize_bbcode"]
+	if !ok {
+		return false
+	}
+	switch v := raw.(type) {
+	case bool:
+		return v
+	case string:
+		value := strings.TrimSpace(strings.ToLower(v))
+		return value == "1" || value == "true" || value == "yes" || value == "on"
+	case float64:
+		return v != 0
+	case int:
+		return v != 0
+	default:
+		return false
+	}
+}
+
+func sanitizeBBCodeColor(input string, fallback string) string {
+	value := strings.ToLower(strings.TrimSpace(input))
+	if value == "" {
+		return fallback
+	}
+	if !strings.HasPrefix(value, "#") {
+		return fallback
+	}
+	hex := strings.TrimPrefix(value, "#")
+	normalized, ok := normalizeHexColor(hex)
+	if !ok {
+		return fallback
+	}
+	return "#" + normalized
+}
+
+func normalizeHexColor(hex string) (string, bool) {
+	if len(hex) == 3 && isHexDigits(hex) {
+		var builder strings.Builder
+		for _, ch := range hex {
+			builder.WriteRune(ch)
+			builder.WriteRune(ch)
+		}
+		return builder.String(), true
+	}
+	if len(hex) == 6 && isHexDigits(hex) {
+		return hex, true
+	}
+	return "", false
+}
+
+func isHexDigits(input string) bool {
+	for _, ch := range input {
+		if (ch < '0' || ch > '9') && (ch < 'a' || ch > 'f') {
+			return false
+		}
+	}
+	return true
 }
 
 func wrapOOCContent(icMode string, content string) string {

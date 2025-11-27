@@ -116,7 +116,17 @@ func processExportJob(job *model.MessageExportJobModel, cfg MessageExportWorkerC
 		return nil
 	}
 
-	payload := buildExportPayload(job, channelName, messages, nil)
+	var ctx *payloadContext
+	if extraOptions != nil && len(extraOptions.DisplaySettings) > 0 {
+		ctx = &payloadContext{DisplayOptions: extraOptions.DisplaySettings}
+	}
+	payload := buildExportPayload(job, channelName, messages, ctx)
+	if extraOptions != nil && extraOptions.TextColorizeBBCode {
+		if payload.ExtraMeta == nil {
+			payload.ExtraMeta = make(map[string]interface{})
+		}
+		payload.ExtraMeta["text_colorize_bbcode"] = true
+	}
 
 	formatter, ok := getFormatter(job.Format)
 	if !ok {

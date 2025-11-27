@@ -12,6 +12,7 @@ interface ExportParams {
   includeArchived: boolean
   withoutTimestamp: boolean
   mergeMessages: boolean
+  textColorizeBBCode: boolean
   autoUpload: boolean
   maxExportMessages: number
   maxExportConcurrency: number
@@ -109,6 +110,7 @@ const form = reactive<ExportParams>({
   includeArchived: false,
   withoutTimestamp: false,
   mergeMessages: true,
+  textColorizeBBCode: false,
   autoUpload: false,
   maxExportMessages: SLICE_LIMIT_DEFAULT,
   maxExportConcurrency: CONCURRENCY_DEFAULT,
@@ -129,6 +131,9 @@ watch(
       form.autoUpload = true
     } else if (newFormat !== 'json') {
       form.autoUpload = false
+    }
+    if (newFormat !== 'txt') {
+      form.textColorizeBBCode = false
     }
     applyFormatSpecificLimits()
   },
@@ -269,6 +274,7 @@ const handleClose = () => {
   form.includeArchived = false
   form.withoutTimestamp = false
   form.mergeMessages = true
+  form.textColorizeBBCode = false
   form.autoUpload = false
   form.displayName = ''
   syncExportSettingsFromStore()
@@ -436,6 +442,14 @@ const shortcuts = {
               </n-checkbox>
             </template>
             导出的文本中移除每条消息的时间前缀，适合整理剧本或公开内容。
+          </n-tooltip>
+          <n-tooltip trigger="hover" v-if="form.format === 'txt'">
+            <template #trigger>
+              <n-checkbox v-model:checked="form.textColorizeBBCode">
+                使用 BBCode 染色（昵称颜色）
+              </n-checkbox>
+            </template>
+            仅对纯文本导出生效，会使用 [color] 标签包裹角色名与内容，并引用频道内的昵称颜色。
           </n-tooltip>
         </n-space>
       </n-form-item>

@@ -37,25 +37,27 @@ var supportedExportFormats = map[string]struct{}{
 
 // ExportJobOptions 聚合创建导出任务所需的信息。
 type ExportJobOptions struct {
-	UserID           string
-	ChannelID        string
-	Format           string
-	DisplayName      string
-	IncludeOOC       bool
-	IncludeArchived  bool
-	WithoutTimestamp bool
-	MergeMessages    bool
-	StartTime        *time.Time
-	EndTime          *time.Time
-	DisplaySettings  map[string]any
-	SliceLimit       int
-	MaxConcurrency   int
+	UserID             string
+	ChannelID          string
+	Format             string
+	DisplayName        string
+	IncludeOOC         bool
+	IncludeArchived    bool
+	WithoutTimestamp   bool
+	MergeMessages      bool
+	StartTime          *time.Time
+	EndTime            *time.Time
+	DisplaySettings    map[string]any
+	SliceLimit         int
+	MaxConcurrency     int
+	TextColorizeBBCode bool
 }
 
 type exportExtraOptions struct {
-	DisplaySettings map[string]any `json:"display,omitempty"`
-	SliceLimit      int            `json:"slice_limit,omitempty"`
-	MaxConcurrency  int            `json:"max_concurrency,omitempty"`
+	DisplaySettings    map[string]any `json:"display,omitempty"`
+	SliceLimit         int            `json:"slice_limit,omitempty"`
+	MaxConcurrency     int            `json:"max_concurrency,omitempty"`
+	TextColorizeBBCode bool           `json:"text_colorize_bbcode,omitempty"`
 }
 
 func normalizeExportFormat(format string) (string, bool) {
@@ -249,8 +251,9 @@ func buildExportExtraOptions(opts *ExportJobOptions) (string, error) {
 		return "", nil
 	}
 	extra := exportExtraOptions{
-		SliceLimit:     opts.SliceLimit,
-		MaxConcurrency: opts.MaxConcurrency,
+		SliceLimit:         opts.SliceLimit,
+		MaxConcurrency:     opts.MaxConcurrency,
+		TextColorizeBBCode: opts.TextColorizeBBCode,
 	}
 	if len(opts.DisplaySettings) > 0 {
 		extra.DisplaySettings = opts.DisplaySettings
