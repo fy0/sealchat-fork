@@ -12,18 +12,18 @@ import {
 interface FilterState {
   icOnly: boolean
   showArchived: boolean
-  userIds: string[]
+  roleIds: string[]
 }
 
-interface Member {
+interface RoleOption {
   id: string
-  nick?: string
+  label?: string
   name?: string
 }
 
 interface Props {
   filters: FilterState
-  members: Member[]
+  roles: RoleOption[]
   archiveActive?: boolean
   exportActive?: boolean
   identityActive?: boolean
@@ -46,10 +46,10 @@ interface Emits {
 const props = defineProps<Props>()
 const emit = defineEmits<Emits>()
 
-const memberOptions = computed(() => {
-  return props.members.map(member => ({
-    label: member.nick || member.name || '未知成员',
-    value: member.id,
+const roleSelectOptions = computed(() => {
+  return props.roles.map(role => ({
+    label: role.label || role.name || '未命名角色',
+    value: role.id,
   }))
 })
 
@@ -57,7 +57,7 @@ const activeFiltersCount = computed(() => {
   let count = 0
   if (props.filters.icOnly) count++
   if (props.filters.showArchived) count++
-  if (props.filters.userIds.length > 0) count++
+  if (props.filters.roleIds.length > 0) count++
   return count
 })
 
@@ -101,11 +101,11 @@ const clearAllFilters = () => {
 
       <div class="filter-group">
         <n-select
-          :value="filters.userIds"
-          @update:value="updateFilter('userIds', $event)"
-          :options="memberOptions"
+          :value="filters.roleIds"
+          @update:value="updateFilter('roleIds', $event)"
+          :options="roleSelectOptions"
           multiple
-          placeholder="筛选用户"
+          placeholder="筛选角色"
           size="small"
           style="min-width: 120px"
           clearable

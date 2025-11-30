@@ -91,7 +91,7 @@ interface ChatState {
   filterState: {
     icOnly: boolean;
     showArchived: boolean;
-    userIds: string[];
+    roleIds: string[];
   };
   channelRoleCache: Record<string, string[]>;
   channelMemberRoleMap: Record<string, Record<string, string[]>>;
@@ -220,7 +220,7 @@ export const useChatStore = defineStore({
     filterState: {
       icOnly: false,
       showArchived: false,
-      userIds: [],
+      roleIds: [],
     },
     channelRoleCache: {},
     channelMemberRoleMap: {},
@@ -1837,6 +1837,26 @@ export const useChatStore = defineStore({
       return resp.data;
     },
 
+    async channelSpeakerOptions(channelId: string) {
+      if (!channelId) {
+        return { items: [], total: 0 };
+      }
+      const resp = await api.get<{ items: Array<{ id: string; label: string }>; total: number }>(
+        `api/v1/channels/${channelId}/speaker-options`,
+      );
+      return resp.data;
+    },
+
+    async channelSpeakerRoleOptions(channelId: string) {
+      if (!channelId) {
+        return { items: [], total: 0 };
+      }
+      const resp = await api.get<{ items: Array<{ id: string; label: string }>; total: number }>(
+        `api/v1/channels/${channelId}/speaker-role-options`,
+      );
+      return resp.data;
+    },
+
     // 添加用户角色
     async userRoleLink(roleId: string, userIds: string[]) {
       const resp = await api.post<{ data: boolean }>('api/v1/user-role-link', { roleId, userIds });
@@ -2082,7 +2102,7 @@ export const useChatStore = defineStore({
       this.lastPingSentAt = null;
     },
 
-    setFilterState(filters: Partial<{ icOnly: boolean; showArchived: boolean; userIds: string[] }>) {
+    setFilterState(filters: Partial<{ icOnly: boolean; showArchived: boolean; roleIds: string[] }>) {
       this.filterState = {
         ...this.filterState,
         ...filters,

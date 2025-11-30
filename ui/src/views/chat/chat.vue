@@ -452,6 +452,42 @@ const archiveDrawerVisible = ref(false);
 const exportManagerVisible = ref(false);
 const exportDialogVisible = ref(false);
 const channelFavoritesVisible = ref(false);
+const ribbonRoleOptions = ref<Array<{ id: string; label: string }>>([]);
+let ribbonRoleOptionsSeq = 0;
+
+const fetchRibbonRoleOptions = async (channelId?: string | null) => {
+  const normalizedId = typeof channelId === 'string' ? channelId.trim() : '';
+  if (!normalizedId) {
+    ribbonRoleOptions.value = [];
+    return;
+  }
+  const currentSeq = ++ribbonRoleOptionsSeq;
+  try {
+    const payload = await chat.channelSpeakerOptions(normalizedId);
+    if (currentSeq !== ribbonRoleOptionsSeq) {
+      return;
+    }
+    const items = Array.isArray(payload?.items) ? payload.items : [];
+    ribbonRoleOptions.value = items
+      .map((item) => ({
+        id: String(item.id || ''),
+        label: item.label || '未命名角色',
+      }))
+      .filter((item) => item.id);
+  } catch (error) {
+    if (currentSeq === ribbonRoleOptionsSeq) {
+      ribbonRoleOptions.value = [];
+    }
+  }
+};
+
+watch(
+  () => chat.curChannel?.id,
+  (channelId) => {
+    fetchRibbonRoleOptions(channelId);
+  },
+  { immediate: true },
+);
 
 const syncActionRibbonState = () => {
   chatEvent.emit('action-ribbon-state', showActionRibbon.value);
@@ -2236,9 +2272,12 @@ const isMergeCandidate = (message?: Message | null) => {
   return true;
 };
 
+const roleFilterActive = computed(() => Array.isArray(chat.filterState.roleIds) && chat.filterState.roleIds.length > 0);
+
 const visibleRowEntries = computed<VisibleRowEntry[]>(() => {
-  const { icOnly, showArchived, userIds } = chat.filterState;
-  const filterUserIds = Array.isArray(userIds) ? userIds : [];
+  const { icOnly, showArchived, roleIds } = chat.filterState;
+  const filterRoleIds = Array.isArray(roleIds) ? roleIds : [];
+  const allowMergeNeighbors = display.settings.mergeNeighbors && !roleFilterActive.value;
 
   const filtered = rows.value.filter((message) => {
     if ((message as any).is_deleted) {
@@ -2254,9 +2293,9 @@ const visibleRowEntries = computed<VisibleRowEntry[]>(() => {
       return false;
     }
 
-    if (filterUserIds.length > 0) {
-      const authorId = getMessageAuthorId(message);
-      if (!authorId || !filterUserIds.includes(authorId)) {
+    if (filterRoleIds.length > 0) {
+      const roleKey = getMessageRoleKey(message);
+      if (!roleKey || !filterRoleIds.includes(roleKey)) {
         return false;
       }
     }
@@ -2268,7 +2307,7 @@ const visibleRowEntries = computed<VisibleRowEntry[]>(() => {
   return filtered.map((message, index) => {
     let merged = false;
     if (
-      display.settings.mergeNeighbors &&
+      allowMergeNeighbors &&
       lastMergeCandidate &&
       isMergeCandidate(message) &&
       index - lastMergeCandidate.index === 1 &&
@@ -6428,7 +6467,7 @@ onBeforeUnmount(() => {
       <ChatActionRibbon
         v-if="showActionRibbon"
         :filters="chat.filterState"
-        :members="chat.curChannelUsers"
+        :roles="ribbonRoleOptions"
         :archive-active="archiveDrawerVisible"
         :export-active="exportManagerVisible"
         :identity-active="identityDialogVisible"
@@ -6442,7 +6481,7 @@ onBeforeUnmount(() => {
         @open-gallery="openGalleryPanel"
         @open-display-settings="displaySettingsVisible = true"
         @open-favorites="channelFavoritesVisible = true"
-        @clear-filters="chat.setFilterState({ icOnly: false, showArchived: false, userIds: [] })"
+        @clear-filters="chat.setFilterState({ icOnly: false, showArchived: false, roleIds: [] })"
       />
     </transition>
 
