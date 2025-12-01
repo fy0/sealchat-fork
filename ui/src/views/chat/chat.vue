@@ -4,7 +4,7 @@ import { computed, ref, watch, onMounted, onBeforeMount, onBeforeUnmount, nextTi
 import { VirtualList } from 'vue-tiny-virtual-list';
 import { chatEvent, useChatStore } from '@/stores/chat';
 import type { Event, Message, User, WhisperMeta } from '@satorijs/protocol'
-import type { ChannelIdentity, ChannelIdentityFolder, GalleryItem, UserInfo } from '@/types'
+import type { ChannelIdentity, ChannelIdentityFolder, GalleryItem, UserInfo, SChannel } from '@/types'
 import { useUserStore } from '@/stores/user';
 import { ArrowBarToDown, Plus, Upload, Send, ArrowBackUp, Palette, Download, ArrowsVertical, Star, StarOff, FolderPlus, DotsVertical, Folders } from '@vicons/tabler'
 import { NIcon, c, useDialog, useMessage, type MentionOption } from 'naive-ui';
@@ -131,12 +131,37 @@ const botSelectOptions = computed(() => botOptions.value.map((bot) => ({
 const hasBotOptions = computed(() => botOptions.value.length > 0);
 const channelSendAllowed = ref(true);
 let sendPermissionSeq = 0;
+const isPrivateChatChannel = (channel?: SChannel | null) => {
+  if (!channel) {
+    return false;
+  }
+  if (channel.isPrivate) {
+    return true;
+  }
+  if (channel.friendInfo) {
+    return true;
+  }
+  const permType = typeof channel.permType === 'string' ? channel.permType.toLowerCase() : '';
+  if (permType === 'private') {
+    return true;
+  }
+  const typeValue = (channel as any)?.type;
+  if (typeof typeValue === 'number' && typeValue === 3) {
+    return true;
+  }
+  return false;
+};
 watch(
   () => chat.curChannel?.id,
   async (channelId) => {
     const seq = ++sendPermissionSeq;
-    if (!channelId) {
+    const currentChannel = chat.curChannel as SChannel | undefined;
+    if (!channelId || !currentChannel) {
       channelSendAllowed.value = false;
+      return;
+    }
+    if (isPrivateChatChannel(currentChannel)) {
+      channelSendAllowed.value = true;
       return;
     }
     try {
