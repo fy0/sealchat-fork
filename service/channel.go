@@ -73,6 +73,12 @@ func ChannelIdList(userId string) ([]string, error) {
 	// 对idsCanRead进行去重
 	idsCanRead = lo.Uniq(idsCanRead)
 
+	// 追加私聊频道ID，使其也参与未读统计
+	if privateIDs, err := model.FriendChannelIDList(userId); err == nil {
+		idsCanRead = append(idsCanRead, privateIDs...)
+	}
+	idsCanRead = lo.Uniq(idsCanRead)
+
 	// 剔除父频道不在可读列表中的频道，但保留顶级频道
 	var idsParentNotInCanRead []string
 	db.Model(&model.ChannelModel{}).

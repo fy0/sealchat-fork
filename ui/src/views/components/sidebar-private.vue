@@ -165,7 +165,7 @@ const handleReject = async () => {
         :class="item.id === chat.curChannel?.id ? ['active'] : []">
         <UserLabel style="max-width: 11rem" :name="item.friendInfo?.userInfo?.nick" :src="item.friendInfo?.userInfo?.avatar" />
         <div class="flex space-x-1 items-center">
-          <div class="">
+          <div class="" v-if="chat.unreadCountMap[item.id]">
             <div class="label-unread">
               {{ chat.unreadCountMap[item.id] > 99 ? '99+' : chat.unreadCountMap[item.id] }}
             </div>
@@ -208,7 +208,7 @@ const handleReject = async () => {
             </n-tooltip>
           </div>
 
-          <div class="">
+          <div class="" v-if="chat.unreadCountMap[item.id]">
             <div class="label-unread">
               {{ chat.unreadCountMap[item.id] > 99 ? '99+' : chat.unreadCountMap[item.id] }}
             </div>

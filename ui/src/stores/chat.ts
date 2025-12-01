@@ -774,6 +774,19 @@ export const useChatStore = defineStore({
       return resp.data;
     },
 
+    setChannelUnreadCount(channelId: string, count: number) {
+      if (!channelId) {
+        return;
+      }
+      if (this.unreadCountMap[channelId] === count && channelId in this.unreadCountMap) {
+        return;
+      }
+      this.unreadCountMap = {
+        ...this.unreadCountMap,
+        [channelId]: count,
+      };
+    },
+
     async channelSwitchTo(id: string) {
       let nextChannel = this.channelTree.find(c => c.id === id) ||
         this.channelTree.flatMap(c => c.children || []).find(c => c.id === id);
@@ -811,6 +824,8 @@ export const useChatStore = defineStore({
       } catch (error) {
         console.warn('ensureChannelPermissionCache failed', error);
       }
+
+      this.setChannelUnreadCount(id, 0);
 
       chatEvent.emit('channel-switch-to', undefined);
       this.channelList(this.currentWorldId);

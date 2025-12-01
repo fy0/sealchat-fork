@@ -338,11 +338,11 @@ const goWorldManage = () => {
                   </template>
                 </div>
 
-                <div class="right-num">
-                  <div class="label-unread">
-                    {{ chat.unreadCountMap[i.id] > 99 ? '99+' : chat.unreadCountMap[i.id] }}
-                  </div>
-                </div>
+        <div class="right-num" v-if="chat.unreadCountMap[i.id]">
+          <div class="label-unread">
+            {{ chat.unreadCountMap[i.id] > 99 ? '99+' : chat.unreadCountMap[i.id] }}
+          </div>
+        </div>
 
                 <div class="right">
                   <div class="flex justify-center space-x-1">
@@ -407,7 +407,7 @@ const goWorldManage = () => {
                       </template>
                     </div>
 
-                    <div class="right-num">
+                    <div class="right-num" v-if="chat.unreadCountMap[child.id]">
                       <div class="label-unread">
                         {{ chat.unreadCountMap[child.id] > 99 ? '99+' : chat.unreadCountMap[child.id] }}
                       </div>
