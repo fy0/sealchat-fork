@@ -2,13 +2,20 @@ package api
 
 import (
 	"sealchat/model"
+	"sealchat/service"
 	"sealchat/utils"
 )
 
 func apiFriendChannelList(ctx *ChatContext, data *struct {
 	Next string `json:"next"`
 }) (any, error) {
-	items, _ := model.FriendChannelList(ctx.User.ID)
+	if err := service.EnsureBotFriendships(ctx.User.ID); err != nil {
+		return nil, err
+	}
+	items, err := model.FriendChannelList(ctx.User.ID)
+	if err != nil {
+		return nil, err
+	}
 
 	return &struct {
 		Data []*model.ChannelModel `json:"data"`
@@ -65,14 +72,17 @@ func apiFriendRequestCreate(ctx *ChatContext, data *struct {
 	ReceiverID string `json:"receiverId"` // 接收者
 	Note       string `json:"note"`       // 申请理由
 }) (any, error) {
-	err := model.FriendRequestCreate(&model.FriendRequestModel{
+	invite := &model.FriendRequestModel{
 		SenderID:   data.SenderID,
 		ReceiverID: data.ReceiverID,
 		Note:       data.Note,
-	})
+	}
+	err := model.FriendRequestCreate(invite)
 	status := 0
 	if err != nil {
 		status = -1
+	} else {
+		autoFriendRequestApproveIfReceiverBot(invite)
 	}
 	return &struct {
 		Message string `json:"message"`
@@ -121,4 +131,25 @@ func apiFriendDelete(ctx *ChatContext, data *struct {
 }) (any, error) {
 	ok := model.FriendRelationDelete(data.UserId, ctx.User.ID)
 	return ok, nil
+}
+
+func autoFriendRequestApproveIfReceiverBot(invite *model.FriendRequestModel) bool {
+	if invite == nil || invite.ID == "" {
+		return false
+	}
+	receiver := model.UserGet(invite.ReceiverID)
+	if receiver == nil || receiver.ID == "" || !receiver.IsBot {
+		return false
+	}
+	if !model.FriendRequestSetApprove(invite.ID, true) {
+		return false
+	}
+	ok, _ := model.FriendRelationFriendApprove(invite.SenderID, invite.ReceiverID)
+	if ok {
+		ch, _ := model.ChannelPrivateGet(invite.SenderID, invite.ReceiverID)
+		if ch.ID == "" {
+			model.ChannelPrivateNew(invite.SenderID, invite.ReceiverID)
+		}
+	}
+	return true
 }

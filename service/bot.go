@@ -125,3 +125,42 @@ func EnsureBotChannelIdentity(userID, channelID string) error {
 	}
 	return model.ChannelIdentityUpsert(identity)
 }
+
+// EnsureBotFriendships ensures every bot account is already a confirmed friend for the given user.
+func EnsureBotFriendships(userID string) error {
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return nil
+	}
+	user := model.UserGet(userID)
+	if user == nil || user.ID == "" {
+		return nil
+	}
+	bots, err := model.UserBotList()
+	if err != nil {
+		return err
+	}
+	for _, bot := range bots {
+		if bot == nil || bot.ID == "" || bot.ID == userID {
+			continue
+		}
+		if err := ensureUserBotFriendship(userID, bot.ID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func ensureUserBotFriendship(userID, botID string) error {
+	if _, err := model.FriendRelationFriendApprove(userID, botID); err != nil {
+		return err
+	}
+	ch, err := model.ChannelPrivateGet(userID, botID)
+	if err != nil {
+		return err
+	}
+	if ch.ID == "" {
+		_, _ = model.ChannelPrivateNew(userID, botID)
+	}
+	return nil
+}

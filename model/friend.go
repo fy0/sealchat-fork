@@ -2,6 +2,7 @@ package model
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/samber/lo"
 	"gorm.io/gorm"
@@ -239,6 +240,38 @@ func FriendChannelList(userID string) ([]*ChannelModel, error) {
 	}
 
 	return channels, err
+}
+
+// FriendChannelIDList 获取用户可见的私聊频道ID列表
+func FriendChannelIDList(userID string) ([]string, error) {
+	if strings.TrimSpace(userID) == "" {
+		return []string{}, nil
+	}
+	var relations []*FriendModel
+	err := db.Model(&FriendModel{}).
+		Where("user_id1 = ? OR user_id2 = ?", userID, userID).
+		Select("id, user_id1, user_id2, is_friend, visible1, visible2").
+		Find(&relations).Error
+	if err != nil {
+		return nil, err
+	}
+	var ids []string
+	for _, item := range relations {
+		if item == nil || strings.TrimSpace(item.ID) == "" {
+			continue
+		}
+		if item.IsFriend {
+			ids = append(ids, item.ID)
+			continue
+		}
+		if userID == item.UserID1 && item.Visible1 {
+			ids = append(ids, item.ID)
+		}
+		if userID == item.UserID2 && item.Visible2 {
+			ids = append(ids, item.ID)
+		}
+	}
+	return ids, nil
 }
 
 func (fr *FriendModel) getAnotherUserId(userID string) string {
