@@ -14,7 +14,7 @@ func BotListByChannelId(curUserId, channelId string) []string {
 	ids = append(ids, ids1...)
 
 	ch, _ := model.ChannelGet(channelId)
-	if ch.ID != "" && !ch.BotFeatureEnabled {
+	if ch.ID != "" && ch.PermType != "private" && !ch.BotFeatureEnabled {
 		return []string{}
 	}
 	if ch.PermType == "private" {
