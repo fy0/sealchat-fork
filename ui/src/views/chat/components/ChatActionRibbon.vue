@@ -7,6 +7,7 @@ import {
   Palette,
   Star as StarIcon,
   Users as UsersIcon,
+  Book as BookIcon,
 } from '@vicons/tabler'
 
 interface FilterState {
@@ -30,6 +31,7 @@ interface Props {
   galleryActive?: boolean
   displayActive?: boolean
   favoriteActive?: boolean
+  glossaryActive?: boolean
 }
 
 interface Emits {
@@ -40,6 +42,7 @@ interface Emits {
   (e: 'open-gallery'): void
   (e: 'open-display-settings'): void
   (e: 'open-favorites'): void
+  (e: 'open-world-glossary'): void
   (e: 'clear-filters'): void
 }
 
@@ -186,6 +189,18 @@ const clearAllFilters = () => {
             <n-icon :component="EmojiIcon" />
           </template>
           表情资源
+        </n-button>
+
+        <n-button
+          type="tertiary"
+          class="ribbon-action-button"
+          :class="{ 'is-active': props.glossaryActive }"
+          @click="emit('open-world-glossary')"
+        >
+          <template #icon>
+            <n-icon :component="BookIcon" />
+          </template>
+          术语管理
         </n-button>
       </div>
     </div>

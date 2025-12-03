@@ -23,6 +23,9 @@ export interface DisplaySettings {
   sendShortcut: 'enter' | 'ctrlEnter'
   favoriteChannelBarEnabled: boolean
   favoriteChannelIdsByWorld: Record<string, string[]>
+  worldKeywordHighlightEnabled: boolean
+  worldKeywordUnderlineOnly: boolean
+  worldKeywordTooltipEnabled: boolean
 }
 
 export const FAVORITE_CHANNEL_LIMIT = 4
@@ -134,6 +137,9 @@ export const createDefaultDisplaySettings = (): DisplaySettings => ({
   sendShortcut: SEND_SHORTCUT_DEFAULT,
   favoriteChannelBarEnabled: false,
   favoriteChannelIdsByWorld: {},
+  worldKeywordHighlightEnabled: true,
+  worldKeywordUnderlineOnly: false,
+  worldKeywordTooltipEnabled: true,
 })
 const defaultSettings = (): DisplaySettings => createDefaultDisplaySettings()
 
@@ -208,6 +214,9 @@ const loadSettings = (): DisplaySettings => {
       sendShortcut: coerceSendShortcut((parsed as any)?.sendShortcut),
       favoriteChannelBarEnabled: coerceBoolean(parsed.favoriteChannelBarEnabled),
       favoriteChannelIdsByWorld,
+      worldKeywordHighlightEnabled: coerceBoolean((parsed as any)?.worldKeywordHighlightEnabled ?? true),
+      worldKeywordUnderlineOnly: coerceBoolean((parsed as any)?.worldKeywordUnderlineOnly ?? false),
+      worldKeywordTooltipEnabled: coerceBoolean((parsed as any)?.worldKeywordTooltipEnabled ?? true),
     }
   } catch (error) {
     console.warn('加载显示模式设置失败，使用默认值', error)
@@ -307,6 +316,18 @@ const normalizeWith = (base: DisplaySettings, patch?: Partial<DisplaySettings>):
     patch && Object.prototype.hasOwnProperty.call(patch, 'favoriteChannelIdsByWorld')
       ? normalizeFavoriteMap((patch as any).favoriteChannelIdsByWorld)
       : { ...base.favoriteChannelIdsByWorld },
+  worldKeywordHighlightEnabled:
+    patch && Object.prototype.hasOwnProperty.call(patch, 'worldKeywordHighlightEnabled')
+      ? coerceBoolean((patch as any).worldKeywordHighlightEnabled)
+      : base.worldKeywordHighlightEnabled,
+  worldKeywordUnderlineOnly:
+    patch && Object.prototype.hasOwnProperty.call(patch, 'worldKeywordUnderlineOnly')
+      ? coerceBoolean((patch as any).worldKeywordUnderlineOnly)
+      : base.worldKeywordUnderlineOnly,
+  worldKeywordTooltipEnabled:
+    patch && Object.prototype.hasOwnProperty.call(patch, 'worldKeywordTooltipEnabled')
+      ? coerceBoolean((patch as any).worldKeywordTooltipEnabled)
+      : base.worldKeywordTooltipEnabled,
 })
 
 export const useDisplayStore = defineStore('display', {

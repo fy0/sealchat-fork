@@ -6,7 +6,7 @@ import { chatEvent, useChatStore } from '@/stores/chat';
 import type { Event, Message, User, WhisperMeta } from '@satorijs/protocol'
 import type { ChannelIdentity, ChannelIdentityFolder, GalleryItem, UserInfo, SChannel } from '@/types'
 import { useUserStore } from '@/stores/user';
-import { ArrowBarToDown, Plus, Upload, Send, ArrowBackUp, Palette, Download, ArrowsVertical, Star, StarOff, FolderPlus, DotsVertical, Folders } from '@vicons/tabler'
+import { ArrowBarToDown, Plus, Upload, Send, ArrowBackUp, Palette, Download, ArrowsVertical, Star, StarOff, FolderPlus, DotsVertical, Folders, Copy as CopyIcon, Search as SearchIcon } from '@vicons/tabler'
 import { NIcon, c, useDialog, useMessage, type MentionOption } from 'naive-ui';
 import VueScrollTo from 'vue-scrollto'
 import ChatInputSwitcher from './components/ChatInputSwitcher.vue'
@@ -57,6 +57,9 @@ import { ensureDefaultDiceExpr, matchDiceExpressions, type DiceMatch } from '@/u
 import DOMPurify from 'dompurify';
 import type { DisplaySettings } from '@/stores/display';
 import { useIFormStore } from '@/stores/iform';
+import { useWorldGlossaryStore } from '@/stores/worldGlossary';
+import { useChannelSearchStore } from '@/stores/channelSearch';
+import WorldKeywordManager from '@/views/world/WorldKeywordManager.vue'
 
 // const uploadImages = useObservable<Thumb[]>(
 //   liveQuery(() => db.thumbs.toArray()) as any
@@ -67,6 +70,8 @@ const user = useUserStore();
 const gallery = useGalleryStore();
 const utils = useUtilsStore();
 const display = useDisplayStore();
+const worldGlossary = useWorldGlossaryStore();
+const channelSearch = useChannelSearchStore();
 const iFormStore = useIFormStore();
 iFormStore.bootstrap();
 const isEditing = computed(() => !!chat.editing);
@@ -86,6 +91,34 @@ const inputIcMode = computed<'ic' | 'ooc'>({
     }
   },
 });
+
+watch(
+  () => chat.currentWorldId,
+  (worldId) => {
+    if (!worldId) {
+      return
+    }
+    worldGlossary.ensureKeywords(worldId)
+    chat.worldDetail(worldId)
+    hideSelectionBar()
+  },
+  { immediate: true },
+)
+
+watch(
+  () => chat.curChannel?.id,
+  () => hideSelectionBar(),
+)
+
+const canManageWorldKeywords = computed(() => {
+  const worldId = chat.currentWorldId
+  if (!worldId) {
+    return false
+  }
+  const detail = chat.worldDetailMap[worldId]
+  const role = detail?.memberRole
+  return role === 'owner' || role === 'admin'
+})
 const displaySettingsVisible = ref(false);
 const compactInlineLayout = computed(() => display.layout === 'compact' && !display.showAvatar);
 const scrollButtonColor = computed(() => (display.palette === 'night' ? 'rgba(148, 163, 184, 0.25)' : '#e5e7eb'));
@@ -671,6 +704,128 @@ const { t } = useI18n();
 
 // const virtualListRef = ref<InstanceType<typeof VirtualList> | null>(null);
 const messagesListRef = ref<HTMLElement | null>(null);
+const selectionBar = reactive({
+  visible: false,
+  text: '',
+  position: { x: 0, y: 0 },
+})
+const selectionMaxLength = 120
+
+const hideSelectionBar = () => {
+  selectionBar.visible = false
+  selectionBar.text = ''
+}
+
+const updateSelectionPosition = (rect: DOMRect) => {
+  const width = 220
+  const padding = 12
+  const x = Math.min(window.innerWidth - width - padding, Math.max(padding, rect.left + rect.width / 2 - width / 2))
+  const aboveY = rect.top - 12
+  const y = aboveY < padding ? rect.bottom + 12 : aboveY
+  selectionBar.position.x = x
+  selectionBar.position.y = y
+}
+
+const handleSelectionChange = () => {
+  const container = messagesListRef.value
+  if (!container || typeof window === 'undefined') {
+    hideSelectionBar()
+    return
+  }
+  const selection = window.getSelection()
+  if (!selection || selection.isCollapsed) {
+    hideSelectionBar()
+    return
+  }
+  const text = selection.toString().trim()
+  if (!text || text.length === 0 || text.length > selectionMaxLength) {
+    hideSelectionBar()
+    return
+  }
+  const range = selection.rangeCount ? selection.getRangeAt(0) : null
+  if (!range) {
+    hideSelectionBar()
+    return
+  }
+  const node = range.commonAncestorContainer instanceof Element ? range.commonAncestorContainer : range.commonAncestorContainer?.parentElement
+  if (!node || !container.contains(node)) {
+    hideSelectionBar()
+    return
+  }
+  const rect = range.getBoundingClientRect()
+  if (rect.width === 0 && rect.height === 0) {
+    hideSelectionBar()
+    return
+  }
+  updateSelectionPosition(rect)
+  selectionBar.text = text
+  selectionBar.visible = true
+}
+
+const selectionBarRef = ref<HTMLElement | null>(null)
+
+const handlePointerDown = (event: PointerEvent) => {
+  if (!selectionBar.visible) {
+    return
+  }
+  const target = event.target as HTMLElement | null
+  if (target && selectionBarRef.value?.contains(target)) {
+    return
+  }
+  hideSelectionBar()
+}
+
+const handleSelectionCopy = async () => {
+  if (!selectionBar.text) return
+  if (typeof navigator === 'undefined' || !navigator.clipboard) {
+    message.warning('当前环境不支持复制')
+    hideSelectionBar()
+    return
+  }
+  try {
+    await navigator.clipboard.writeText(selectionBar.text)
+    message.success('已复制选中文本')
+  } catch (error) {
+    console.warn('复制失败', error)
+    message.error('复制失败')
+  }
+  hideSelectionBar()
+}
+
+const handleSelectionAddKeyword = () => {
+  const worldId = chat.currentWorldId
+  if (!worldId || !selectionBar.text) return
+  worldGlossary.setManagerVisible(true)
+  worldGlossary.openEditor(worldId, null, selectionBar.text)
+  hideSelectionBar()
+}
+
+const handleSelectionSearch = () => {
+  const keyword = selectionBar.text.trim()
+  if (!keyword) return
+  channelSearch.openPanel()
+  channelSearch.setKeyword(keyword)
+  channelSearch.bindChannel(chat.curChannel?.id || null)
+  void channelSearch.search(chat.curChannel?.id || undefined)
+  hideSelectionBar()
+}
+
+const canAddKeywordFromSelection = computed(() => selectionBar.visible && canManageWorldKeywords.value && Boolean(chat.currentWorldId))
+
+if (typeof window !== 'undefined') {
+  useEventListener(document, 'selectionchange', handleSelectionChange)
+  useEventListener(document, 'pointerdown', handlePointerDown, { capture: true })
+  useEventListener(window, 'resize', hideSelectionBar)
+}
+
+const handleOpenWorldGlossary = () => {
+  const worldId = chat.currentWorldId
+  if (!worldId) {
+    return
+  }
+  worldGlossary.ensureKeywords(worldId, { force: true })
+  worldGlossary.setManagerVisible(true)
+}
 const topSentinelRef = ref<HTMLElement | null>(null);
 const bottomSentinelRef = ref<HTMLElement | null>(null);
 const textInputRef = ref<any>(null);
@@ -6077,6 +6232,7 @@ const onScroll = () => {
   if (!container) {
     return;
   }
+  hideSelectionBar()
   const offset = container.scrollHeight - (container.clientHeight + container.scrollTop);
   const stuckToBottom = offset <= SCROLL_STICKY_THRESHOLD;
   showButton.value = !stuckToBottom || historyLocked.value;
@@ -6507,6 +6663,7 @@ onBeforeUnmount(() => {
         :gallery-active="galleryPanelVisible"
         :display-active="displaySettingsVisible"
         :favorite-active="display.favoriteBarEnabled"
+        :glossary-active="worldGlossary.managerVisible"
         @update:filters="chat.setFilterState($event)"
         @open-archive="archiveDrawerVisible = true"
         @open-export="exportManagerVisible = true"
@@ -6514,9 +6671,35 @@ onBeforeUnmount(() => {
         @open-gallery="openGalleryPanel"
         @open-display-settings="displaySettingsVisible = true"
         @open-favorites="channelFavoritesVisible = true"
+        @open-world-glossary="handleOpenWorldGlossary"
         @clear-filters="chat.setFilterState({ icOnly: false, showArchived: false, roleIds: [] })"
       />
     </transition>
+
+    <div
+      v-if="selectionBar.visible"
+      ref="selectionBarRef"
+      class="selection-floating-bar"
+      :style="{ top: `${selectionBar.position.y}px`, left: `${selectionBar.position.x}px` }"
+    >
+      <button class="selection-floating-bar__button" @click="handleSelectionCopy">
+        <n-icon :component="CopyIcon" size="14" />
+        复制
+      </button>
+      <button
+        class="selection-floating-bar__button"
+        :class="{ 'is-disabled': !canAddKeywordFromSelection }"
+        :disabled="!canAddKeywordFromSelection"
+        @click="handleSelectionAddKeyword"
+      >
+        <n-icon :component="Plus" size="14" />
+        添加
+      </button>
+      <button class="selection-floating-bar__button" @click="handleSelectionSearch">
+        <n-icon :component="SearchIcon" size="14" />
+        搜索
+      </button>
+    </div>
 
     <div v-if="display.favoriteBarEnabled" class="favorite-bar-wrapper px-4">
       <ChannelFavoriteBar @manage="channelFavoritesVisible = true" />
@@ -6580,6 +6763,7 @@ onBeforeUnmount(() => {
                     :layout="display.layout"
                     :is-self="isSelfMessage(entry.message)"
                     :is-merged="entry.mergedWithPrev"
+                    :world-keyword-editable="canManageWorldKeywords"
                     :body-only="true"
                     @avatar-longpress="avatarLongpress(entry.message)"
                     @edit="beginEdit(entry.message)"
@@ -6612,6 +6796,7 @@ onBeforeUnmount(() => {
                 :layout="display.layout"
                 :is-self="isSelfMessage(entry.message)"
                 :is-merged="entry.mergedWithPrev"
+                :world-keyword-editable="canManageWorldKeywords"
                 @avatar-longpress="avatarLongpress(entry.message)"
                 @edit="beginEdit(entry.message)"
                 @edit-save="saveEdit"
@@ -6641,6 +6826,7 @@ onBeforeUnmount(() => {
                 :layout="display.layout"
                 :is-self="isSelfMessage(entry.message)"
                 :is-merged="entry.mergedWithPrev"
+                :world-keyword-editable="canManageWorldKeywords"
                 @avatar-longpress="avatarLongpress(entry.message)"
                 @edit="beginEdit(entry.message)"
                 @edit-save="saveEdit"
@@ -7542,6 +7728,7 @@ onBeforeUnmount(() => {
   />
 
   <ChannelFavoriteManager v-model:show="channelFavoritesVisible" />
+  <WorldKeywordManager />
 </template>
 
 <style lang="scss" scoped>
@@ -7571,6 +7758,41 @@ onBeforeUnmount(() => {
 .message-row + .message-row--tone-ic,
 .message-row + .message-row--tone-ooc {
   margin-top: 0;
+}
+
+.selection-floating-bar {
+  position: fixed;
+  z-index: 2100;
+  display: flex;
+  gap: 4px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgba(32, 32, 36, 0.95);
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.3);
+  backdrop-filter: blur(8px);
+  color: #fff;
+}
+
+.selection-floating-bar__button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  padding: 4px 10px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.selection-floating-bar__button:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.selection-floating-bar__button.is-disabled {
+  opacity: 0.45;
+  pointer-events: none;
 }
 
 .message-row--self.message-row--tone-ic:not(:first-child),

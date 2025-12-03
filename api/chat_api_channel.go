@@ -140,6 +140,7 @@ func apiChannelEnter(ctx *ChatContext, data *struct {
 	ChannelId string `json:"channel_id"`
 }) (any, error) {
 	channelId := data.ChannelId
+	channelWorldID := ""
 
 	// 权限检查
 	if len(channelId) < 30 { // 注意，这不是一个好的区分方式
@@ -148,6 +149,7 @@ func apiChannelEnter(ctx *ChatContext, data *struct {
 			if ch.ID == "" {
 				return nil, fmt.Errorf("频道不存在")
 			}
+			channelWorldID = ch.WorldID
 			if ch.WorldID != "" && !service.IsWorldMember(ch.WorldID, ctx.User.ID) && !pm.CanWithSystemRole(ctx.User.ID, pm.PermModAdmin) {
 				return nil, fmt.Errorf("尚未加入该世界")
 			}
@@ -169,6 +171,7 @@ func apiChannelEnter(ctx *ChatContext, data *struct {
 			s.Delete(ctx.User.ID)
 		}
 		ctx.BroadcastChannelPresence(ctx.ConnInfo.ChannelId)
+		ctx.ConnInfo.WorldId = ""
 	}
 
 	member, err := model.MemberGetByUserIDAndChannelID(ctx.User.ID, channelId, ctx.User.Nickname)
@@ -182,6 +185,7 @@ func apiChannelEnter(ctx *ChatContext, data *struct {
 	chUserSet.Add(ctx.User.ID)
 
 	ctx.ConnInfo.ChannelId = channelId
+	ctx.ConnInfo.WorldId = channelWorldID
 	ctx.ConnInfo.Focused = true
 
 	ctx.BroadcastEventInChannel(channelId, &protocol.Event{

@@ -1,3 +1,58 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+.keyword-highlight {
+  background-color: rgba(255, 230, 150, 0.85);
+  border-bottom: 1px dashed rgba(168, 108, 0, 0.9);
+  cursor: help;
+  transition: background-color 0.2s ease;
+}
+
+.keyword-highlight--underline {
+  background-color: transparent;
+  border-bottom-style: dotted;
+}
+
+.keyword-highlight:hover {
+  background-color: rgba(255, 238, 180, 0.95);
+}
+
+html[data-display-palette='night'] .keyword-highlight {
+  background-color: rgba(85, 65, 5, 0.6);
+  border-bottom-color: rgba(255, 214, 120, 0.85);
+}
+
+.keyword-tooltip {
+  position: absolute;
+  z-index: 3200;
+  max-width: 260px;
+  padding: 12px 14px;
+  background: rgba(28, 28, 32, 0.95);
+  color: #fff;
+  border-radius: 8px;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.35);
+  font-size: 13px;
+  backdrop-filter: blur(6px);
+  pointer-events: none;
+}
+
+.keyword-tooltip__header {
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.keyword-tooltip__body {
+  white-space: pre-line;
+  line-height: 1.4;
+  margin-bottom: 4px;
+}
+
+.keyword-tooltip__action {
+  border: none;
+  background: transparent;
+  color: #ffd17a;
+  font-size: 12px;
+  cursor: pointer;
+  pointer-events: auto;
+}

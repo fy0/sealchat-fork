@@ -41,6 +41,9 @@ watch(
     draft.messagePaddingY = value.messagePaddingY
     draft.sendShortcut = value.sendShortcut
     syncFavoriteBar(value)
+    draft.worldKeywordHighlightEnabled = value.worldKeywordHighlightEnabled
+    draft.worldKeywordUnderlineOnly = value.worldKeywordUnderlineOnly
+    draft.worldKeywordTooltipEnabled = value.worldKeywordTooltipEnabled
   },
   { deep: true, immediate: true },
 )
@@ -368,6 +371,41 @@ const handleConfirm = () => emit('save', { ...draft })
       <section class="display-settings__section">
         <header>
           <div>
+            <p class="section-title">术语高亮</p>
+            <p class="section-desc">控制世界术语的高亮样式与释义气泡</p>
+          </div>
+        </header>
+        <div class="keyword-settings">
+          <n-switch v-model:value="draft.worldKeywordHighlightEnabled">
+            <template #checked>已启用</template>
+            <template #unchecked>已关闭</template>
+          </n-switch>
+          <n-switch v-model:value="draft.worldKeywordUnderlineOnly" :disabled="!draft.worldKeywordHighlightEnabled">
+            <template #checked>仅下划线</template>
+            <template #unchecked>背景 + 下划线</template>
+          </n-switch>
+          <n-switch v-model:value="draft.worldKeywordTooltipEnabled" :disabled="!draft.worldKeywordHighlightEnabled">
+            <template #checked>启用释义气泡</template>
+            <template #unchecked>禁用释义气泡</template>
+          </n-switch>
+        </div>
+        <div class="keyword-preview">
+          <span
+            class="keyword-preview__text"
+            :class="{
+              'keyword-preview__text--underline': draft.worldKeywordUnderlineOnly,
+              'keyword-preview__text--disabled': !draft.worldKeywordHighlightEnabled,
+            }"
+          >
+            阿瓦隆勇者
+          </span>
+          <span> 穿越黑森林。</span>
+        </div>
+      </section>
+
+      <section class="display-settings__section">
+        <header>
+          <div>
             <p class="section-title">输入与发送</p>
             <p class="section-desc">选择回车发送方式，另一组合则换行</p>
           </div>
@@ -589,6 +627,40 @@ const handleConfirm = () => emit('save', { ...draft })
 .display-preview--compact {
   --preview-radius: 0.75rem;
   gap: var(--chat-compact-gap, calc(var(--chat-bubble-gap, 0.65rem) * 0.35));
+}
+
+.keyword-settings {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.keyword-preview {
+  border: 1px dashed rgba(148, 163, 184, 0.4);
+  padding: 10px 12px;
+  border-radius: 8px;
+  font-size: 14px;
+  color: var(--sc-text-secondary);
+}
+
+.keyword-preview__text {
+  display: inline-flex;
+  padding: 0 4px;
+  margin-right: 2px;
+  border-bottom: 1px dashed rgba(168, 108, 0, 0.85);
+  background: rgba(255, 230, 150, 0.85);
+  border-radius: 2px;
+}
+
+.keyword-preview__text--underline {
+  background: transparent;
+  border-bottom-style: dotted;
+}
+
+.keyword-preview__text--disabled {
+  opacity: 0.5;
 }
 
 .display-settings__footer {
