@@ -283,6 +283,7 @@ const (
 	EventAudioStateUpdated      EventName = "audio-state-updated"
 	EventChannelIFormUpdated    EventName = "channel-iform-updated"
 	EventChannelIFormPushed     EventName = "channel-iform-pushed"
+	EventWorldKeywordsUpdated   EventName = "world-keywords-updated"
 )
 
 type Event struct {

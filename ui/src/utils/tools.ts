@@ -95,3 +95,7 @@ export function contentUnescape(str: string): string {
     .replace(/&lt;/g, '<')
     .replace(/&amp;/g, '&');
 }
+
+export function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}

@@ -1,3 +1,64 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+.keyword-highlight {
+  background-color: rgba(255, 232, 170, 0.55);
+  border-bottom: 1px dashed rgba(168, 108, 0, 0.9);
+  cursor: help;
+  transition: background-color 0.2s ease;
+}
+
+.keyword-highlight--underline {
+  background-color: transparent;
+  border-bottom-style: dotted;
+}
+
+.keyword-highlight:hover {
+  background-color: rgba(255, 241, 200, 0.8);
+}
+
+html[data-display-palette='night'] .keyword-highlight {
+  background-color: rgba(64, 78, 118, 0.65);
+  border-bottom-color: rgba(147, 197, 253, 0.85);
+}
+
+html[data-display-palette='night'] .keyword-highlight:hover {
+  background-color: rgba(86, 102, 152, 0.78);
+}
+
+.keyword-tooltip {
+  position: absolute;
+  z-index: 3200;
+  min-width: 160px;
+  max-width: min(360px, calc(100vw - 32px));
+  width: max-content;
+  padding: 12px 14px;
+  background: rgba(255, 255, 255, 0.92);
+  color: #1f2933;
+  border-radius: 10px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  box-shadow: 0 18px 50px rgba(15, 23, 42, 0.15);
+  font-size: 13px;
+  backdrop-filter: blur(8px);
+  pointer-events: none;
+  transition: opacity 0.12s ease;
+}
+
+:root[data-display-palette='night'] .keyword-tooltip {
+  background: rgba(17, 24, 39, 0.9);
+  color: rgba(248, 250, 252, 0.95);
+  border-color: rgba(255, 255, 255, 0.08);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
+}
+
+.keyword-tooltip__header {
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.keyword-tooltip__body {
+  white-space: pre-line;
+  line-height: 1.4;
+  margin-bottom: 0;
+}

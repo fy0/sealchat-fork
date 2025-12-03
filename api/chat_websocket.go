@@ -38,6 +38,7 @@ type ConnInfo struct {
 	LastPingTime     int64
 	LatencyMs        int64
 	ChannelId        string
+	WorldId          string
 	TypingEnabled    bool
 	TypingState      protocol.TypingState
 	TypingContent    string

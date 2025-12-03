@@ -17,6 +17,10 @@ import { resolveAttachmentUrl } from '@/composables/useAttachmentResolver';
 import { onLongPress } from '@vueuse/core';
 import Viewer from 'viewerjs';
 import 'viewerjs/dist/viewer.css';
+import { useWorldGlossaryStore } from '@/stores/worldGlossary'
+import { useDisplayStore } from '@/stores/display'
+import { refreshWorldKeywordHighlights } from '@/utils/worldKeywordHighlighter'
+import { createKeywordTooltip } from '@/utils/keywordTooltip'
 
 type EditingPreviewInfo = {
   userId: string;
@@ -34,6 +38,8 @@ const user = useUserStore();
 const chat = useChatStore();
 const utils = useUtilsStore();
 const { t } = useI18n();
+const worldGlossary = useWorldGlossaryStore();
+const displayStore = useDisplayStore();
 
 const isMobileUa = typeof navigator !== 'undefined'
   ? /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
@@ -270,6 +276,10 @@ const props = defineProps({
     type: Boolean,
     default: false,
   },
+  worldKeywordEditable: {
+    type: Boolean,
+    default: false,
+  },
 })
 
 const timeText = ref(timeFormat(props.item?.createdAt));
@@ -349,6 +359,66 @@ const displayContent = computed(() => {
   }
   return props.item?.content ?? props.content ?? '';
 });
+
+const compiledKeywords = computed(() => {
+  const worldId = chat.currentWorldId
+  if (!worldId) {
+    return []
+  }
+  return worldGlossary.compiledMap[worldId] || []
+})
+
+const keywordHighlightEnabled = computed(() => displayStore.settings.worldKeywordHighlightEnabled !== false)
+const keywordUnderlineOnly = computed(() => !!displayStore.settings.worldKeywordUnderlineOnly)
+const keywordTooltipEnabled = computed(() => displayStore.settings.worldKeywordTooltipEnabled !== false)
+
+const keywordTooltip = createKeywordTooltip((keywordId) => {
+  const keyword = worldGlossary.keywordById[keywordId]
+  if (!keyword) {
+    return null
+  }
+  return {
+    title: keyword.keyword,
+    description: keyword.description,
+  }
+})
+
+const handleKeywordQuickEdit = (keywordId: string) => {
+  if (!props.worldKeywordEditable) {
+    return
+  }
+  const worldId = chat.currentWorldId
+  if (!worldId) {
+    return
+  }
+  const keyword = worldGlossary.keywordById[keywordId]
+  if (!keyword) {
+    return
+  }
+  worldGlossary.openEditor(worldId, keyword)
+}
+
+const applyKeywordHighlights = async () => {
+  await nextTick()
+  const host = messageContentRef.value
+  if (!host) {
+    return
+  }
+  const compiled = compiledKeywords.value
+  if (!keywordHighlightEnabled.value || !compiled.length) {
+    refreshWorldKeywordHighlights(host, [], { underlineOnly: false })
+    return
+  }
+  refreshWorldKeywordHighlights(
+    host,
+    compiled,
+    {
+      underlineOnly: keywordUnderlineOnly.value,
+      onKeywordDoubleInvoke: props.worldKeywordEditable ? handleKeywordQuickEdit : undefined,
+    },
+    keywordTooltipEnabled.value ? keywordTooltip : undefined,
+  )
+}
 
 const applyDiceTone = () => {
   nextTick(() => {
@@ -479,6 +549,8 @@ onMounted(() => {
       editedTimeText2.value = timeFormat2(props.item?.updatedAt);
     }
   }, 10000);
+
+  void applyKeywordHighlights()
 })
 
 watch([displayContent, () => props.tone], () => {
@@ -491,12 +563,27 @@ watch(() => otherEditingPreview.value?.previewHtml, () => {
   ensureImageViewer();
 });
 
+watch(
+  [
+    () => compiledKeywords.value,
+    () => displayStore.settings.worldKeywordHighlightEnabled,
+    () => displayStore.settings.worldKeywordUnderlineOnly,
+    () => displayStore.settings.worldKeywordTooltipEnabled,
+    () => displayContent.value,
+  ],
+  () => {
+    void applyKeywordHighlights()
+  },
+  { flush: 'post' },
+)
+
 onBeforeUnmount(() => {
   if (stopMessageLongPress) {
     stopMessageLongPress();
     stopMessageLongPress = null;
   }
   destroyImageViewer();
+  keywordTooltip.hide()
 });
 
 const nick = computed(() => {

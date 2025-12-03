@@ -1,0 +1,287 @@
+package service
+
+import (
+	"errors"
+	"strings"
+	"unicode/utf8"
+
+	"gorm.io/gorm"
+
+	"sealchat/model"
+	"sealchat/pm"
+)
+
+var (
+	ErrWorldKeywordNotFound = errors.New("world keyword not found")
+)
+
+// WorldKeywordInput 用于创建或更新关键词。
+type WorldKeywordInput struct {
+	Keyword     string   `json:"keyword"`
+	Aliases     []string `json:"aliases"`
+	MatchMode   string   `json:"matchMode"`
+	Description string   `json:"description"`
+	Display     string   `json:"display"`
+	Enabled     *bool    `json:"isEnabled"`
+}
+
+// WorldKeywordListOptions 查询参数。
+type WorldKeywordListOptions struct {
+	Page            int
+	PageSize        int
+	Query           string
+	IncludeDisabled bool
+}
+
+// WorldKeywordImportStats 记录导入结果。
+type WorldKeywordImportStats struct {
+	Created int `json:"created"`
+	Updated int `json:"updated"`
+	Skipped int `json:"skipped"`
+}
+
+func ensureWorldKeywordPermission(worldID, userID string, requireAdmin bool) error {
+	if strings.TrimSpace(worldID) == "" || strings.TrimSpace(userID) == "" {
+		return ErrWorldPermission
+	}
+	if pm.CanWithSystemRole(userID, pm.PermModAdmin) {
+		return nil
+	}
+	if requireAdmin {
+		if !IsWorldAdmin(worldID, userID) {
+			return ErrWorldPermission
+		}
+		return nil
+	}
+	if !IsWorldMember(worldID, userID) {
+		return ErrWorldPermission
+	}
+	return nil
+}
+
+func normalizeWorldKeywordInput(input *WorldKeywordInput) error {
+	if input == nil {
+		return ErrWorldKeywordNotFound
+	}
+	input.Keyword = strings.TrimSpace(input.Keyword)
+	if utf8.RuneCountInString(input.Keyword) == 0 {
+		return errors.New("关键词不能为空")
+	}
+	if utf8.RuneCountInString(input.Keyword) > 120 {
+		input.Keyword = string([]rune(input.Keyword)[:120])
+	}
+	aliases := make([]string, 0, len(input.Aliases))
+	seen := map[string]struct{}{}
+	for _, raw := range input.Aliases {
+		trimmed := strings.TrimSpace(raw)
+		if trimmed == "" || trimmed == input.Keyword {
+			continue
+		}
+		lower := strings.ToLower(trimmed)
+		if _, exists := seen[lower]; exists {
+			continue
+		}
+		seen[lower] = struct{}{}
+		aliases = append(aliases, trimmed)
+	}
+	input.Aliases = aliases
+	switch strings.ToLower(strings.TrimSpace(input.MatchMode)) {
+	case string(model.WorldKeywordMatchRegex):
+		input.MatchMode = string(model.WorldKeywordMatchRegex)
+	default:
+		input.MatchMode = string(model.WorldKeywordMatchPlain)
+	}
+	switch strings.ToLower(strings.TrimSpace(input.Display)) {
+	case string(model.WorldKeywordDisplayMinimal):
+		input.Display = string(model.WorldKeywordDisplayMinimal)
+	default:
+		input.Display = string(model.WorldKeywordDisplayStandard)
+	}
+	return nil
+}
+
+// WorldKeywordList 查询世界词条。
+func WorldKeywordList(worldID, userID string, opts WorldKeywordListOptions) ([]*model.WorldKeywordModel, int64, error) {
+	if err := ensureWorldKeywordPermission(worldID, userID, false); err != nil {
+		return nil, 0, err
+	}
+	includeDisabled := opts.IncludeDisabled
+	if includeDisabled && !pm.CanWithSystemRole(userID, pm.PermModAdmin) && !IsWorldAdmin(worldID, userID) {
+		includeDisabled = false
+	}
+	if opts.Page <= 0 {
+		opts.Page = 1
+	}
+	if opts.PageSize <= 0 || opts.PageSize > 200 {
+		opts.PageSize = 50
+	}
+	db := model.GetDB()
+	query := db.Model(&model.WorldKeywordModel{}).Where("world_id = ?", worldID)
+	if !includeDisabled {
+		query = query.Where("is_enabled = ?", true)
+	}
+	if trimmed := strings.TrimSpace(opts.Query); trimmed != "" {
+		like := "%" + trimmed + "%"
+		query = query.Where("keyword LIKE ? OR description LIKE ?", like, like)
+	}
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	if total == 0 {
+		return []*model.WorldKeywordModel{}, 0, nil
+	}
+	var items []*model.WorldKeywordModel
+	if err := query.Order("updated_at DESC").Offset((opts.Page - 1) * opts.PageSize).Limit(opts.PageSize).Find(&items).Error; err != nil {
+		return nil, 0, err
+	}
+	return items, total, nil
+}
+
+// WorldKeywordCreate 新增词条。
+func WorldKeywordCreate(worldID, actorID string, input WorldKeywordInput) (*model.WorldKeywordModel, error) {
+	if err := ensureWorldKeywordPermission(worldID, actorID, true); err != nil {
+		return nil, err
+	}
+	if err := normalizeWorldKeywordInput(&input); err != nil {
+		return nil, err
+	}
+	item := &model.WorldKeywordModel{
+		WorldID:     worldID,
+		Keyword:     input.Keyword,
+		Aliases:     model.JSONList[string](input.Aliases),
+		MatchMode:   model.WorldKeywordMatchMode(input.MatchMode),
+		Description: strings.TrimSpace(input.Description),
+		Display:     model.WorldKeywordDisplayStyle(input.Display),
+		IsEnabled:   input.Enabled == nil || *input.Enabled,
+		CreatedBy:   actorID,
+		UpdatedBy:   actorID,
+	}
+	item.Normalize()
+	if err := model.GetDB().Create(item).Error; err != nil {
+		return nil, err
+	}
+	return item, nil
+}
+
+// WorldKeywordUpdate 更新词条。
+func WorldKeywordUpdate(worldID, keywordID, actorID string, input WorldKeywordInput) (*model.WorldKeywordModel, error) {
+	if err := ensureWorldKeywordPermission(worldID, actorID, true); err != nil {
+		return nil, err
+	}
+	if err := normalizeWorldKeywordInput(&input); err != nil {
+		return nil, err
+	}
+	db := model.GetDB()
+	var record model.WorldKeywordModel
+	if err := db.Where("id = ? AND world_id = ?", keywordID, worldID).First(&record).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrWorldKeywordNotFound
+		}
+		return nil, err
+	}
+	updates := map[string]interface{}{
+		"keyword":     input.Keyword,
+		"aliases":     model.JSONList[string](input.Aliases),
+		"match_mode":  model.WorldKeywordMatchMode(input.MatchMode),
+		"description": strings.TrimSpace(input.Description),
+		"display":     model.WorldKeywordDisplayStyle(input.Display),
+		"updated_by":  actorID,
+	}
+	if input.Enabled != nil {
+		updates["is_enabled"] = *input.Enabled
+	}
+	if err := db.Model(&record).Updates(updates).Error; err != nil {
+		return nil, err
+	}
+	if err := db.Where("id = ?", record.ID).First(&record).Error; err != nil {
+		return nil, err
+	}
+	return &record, nil
+}
+
+// WorldKeywordDelete 删除单条。
+func WorldKeywordDelete(worldID, keywordID, actorID string) error {
+	if err := ensureWorldKeywordPermission(worldID, actorID, true); err != nil {
+		return err
+	}
+	db := model.GetDB()
+	res := db.Where("id = ? AND world_id = ?", keywordID, worldID).Delete(&model.WorldKeywordModel{})
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
+		return ErrWorldKeywordNotFound
+	}
+	return nil
+}
+
+// WorldKeywordBulkDelete 批量删除。
+func WorldKeywordBulkDelete(worldID string, ids []string, actorID string) (int64, error) {
+	if err := ensureWorldKeywordPermission(worldID, actorID, true); err != nil {
+		return 0, err
+	}
+	cleaned := make([]string, 0, len(ids))
+	for _, id := range ids {
+		if trimmed := strings.TrimSpace(id); trimmed != "" {
+			cleaned = append(cleaned, trimmed)
+		}
+	}
+	if len(cleaned) == 0 {
+		return 0, nil
+	}
+	res := model.GetDB().Where("world_id = ? AND id IN ?", worldID, cleaned).Delete(&model.WorldKeywordModel{})
+	return res.RowsAffected, res.Error
+}
+
+// WorldKeywordImport 批量导入词条。
+func WorldKeywordImport(worldID, actorID string, entries []WorldKeywordInput, replace bool) (*WorldKeywordImportStats, error) {
+	if err := ensureWorldKeywordPermission(worldID, actorID, true); err != nil {
+		return nil, err
+	}
+	stats := &WorldKeywordImportStats{}
+	db := model.GetDB()
+	for _, entry := range entries {
+		item := entry
+		if err := normalizeWorldKeywordInput(&item); err != nil {
+			stats.Skipped++
+			continue
+		}
+		var existing model.WorldKeywordModel
+		err := db.Where("world_id = ? AND keyword = ?", worldID, item.Keyword).First(&existing).Error
+		if err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				_, createErr := WorldKeywordCreate(worldID, actorID, item)
+				if createErr != nil {
+					stats.Skipped++
+					continue
+				}
+				stats.Created++
+				continue
+			}
+			return nil, err
+		}
+		if !replace {
+			stats.Skipped++
+			continue
+		}
+		if _, err := WorldKeywordUpdate(worldID, existing.ID, actorID, item); err != nil {
+			stats.Skipped++
+			continue
+		}
+		stats.Updated++
+	}
+	return stats, nil
+}
+
+// WorldKeywordExport 导出。
+func WorldKeywordExport(worldID, actorID string) ([]*model.WorldKeywordModel, error) {
+	if err := ensureWorldKeywordPermission(worldID, actorID, true); err != nil {
+		return nil, err
+	}
+	var items []*model.WorldKeywordModel
+	if err := model.GetDB().Where("world_id = ?", worldID).Order("keyword ASC").Find(&items).Error; err != nil {
+		return nil, err
+	}
+	return items, nil
+}
