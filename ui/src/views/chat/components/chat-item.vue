@@ -15,6 +15,8 @@ import { useI18n } from 'vue-i18n';
 import { isTipTapJson, tiptapJsonToHtml } from '@/utils/tiptap-render';
 import { resolveAttachmentUrl } from '@/composables/useAttachmentResolver';
 import { onLongPress } from '@vueuse/core';
+import Viewer from 'viewerjs';
+import 'viewerjs/dist/viewer.css';
 
 type EditingPreviewInfo = {
   userId: string;
@@ -53,6 +55,7 @@ function timeFormat2(time?: string) {
 let hasImage = ref(false);
 const messageContentRef = ref<HTMLElement | null>(null);
 let stopMessageLongPress: (() => void) | null = null;
+let inlineImageViewer: Viewer | null = null;
 
 const diceChipHtmlPattern = /<span[^>]*class="[^"]*dice-chip[^"]*"/i;
 
@@ -162,6 +165,70 @@ const parseContent = (payload: any, overrideContent?: string) => {
     })}
   </span>
 }
+
+const destroyImageViewer = () => {
+  if (inlineImageViewer) {
+    inlineImageViewer.destroy();
+    inlineImageViewer = null;
+  }
+};
+
+const setupImageViewer = async () => {
+  await nextTick();
+  const host = messageContentRef.value;
+  if (!host) {
+    destroyImageViewer();
+    return;
+  }
+
+  const inlineImages = host.querySelectorAll<HTMLImageElement>('img');
+  if (!inlineImages.length) {
+    destroyImageViewer();
+    return;
+  }
+
+  if (inlineImageViewer) {
+    inlineImageViewer.update();
+    return;
+  }
+
+  inlineImageViewer = new Viewer(host, {
+    className: 'chat-inline-image-viewer',
+    navbar: false,
+    title: false,
+    toolbar: true,
+    tooltip: false,
+    scalable: false,
+    rotatable: false,
+    transition: false,
+    fullscreen: false,
+    zIndex: 2500,
+  });
+};
+
+const ensureImageViewer = () => {
+  void setupImageViewer();
+};
+
+const handleContentDblclick = async (event: MouseEvent) => {
+  const host = messageContentRef.value;
+  if (!host) return;
+  const target = event.target as HTMLElement | null;
+  if (!target) return;
+  const image = target.closest<HTMLImageElement>('img');
+  if (!image || !host.contains(image)) {
+    return;
+  }
+
+  event.preventDefault();
+  await setupImageViewer();
+  if (!inlineImageViewer) {
+    return;
+  }
+  const imageList = Array.from(host.querySelectorAll<HTMLImageElement>('img'));
+  const imageIndex = imageList.indexOf(image);
+  inlineImageViewer.view(imageIndex >= 0 ? imageIndex : 0);
+};
 
 const props = defineProps({
   username: String,
@@ -402,6 +469,7 @@ onMounted(() => {
   );
 
   applyDiceTone();
+  ensureImageViewer();
 
   setInterval(() => {
     timeText.value = timeFormat(props.item?.createdAt);
@@ -415,10 +483,12 @@ onMounted(() => {
 
 watch([displayContent, () => props.tone], () => {
   applyDiceTone();
+  ensureImageViewer();
 }, { immediate: true });
 
 watch(() => otherEditingPreview.value?.previewHtml, () => {
   applyDiceTone();
+  ensureImageViewer();
 });
 
 onBeforeUnmount(() => {
@@ -426,6 +496,7 @@ onBeforeUnmount(() => {
     stopMessageLongPress();
     stopMessageLongPress = null;
   }
+  destroyImageViewer();
 });
 
 const nick = computed(() => {
@@ -502,7 +573,7 @@ watch(() => props.item?.updatedAt, () => {
         <span v-if="props.item?.user?.is_bot || props.item?.user_id?.startsWith('BOT:')"
           class=" bg-blue-500 rounded-md px-2 text-white">bot</span>
       </span>
-      <div class="content break-all relative" ref="messageContentRef" @contextmenu="onContextMenu($event, item)"
+      <div class="content break-all relative" ref="messageContentRef" @contextmenu="onContextMenu($event, item)" @dblclick="handleContentDblclick"
         :class="contentClassList">
         <div v-if="canEdit && !selfEditingPreview" class="message-action-bar"
           :class="{ 'message-action-bar--active': isEditing }">
