@@ -3,7 +3,7 @@
 @tailwind utilities;
 
 .keyword-highlight {
-  background-color: rgba(255, 230, 150, 0.85);
+  background-color: rgba(255, 232, 170, 0.55);
   border-bottom: 1px dashed rgba(168, 108, 0, 0.9);
   cursor: help;
   transition: background-color 0.2s ease;
@@ -15,12 +15,16 @@
 }
 
 .keyword-highlight:hover {
-  background-color: rgba(255, 238, 180, 0.95);
+  background-color: rgba(255, 241, 200, 0.8);
 }
 
 html[data-display-palette='night'] .keyword-highlight {
-  background-color: rgba(85, 65, 5, 0.6);
-  border-bottom-color: rgba(255, 214, 120, 0.85);
+  background-color: rgba(64, 78, 118, 0.65);
+  border-bottom-color: rgba(147, 197, 253, 0.85);
+}
+
+html[data-display-palette='night'] .keyword-highlight:hover {
+  background-color: rgba(86, 102, 152, 0.78);
 }
 
 .keyword-tooltip {
