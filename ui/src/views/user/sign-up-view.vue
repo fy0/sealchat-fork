@@ -516,195 +516,139 @@ onBeforeUnmount(() => {
       :class="{ 'sc-glass-panel': hasLoginBg, 'sign-up-card--glass': hasLoginBg }"
       :style="hasLoginBg ? loginGlassStyle : undefined"
       v-if="config?.registerOpen">
-      <div class="px-6 py-4">
-        <div class="flex justify-center mx-auto">
-          <!-- <img class="w-auto h-7 sm:h-8" src="https://merakiui.com/images/logo.svg" alt=""> -->
-        </div>
+      <div class="px-8 py-6">
+        <h3 class="mb-6 text-xl font-medium text-center auth-title">注册</h3>
 
-        <h3 class="mt-3 text-xl font-medium text-center text-gray-600 dark:text-gray-200">注册</h3>
+        <n-form class="w-full" @submit.prevent="signUp">
+          <n-form-item label="用户名">
+            <n-input
+              v-model:value="form.username"
+              placeholder="用户名，用于登录和识别，可被其他人看到"
+              @keydown.enter.prevent
+            >
+              <template #suffix>
+                <n-button text size="tiny" tabindex="-1" @click.prevent="randomUsername">随机</n-button>
+              </template>
+            </n-input>
+          </n-form-item>
+          <div v-if="usernameError" class="auth-error">{{ usernameError }}</div>
 
-        <div style="font-size: 12; overflow-y: auto; max-height: 10rem;">
-          <!-- {{ authStore.session }} -->
-        </div>
+          <n-form-item label="昵称">
+            <n-input v-model:value="form.nickname" placeholder="昵称" @keydown.enter.prevent />
+          </n-form-item>
 
-        <form class="min-w-20rem">
+          <n-form-item label="密码">
+            <n-input v-model:value="form.password" type="password" placeholder="密码" @keydown.enter.prevent />
+          </n-form-item>
 
-          <div class="w-full mt-4">
-            <div class="relative">
-              <input v-model="form.username"
-                class="sc-glass-input block w-full px-4 py-2 mt-2 text-gray-700 placeholder-gray-500 bg-white border rounded-lg dark:bg-gray-800 dark:border-gray-600 dark:placeholder-gray-400 focus:border-blue-400 dark:focus:border-blue-300 focus:ring-opacity-40 focus:outline-none focus:ring focus:ring-blue-300"
-                type="username" placeholder="用户名，用于登录和识别，可被其他人看到" aria-label="用户名" />
-              <button @click.prevent="randomUsername"
-                class="absolute right-0 h-full top-0 px-1 mr-1 text-sm font-medium text-blue-500 capitalize" tabindex="-1">随机
-              </button>
-            </div>
-            <p v-if="usernameError" class="mt-1 text-xs text-red-500">{{ usernameError }}</p>
-          </div>
-
-          <div class="w-full mt-4">
-            <input v-model="form.nickname"
-              class="sc-glass-input block w-full px-4 py-2 mt-2 text-gray-700 placeholder-gray-500 bg-white border rounded-lg dark:bg-gray-800 dark:border-gray-600 dark:placeholder-gray-400 focus:border-blue-400 dark:focus:border-blue-300 focus:ring-opacity-40 focus:outline-none focus:ring focus:ring-blue-300"
-              type="text" placeholder="昵称" aria-label="昵称" />
-          </div>
-
-          <div class="w-full mt-4">
-            <input v-model="form.password"
-              class="sc-glass-input block w-full px-4 py-2 mt-2 text-gray-700 placeholder-gray-500 bg-white border rounded-lg dark:bg-gray-800 dark:border-gray-600 dark:placeholder-gray-400 focus:border-blue-400 dark:focus:border-blue-300 focus:ring-opacity-40 focus:outline-none focus:ring focus:ring-blue-300"
-              type="password" placeholder="密码" aria-label="密码" />
-          </div>
-
-          <!-- 邮箱注册区域 -->
           <template v-if="emailAuthEnabled">
-            <div class="w-full mt-4">
-              <label class="block text-xs text-gray-500 dark:text-gray-300">邮箱地址</label>
-              <input v-model="form.email"
-                class="sc-glass-input block w-full px-4 py-2 mt-2 text-gray-700 placeholder-gray-500 bg-white border rounded-lg dark:bg-gray-800 dark:border-gray-600 dark:placeholder-gray-400 focus:border-blue-400 dark:focus:border-blue-300 focus:ring-opacity-40 focus:outline-none focus:ring focus:ring-blue-300"
-                type="email" placeholder="邮箱地址" aria-label="邮箱地址" />
-              <p v-if="emailError" class="mt-1 text-xs text-red-500 dark:text-red-400">{{ emailError }}</p>
-            </div>
+            <n-form-item label="邮箱地址">
+              <n-input v-model:value="form.email" type="email" placeholder="邮箱地址" @keydown.enter.prevent />
+            </n-form-item>
+            <div v-if="emailError" class="auth-error">{{ emailError }}</div>
 
-            <!-- 基础验证码（发送邮箱验证码前需要，验证通过后隐藏） -->
-            <div class="w-full mt-4" v-if="captchaMode === 'local' && !captchaVerified">
-              <label class="block text-xs text-gray-500 dark:text-gray-300">图形验证码</label>
-              <div class="flex flex-col gap-2 mt-2">
-                <input v-model="captchaInput"
-                  class="sc-glass-input block w-full px-4 py-2 text-gray-700 placeholder-gray-500 bg-white border rounded-lg dark:bg-gray-800 dark:border-gray-600 dark:placeholder-gray-400 focus:border-blue-400 dark:focus:border-blue-300 focus:ring-opacity-40 focus:outline-none focus:ring focus:ring-blue-300"
-                  type="text" placeholder="请输入图形验证码" aria-label="图形验证码"
-                />
-                <div class="flex items-center gap-3">
-                  <div class="sc-captcha-box bg-gray-100 dark:bg-gray-700 flex items-center justify-center rounded cursor-pointer"
+            <n-form-item v-if="captchaMode === 'local' && !captchaVerified" label="图形验证码">
+              <div class="auth-captcha-stack">
+                <n-input v-model:value="captchaInput" placeholder="请输入图形验证码" @keydown.enter.prevent />
+                <div class="auth-captcha-row">
+                  <div class="sc-captcha-box rounded bg-gray-100 dark:bg-gray-700 flex items-center justify-center cursor-pointer"
                     @click.prevent="reloadCaptchaImage" title="点击刷新">
                     <img v-if="captchaImageUrl" :src="captchaImageUrl" alt="captcha" class="sc-captcha-img" />
                     <span v-else class="text-xs text-gray-500">加载中</span>
                   </div>
-                  <button type="button" @click.prevent="reloadCaptchaImage"
-                    class="text-xs text-blue-500" :disabled="captchaLoading">
-                    {{ captchaLoading ? '刷新中' : '刷新' }}
-                  </button>
+                  <n-button text size="tiny" :loading="captchaLoading" @click.prevent="reloadCaptchaImage">刷新</n-button>
                 </div>
               </div>
-              <p v-if="captchaError" class="mt-1 text-xs text-red-500">{{ captchaError }}</p>
-            </div>
+            </n-form-item>
+            <div v-if="captchaError && captchaMode === 'local' && !captchaVerified" class="auth-error">{{ captchaError }}</div>
 
-            <div class="w-full mt-4" v-else-if="captchaMode === 'turnstile' && !captchaVerified">
-              <label class="block text-xs text-gray-500 dark:text-gray-300">人机验证</label>
-              <div class="mt-2 rounded border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800">
+            <n-form-item v-else-if="captchaMode === 'turnstile' && !captchaVerified" label="人机验证">
+              <div class="auth-verification-box">
                 <div ref="turnstileContainer" class="flex items-center justify-center min-h-[90px] py-2"></div>
-              </div>
-              <div class="flex justify-end mt-2">
-                <button type="button" class="text-xs text-blue-500" :disabled="turnstileLoading"
-                  @click.prevent="renderTurnstileWidget">
-                  {{ turnstileLoading ? '加载中' : '刷新' }}
-                </button>
-              </div>
-              <p v-if="turnstileError" class="mt-1 text-xs text-red-500">{{ turnstileError }}</p>
-            </div>
-
-            <div class="w-full mt-4" v-else-if="captchaMode === 'cap' && !captchaVerified">
-              <label class="block text-xs text-gray-500 dark:text-gray-300">验证码验证</label>
-              <div class="mt-2">
-                <div ref="capContainer" class="w-full"></div>
-              </div>
-              <div class="flex justify-end mt-2">
-                <button type="button" class="text-xs text-blue-500" :disabled="capLoading"
-                  @click.prevent="resetCapWidget">
-                  {{ capLoading ? '加载中' : '刷新' }}
-                </button>
-              </div>
-              <p v-if="capError" class="mt-1 text-xs text-red-500">{{ capError }}</p>
-            </div>
-
-            <div class="w-full mt-4">
-              <label class="block text-xs text-gray-500 dark:text-gray-300">邮箱验证码</label>
-              <div class="flex items-center gap-3 mt-2">
-                <input v-model="form.emailCode"
-                  class="sc-glass-input block w-full px-4 py-2 text-gray-700 placeholder-gray-500 bg-white border rounded-lg dark:bg-gray-800 dark:border-gray-600 dark:placeholder-gray-400 focus:border-blue-400 dark:focus:border-blue-300 focus:ring-opacity-40 focus:outline-none focus:ring focus:ring-blue-300"
-                  type="text" placeholder="请输入邮箱验证码" maxlength="6" aria-label="邮箱验证码"
-                />
-                <button type="button" @click.prevent="sendEmailCode"
-                  class="shrink-0 px-4 py-2 text-sm font-medium text-white bg-blue-500 rounded-lg hover:bg-blue-400 disabled:opacity-50 disabled:cursor-not-allowed"
-                  :disabled="emailCodeSending || emailCodeCountdown > 0">
-                  {{ emailCodeSending ? '发送中...' : (emailCodeCountdown > 0 ? `${emailCodeCountdown}s` : '获取验证码') }}
-                </button>
-              </div>
-            </div>
-          </template>
-
-          <!-- 原有验证码区域（非邮箱注册模式） -->
-          <template v-else>
-            <div class="w-full mt-4" v-if="captchaMode === 'local'">
-            <label class="block text-xs text-gray-500 dark:text-gray-300">验证码</label>
-            <div class="flex flex-col gap-2 mt-2">
-              <input v-model="captchaInput"
-                class="sc-glass-input block w-full px-4 py-2 text-gray-700 placeholder-gray-500 bg-white border rounded-lg dark:bg-gray-800 dark:border-gray-600 dark:placeholder-gray-400 focus:border-blue-400 dark:focus:border-blue-300 focus:ring-opacity-40 focus:outline-none focus:ring focus:ring-blue-300"
-                type="text" placeholder="请输入验证码" aria-label="验证码"
-              />
-              <div class="flex items-center gap-3">
-                <div class="sc-captcha-box bg-gray-100 dark:bg-gray-700 flex items-center justify-center rounded cursor-pointer"
-                  @click.prevent="reloadCaptchaImage" title="点击刷新">
-                  <img v-if="captchaImageUrl" :src="captchaImageUrl" alt="captcha" class="sc-captcha-img" />
-                  <span v-else class="text-xs text-gray-500">加载中</span>
+                <div class="auth-captcha-actions">
+                  <n-button text size="tiny" :loading="turnstileLoading" @click.prevent="renderTurnstileWidget">刷新</n-button>
                 </div>
-                <button type="button" @click.prevent="reloadCaptchaImage"
-                  class="text-xs text-blue-500" :disabled="captchaLoading">
-                  {{ captchaLoading ? '刷新中' : '刷新' }}
-                </button>
               </div>
-            </div>
-            <p v-if="captchaError" class="mt-1 text-xs text-red-500">{{ captchaError }}</p>
-          </div>
+            </n-form-item>
+            <div v-if="turnstileError && captchaMode === 'turnstile' && !captchaVerified" class="auth-error">{{ turnstileError }}</div>
 
-          <div class="w-full mt-4" v-else-if="captchaMode === 'turnstile'">
-            <label class="block text-xs text-gray-500 dark:text-gray-300">人机验证</label>
-            <div class="mt-2 rounded border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800">
-              <div ref="turnstileContainer" class="flex items-center justify-center min-h-[90px] py-2"></div>
-            </div>
-            <div class="flex justify-end mt-2">
-              <button type="button" class="text-xs text-blue-500" :disabled="turnstileLoading"
-                @click.prevent="renderTurnstileWidget">
-                {{ turnstileLoading ? '加载中' : '刷新' }}
-              </button>
-            </div>
-            <p v-if="turnstileError" class="mt-1 text-xs text-red-500">{{ turnstileError }}</p>
-          </div>
+            <n-form-item v-else-if="captchaMode === 'cap' && !captchaVerified" label="验证码验证">
+              <div class="auth-verification-box">
+                <div ref="capContainer" class="w-full"></div>
+                <div class="auth-captcha-actions">
+                  <n-button text size="tiny" :loading="capLoading" @click.prevent="resetCapWidget">刷新</n-button>
+                </div>
+              </div>
+            </n-form-item>
+            <div v-if="capError && captchaMode === 'cap' && !captchaVerified" class="auth-error">{{ capError }}</div>
 
-          <div class="w-full mt-4" v-else-if="captchaMode === 'cap'">
-            <label class="block text-xs text-gray-500 dark:text-gray-300">验证码验证</label>
-            <div class="mt-2">
-              <div ref="capContainer" class="w-full"></div>
-            </div>
-            <div class="flex justify-end mt-2">
-              <button type="button" class="text-xs text-blue-500" :disabled="capLoading"
-                @click.prevent="resetCapWidget">
-                {{ capLoading ? '加载中' : '刷新' }}
-              </button>
-            </div>
-            <p v-if="capError" class="mt-1 text-xs text-red-500">{{ capError }}</p>
-          </div>
+            <n-form-item label="邮箱验证码">
+              <n-input-group>
+                <n-input
+                  v-model:value="form.emailCode"
+                  placeholder="请输入邮箱验证码"
+                  maxlength="6"
+                  @keydown.enter.prevent
+                />
+                <n-button
+                  type="primary"
+                  :loading="emailCodeSending"
+                  :disabled="emailCodeCountdown > 0"
+                  @click.prevent="sendEmailCode"
+                >
+                  {{ emailCodeSending ? '发送中...' : (emailCodeCountdown > 0 ? `${emailCodeCountdown}s` : '获取验证码') }}
+                </n-button>
+              </n-input-group>
+            </n-form-item>
           </template>
 
-          <!-- <div class="w-full mt-4">
-            <input v-model="form.password2"
-              class="block w-full px-4 py-2 mt-2 text-gray-700 placeholder-gray-500 bg-white border rounded-lg dark:bg-gray-800 dark:border-gray-600 dark:placeholder-gray-400 focus:border-blue-400 dark:focus:border-blue-300 focus:ring-opacity-40 focus:outline-none focus:ring focus:ring-blue-300"
-              type="password" placeholder="重复密码" aria-label="重复密码" />
-          </div> -->
+          <template v-else>
+            <n-form-item v-if="captchaMode === 'local'" label="验证码">
+              <div class="auth-captcha-stack">
+                <n-input v-model:value="captchaInput" placeholder="请输入验证码" @keydown.enter.prevent />
+                <div class="auth-captcha-row">
+                  <div class="sc-captcha-box rounded bg-gray-100 dark:bg-gray-700 flex items-center justify-center cursor-pointer"
+                    @click.prevent="reloadCaptchaImage" title="点击刷新">
+                    <img v-if="captchaImageUrl" :src="captchaImageUrl" alt="captcha" class="sc-captcha-img" />
+                    <span v-else class="text-xs text-gray-500">加载中</span>
+                  </div>
+                  <n-button text size="tiny" :loading="captchaLoading" @click.prevent="reloadCaptchaImage">刷新</n-button>
+                </div>
+              </div>
+            </n-form-item>
+            <div v-if="captchaError && captchaMode === 'local'" class="auth-error">{{ captchaError }}</div>
 
-          <div class="flex items-center justify-between mt-4">
-            <div></div>
-            <!-- <a href="#" class="text-sm text-gray-600 dark:text-gray-200 hover:text-gray-500">忘记密码</a> -->
+            <n-form-item v-else-if="captchaMode === 'turnstile'" label="人机验证">
+              <div class="auth-verification-box">
+                <div ref="turnstileContainer" class="flex items-center justify-center min-h-[90px] py-2"></div>
+                <div class="auth-captcha-actions">
+                  <n-button text size="tiny" :loading="turnstileLoading" @click.prevent="renderTurnstileWidget">刷新</n-button>
+                </div>
+              </div>
+            </n-form-item>
+            <div v-if="turnstileError && captchaMode === 'turnstile'" class="auth-error">{{ turnstileError }}</div>
 
-            <button @click.prevent="signUp"
-              class="px-6 py-2 text-sm font-medium tracking-wide text-white capitalize transition-colors duration-300 transform bg-blue-500 rounded-lg hover:bg-blue-400 focus:outline-none focus:ring focus:ring-blue-300 focus:ring-opacity-50">
-              注册
-            </button>
+            <n-form-item v-else-if="captchaMode === 'cap'" label="验证码验证">
+              <div class="auth-verification-box">
+                <div ref="capContainer" class="w-full"></div>
+                <div class="auth-captcha-actions">
+                  <n-button text size="tiny" :loading="capLoading" @click.prevent="resetCapWidget">刷新</n-button>
+                </div>
+              </div>
+            </n-form-item>
+            <div v-if="capError && captchaMode === 'cap'" class="auth-error">{{ capError }}</div>
+          </template>
+
+          <div class="auth-actions">
+            <n-button type="primary" round @click.prevent="signUp">注册</n-button>
           </div>
-        </form>
+        </n-form>
       </div>
 
       <div class="flex items-center justify-center py-4 text-center sign-up-footer">
-        <span class="text-sm text-gray-600 dark:text-gray-200">已有账号 ？</span>
+        <span class="text-sm sign-up-footer__text">已有账号 ？</span>
         <router-link :to="{ name: 'user-signin' }"
-          class="mx-2 text-sm font-bold text-blue-500 dark:text-blue-400 hover:underline">登录</router-link>
+          class="mx-2 text-sm font-bold sign-up-footer__link hover:underline">登录</router-link>
       </div>
     </div>
     <div class="w-full max-w-sm mx-auto overflow-hidden rounded-lg shadow-md sign-up-card"
@@ -745,7 +689,7 @@ onBeforeUnmount(() => {
 .sign-up-card {
   position: relative;
   z-index: 2;
-  background: white;
+  background: var(--sc-bg-elevated, #ffffff);
   max-height: 100%;
 }
 
@@ -759,16 +703,61 @@ onBeforeUnmount(() => {
 }
 
 .sign-up-footer {
-  background: rgb(249 250 251);
+  background: transparent;
+  border-top: 1px solid var(--sc-border-mute, rgba(15, 23, 42, 0.06));
 }
 
 :global(.dark) .sign-up-footer {
-  background: #374151;
+  background: transparent;
 }
 
 .sign-up-card--glass .sign-up-footer {
   background: transparent;
   border-top: 1px solid var(--sc-glass-border);
+}
+
+.sign-up-footer__text {
+  color: var(--sc-text-secondary, #475569);
+}
+
+.sign-up-footer__link {
+  color: var(--primary-color, #3388de);
+}
+
+.auth-title {
+  color: var(--sc-text-primary, #0f172a);
+}
+
+.auth-error {
+  margin-top: -14px;
+  margin-bottom: 12px;
+  font-size: 12px;
+  color: #ef4444;
+}
+
+.auth-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 1rem;
+}
+
+.auth-captcha-stack,
+.auth-verification-box {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.auth-captcha-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.auth-captcha-actions {
+  display: flex;
+  justify-content: flex-end;
 }
 
 .sign-up-card--glass :deep(input) {
