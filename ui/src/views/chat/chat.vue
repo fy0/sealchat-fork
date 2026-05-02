@@ -51,6 +51,7 @@ import AvatarClickMenu from './components/AvatarClickMenu.vue'
 import { nanoid } from 'nanoid';
 import { DEFAULT_PAGE_TITLE, useUtilsStore } from '@/stores/utils';
 import { useDisplayStore } from '@/stores/display';
+import { normalizeMessageIcMode, resolveAvatarRenderState } from '@/stores/displayAvatarVisibility';
 import { useCharacterRemarkStore } from '@/stores/characterRemark';
 import { contentEscape, contentUnescape, arrayBufferToBase64, base64ToUint8Array } from '@/utils/tools'
 import { triggerBlobDownload } from '@/utils/download';
@@ -4815,24 +4816,37 @@ const getMessageIdentityColor = (message: any) => {
   return normalizeHexColor(message?.identity?.color || message?.sender_identity_color || '') || '';
 };
 
+const getMessageIcMode = (message: any): 'ic' | 'ooc' => {
+  if (chat.editing && chat.editing.messageId === message?.id) {
+    return normalizeMessageIcMode(chat.editing.icMode);
+  }
+  const editingPreview = editingPreviewMap.value[message?.id];
+  if (editingPreview && !editingPreview.isSelf) {
+    return normalizeMessageIcMode(editingPreview.tone);
+  }
+  return normalizeMessageIcMode(message?.icMode ?? message?.ic_mode);
+};
+
 const getMessageTone = (message: any): 'ic' | 'ooc' | 'archived' => {
   if (message?.isArchived || message?.is_archived) {
     return 'archived';
   }
-  // 如果正在编辑此消息（自己），使用编辑状态的 icMode
-  if (chat.editing && chat.editing.messageId === message?.id) {
-    return chat.editing.icMode === 'ooc' ? 'ooc' : 'ic';
-  }
-  // 如果他人正在编辑此消息，使用编辑预览中的 tone
-  const editingPreview = editingPreviewMap.value[message?.id];
-  if (editingPreview && !editingPreview.isSelf) {
-    return editingPreview.tone === 'ooc' ? 'ooc' : 'ic';
-  }
-  if (message?.icMode === 'ooc' || message?.ic_mode === 'ooc') {
-    return 'ooc';
-  }
-  return 'ic';
+  return getMessageIcMode(message);
 };
+
+const getMessageAvatarRenderState = (message: any, mergedWithPrev = false) => resolveAvatarRenderState({
+  avatarsEnabled: display.showAvatar,
+  avatarVisibilityScope: display.settings.avatarVisibilityScope,
+  icMode: getMessageIcMode(message),
+  mergedWithPrev,
+});
+
+const getTypingPreviewAvatarRenderState = (preview: TypingPreviewItem) => resolveAvatarRenderState({
+  avatarsEnabled: display.showAvatar,
+  avatarVisibilityScope: display.settings.avatarVisibilityScope,
+  icMode: preview.tone,
+  mergedWithPrev: false,
+});
 
 const getMessageAuthorId = (message: any): string => {
   return (
@@ -14560,7 +14574,7 @@ onBeforeUnmount(() => {
                 :editing-preview="editingPreviewMap[pinItem.id]"
                 :edit-saving="isSavingEdit"
                 :tone="getMessageTone(pinItem)"
-                :show-avatar="display.showAvatar"
+                :show-avatar="getMessageAvatarRenderState(pinItem).showAvatar"
                 :hide-avatar="false"
                 :show-header="true"
                 :layout="display.layout"
@@ -14728,8 +14742,8 @@ onBeforeUnmount(() => {
                 :editing-preview="editingPreviewMap[entry.message.id]"
                 :edit-saving="isSavingEdit"
                 :tone="getMessageTone(entry.message)"
-                :show-avatar="display.showAvatar"
-                :hide-avatar="display.showAvatar && entry.mergedWithPrev"
+                :show-avatar="getMessageAvatarRenderState(entry.message, entry.mergedWithPrev).showAvatar"
+                :hide-avatar="getMessageAvatarRenderState(entry.message, entry.mergedWithPrev).hideAvatar"
                 :show-header="shouldShowInlineHeader(entry)"
                 :layout="display.layout"
                 :is-self="isSelfMessage(entry.message)"
@@ -14810,7 +14824,11 @@ onBeforeUnmount(() => {
                 <span class="message-row__dot" v-for="n in 3" :key="n"></span>
               </div>
               <div class="typing-preview-content">
-                <div v-if="display.showAvatar" class="typing-preview-avatar">
+                <div
+                  v-if="getTypingPreviewAvatarRenderState(preview).showAvatar"
+                  class="typing-preview-avatar"
+                  :class="{ 'typing-preview-avatar--hidden': getTypingPreviewAvatarRenderState(preview).hideAvatar }"
+                >
                   <UserAvatarDecoration
                     :border="false"
                     :src="preview.avatar"
@@ -18023,6 +18041,10 @@ onBeforeUnmount(() => {
   height: var(--chat-avatar-size, 3rem);
   min-width: var(--chat-avatar-size, 3rem);
   overflow: visible;
+}
+
+.typing-preview-avatar--hidden {
+  visibility: hidden;
 }
 
 .message-row__handle--placeholder {

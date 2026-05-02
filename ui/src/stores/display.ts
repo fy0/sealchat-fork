@@ -3,6 +3,7 @@ import { useChatStore } from './chat'
 import { DEFAULT_MONO_FONT_STACK, buildGlobalFontFamilyStack, sanitizeFontFamilyName } from '@/services/font/fontUtils'
 import type { FontSourceType } from '@/services/font/types'
 import { restoreCachedFontById } from '@/services/font/fontLoader'
+import { normalizeAvatarVisibilityScope, type AvatarVisibilityScope } from './displayAvatarVisibility'
 import {
   migrateLegacyThemeSelection,
   resolveCustomThemeEnabledUpdate,
@@ -53,6 +54,7 @@ export interface DisplaySettings {
   sidebarWidth: number         // 左侧频道栏宽度 (px)
   channelNameWrapEnabled: boolean // 侧栏频道名自动换行
   showAvatar: boolean
+  avatarVisibilityScope: AvatarVisibilityScope
   preferStaticAvatarDecoration: boolean
   avatarSize: number            // 头像大小 (px)
   avatarBorderRadius: number    // 头像圆角 (0-50, 50为圆形)
@@ -415,6 +417,7 @@ export const createDefaultDisplaySettings = (): DisplaySettings => ({
   sidebarWidth: SIDEBAR_WIDTH_DEFAULT,
   channelNameWrapEnabled: false,
   showAvatar: true,
+  avatarVisibilityScope: 'all',
   preferStaticAvatarDecoration: false,
   avatarSize: AVATAR_SIZE_DEFAULT,
   avatarBorderRadius: AVATAR_BORDER_RADIUS_DEFAULT,
@@ -631,6 +634,7 @@ const loadSettings = (): DisplaySettings => {
       ),
       channelNameWrapEnabled: coerceBoolean((parsed as any)?.channelNameWrapEnabled ?? false),
       showAvatar: coerceBoolean(parsed.showAvatar),
+      avatarVisibilityScope: normalizeAvatarVisibilityScope((parsed as any)?.avatarVisibilityScope),
       preferStaticAvatarDecoration: coerceBoolean((parsed as any)?.preferStaticAvatarDecoration ?? false),
       avatarSize: coerceNumberInRange(
         (parsed as any)?.avatarSize,
@@ -778,6 +782,10 @@ const normalizeWith = (base: DisplaySettings, patch?: Partial<DisplaySettings>):
     patch && Object.prototype.hasOwnProperty.call(patch, 'showAvatar')
       ? coerceBoolean(patch.showAvatar)
       : base.showAvatar,
+  avatarVisibilityScope:
+    patch && Object.prototype.hasOwnProperty.call(patch, 'avatarVisibilityScope')
+      ? normalizeAvatarVisibilityScope((patch as any).avatarVisibilityScope)
+      : base.avatarVisibilityScope,
   preferStaticAvatarDecoration:
     patch && Object.prototype.hasOwnProperty.call(patch, 'preferStaticAvatarDecoration')
       ? coerceBoolean((patch as any).preferStaticAvatarDecoration)
