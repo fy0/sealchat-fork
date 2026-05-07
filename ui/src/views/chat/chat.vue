@@ -111,6 +111,7 @@ import CharacterCardPanel from './components/CharacterCardPanel.vue';
 import { characterApiUnsupportedText, useCharacterCardStore } from '@/stores/characterCard';
 import { useCharacterSheetStore } from '@/stores/characterSheet';
 import KeywordSuggestPanel from '@/components/chat/KeywordSuggestPanel.vue';
+import MessageImageEditor from '@/components/chat/MessageImageEditor.vue';
 import { ensurePinyinLoaded, matchKeywords, matchText, type KeywordMatchResult } from '@/utils/pinyinMatch';
 import { generateIFormEmbedLink } from '@/utils/iformEmbedLink';
 import { resolveDeletedChannelFallbackId } from '@/stores/chatChannelSelection';
@@ -2036,6 +2037,7 @@ const icHotkeyEnabled = computed(() => {
 });
 
 type SelectionRange = { start: number; end: number };
+type InlineUploadSource = 'default' | 'rich-toolbar' | 'rich-editor';
 
 interface InlineImageDraft {
   id: string;
@@ -2241,6 +2243,9 @@ const hasFailedInlineImages = computed(() => {
 });
 
 let pendingInlineSelection: SelectionRange | null = null;
+let pendingInlineUploadSource: InlineUploadSource = 'default';
+let activeInlineEditorSelection: SelectionRange | null = null;
+let activeInlineEditorSource: InlineUploadSource = 'default';
 const inlineImagePreviewMap = computed<Record<string, { status: 'uploading' | 'uploaded' | 'failed'; previewUrl?: string; error?: string }>>(() => {
   const result: Record<string, { status: 'uploading' | 'uploaded' | 'failed'; previewUrl?: string; error?: string }> = {};
   inlineImages.forEach((draft, key) => {
@@ -2256,6 +2261,46 @@ const inlineImagePreviewMap = computed<Record<string, { status: 'uploading' | 'u
   });
   return result;
 });
+
+const richInlineImageEditorVisible = ref(false);
+const richInlineImageEditorFile = ref<File | null>(null);
+
+const closeRichInlineImageEditor = () => {
+  richInlineImageEditorVisible.value = false;
+  richInlineImageEditorFile.value = null;
+  activeInlineEditorSelection = null;
+  activeInlineEditorSource = 'default';
+};
+
+const openRichInlineImageEditor = (
+  files: File[],
+  source: InlineUploadSource = pendingInlineUploadSource,
+  selection: SelectionRange | null = pendingInlineSelection,
+) => {
+  const imageFiles = files.filter((file) => file.type.startsWith('image/'));
+  if (!imageFiles.length) {
+    message.warning('当前仅支持插入图片文件');
+    return;
+  }
+  if (imageFiles.length > 1) {
+    message.info('富文本插图编辑首版仅支持单张图片，已载入第一张');
+  }
+  activeInlineEditorSource = source;
+  activeInlineEditorSelection = selection ? { ...selection } : null;
+  richInlineImageEditorFile.value = imageFiles[0] || null;
+  richInlineImageEditorVisible.value = !!richInlineImageEditorFile.value;
+};
+
+const handleRichInlineImageEditorConfirm = async (file: File) => {
+  const shouldInsertIntoRichEditor = activeInlineEditorSource === 'rich-editor' || inputMode.value === 'rich';
+  const targetSelection = activeInlineEditorSelection ? { ...activeInlineEditorSelection } : undefined;
+  closeRichInlineImageEditor();
+  if (shouldInsertIntoRichEditor) {
+    await handleRichImageInsert([file], { skipCompression: true });
+    return;
+  }
+  insertInlineImages([file], targetSelection, { skipCompression: true });
+};
 
 const identityDialogVisible = ref(false);
 
@@ -11045,14 +11090,21 @@ const captureSelectionRange = (): SelectionRange => {
   return { start: selection.start, end: selection.end };
 };
 
-const startInlineImageUpload = async (markerId: string, draft: InlineImageDraft) => {
+const startInlineImageUpload = async (
+  markerId: string,
+  draft: InlineImageDraft,
+  options?: { skipCompression?: boolean },
+) => {
   try {
     if (!draft.file) {
       draft.status = 'failed';
       draft.error = '无效的图片文件';
       return;
     }
-    const result = await uploadImageAttachment(draft.file as File, { channelId: chat.curChannel?.id });
+    const result = await uploadImageAttachment(draft.file as File, {
+      channelId: chat.curChannel?.id,
+      skipCompression: options?.skipCompression === true,
+    });
     draft.attachmentId = result.attachmentId;
     draft.status = 'uploaded';
     draft.error = '';
@@ -11065,7 +11117,11 @@ const startInlineImageUpload = async (markerId: string, draft: InlineImageDraft)
   }
 };
 
-const insertInlineImages = (files: File[], selection?: SelectionRange) => {
+const insertInlineImages = (
+  files: File[],
+  selection?: SelectionRange,
+  options?: { skipCompression?: boolean },
+) => {
   if (!files.length) {
     return;
   }
@@ -11092,7 +11148,7 @@ const insertInlineImages = (files: File[], selection?: SelectionRange) => {
     updatedText = updatedText.slice(0, cursor) + updatedText.slice(cursor + 1);
   }
 
-  imageFiles.forEach((file, index) => {
+  imageFiles.forEach((file) => {
     const markerId = nanoid();
     const token = `[[图片:${markerId}]]`;
     const objectUrl = URL.createObjectURL(file);
@@ -11106,7 +11162,7 @@ const insertInlineImages = (files: File[], selection?: SelectionRange) => {
   inlineImages.set(markerId, draftRecord);
   updatedText = updatedText.slice(0, cursor) + token + updatedText.slice(cursor);
   cursor += token.length;
-  startInlineImageUpload(markerId, draftRecord);
+  startInlineImageUpload(markerId, draftRecord, options);
 });
 textToSend.value = updatedText;
 nextTick(() => {
@@ -11146,7 +11202,7 @@ const handleDropGalleryItem = (payload: { attachmentId: string; selectionStart: 
   insertGalleryInline(payload.attachmentId, { start: payload.selectionStart, end: payload.selectionEnd });
 };
 
-const handleRichImageInsert = async (files: File[]) => {
+const handleRichImageInsert = async (files: File[], options?: { skipCompression?: boolean }) => {
   if (!files.length) return;
 
   const imageFiles = files.filter((file) => file.type.startsWith('image/'));
@@ -11177,7 +11233,10 @@ const handleRichImageInsert = async (files: File[]) => {
 
     // 开始上传
     try {
-      const result = await uploadImageAttachment(file, { channelId: chat.curChannel?.id });
+      const result = await uploadImageAttachment(file, {
+        channelId: chat.curChannel?.id,
+        skipCompression: options?.skipCompression === true,
+      });
       draftRecord.attachmentId = result.attachmentId;
       draftRecord.status = 'uploaded';
       draftRecord.error = '';
@@ -11213,20 +11272,21 @@ const handleInlineFileChange = (event: Event) => {
   const input = event.target as HTMLInputElement | null;
   if (!input?.files?.length) {
     pendingInlineSelection = null;
+    pendingInlineUploadSource = 'default';
     return;
   }
 
   const files = Array.from(input.files);
 
-  if (inputMode.value === 'rich') {
-    // 富文本模式：调用富文本图片插入
-    handleRichImageInsert(files);
+  if (pendingInlineUploadSource !== 'default' || inputMode.value === 'rich') {
+    openRichInlineImageEditor(files, pendingInlineUploadSource, pendingInlineSelection);
   } else {
     // 纯文本模式：调用纯文本图片插入
     insertInlineImages(files, pendingInlineSelection || undefined);
   }
 
   pendingInlineSelection = null;
+  pendingInlineUploadSource = 'default';
   input.value = '';
 };
 
@@ -11876,14 +11936,19 @@ const toBottom = () => {
   updateAnchorMessage(null);
 };
 
-const doUpload = () => {
+const doUpload = (source: InlineUploadSource = 'default') => {
   pendingInlineSelection = captureSelectionRange();
+  pendingInlineUploadSource = source;
   inlineImageInputRef.value?.click?.();
+}
+
+const handleToolbarUploadClick = () => {
+  doUpload('rich-toolbar');
 }
 
 const handleRichUploadButtonClick = () => {
   // 富文本编辑器内的上传按钮点击事件
-  doUpload();
+  doUpload('rich-editor');
 }
 
 const clearInputModeCache = () => {
@@ -13264,7 +13329,7 @@ const toolbarHotkeyHandlers: Record<ToolbarHotkeyKey, () => boolean | void> = {
     return true;
   },
   upload: () => {
-    doUpload();
+    handleToolbarUploadClick();
     return true;
   },
   richMode: () => {
@@ -14361,7 +14426,7 @@ onBeforeUnmount(() => {
           <div class="chat-input-actions__cell">
             <n-tooltip trigger="hover">
               <template #trigger>
-                <n-button quaternary circle @click="doUpload">
+                <n-button quaternary circle @click="handleToolbarUploadClick">
                   <template #icon>
                     <n-icon :component="Upload" size="18" />
                   </template>
@@ -15417,7 +15482,7 @@ onBeforeUnmount(() => {
                 <div class="chat-input-actions__cell">
                   <n-tooltip trigger="hover">
                     <template #trigger>
-                      <n-button quaternary circle @click="doUpload">
+                      <n-button quaternary circle @click="handleToolbarUploadClick">
                         <template #icon>
                           <n-icon :component="Upload" size="18" />
                         </template>
@@ -15938,14 +16003,6 @@ onBeforeUnmount(() => {
                     @remove-image="removeInlineImage"
                   />
                 </div>
-                <input
-                  ref="inlineImageInputRef"
-                  class="hidden"
-                  type="file"
-                  accept="image/*"
-                  multiple
-                  @change="handleInlineFileChange"
-                />
               </div>
               <div
                 v-if="!isEditing && !hasMeaningfulDraft && !showMinimalStackedSideControls"
@@ -16105,14 +16162,6 @@ onBeforeUnmount(() => {
                   @upload-button-click="handleRichUploadButtonClick"
                   @remove-image="removeInlineImage"
                 />
-                <input
-                  ref="inlineImageInputRef"
-                  class="hidden"
-                  type="file"
-                  accept="image/*"
-                  multiple
-                  @change="handleInlineFileChange"
-                />
               </div>
               <div class="chat-input-actions__cell chat-input-actions__send chat-input-send-inline">
                 <template v-if="isEditing">
@@ -16143,6 +16192,14 @@ onBeforeUnmount(() => {
                 </template>
               </div>
             </div>
+            <input
+              ref="inlineImageInputRef"
+              class="hidden"
+              type="file"
+              accept="image/*"
+              multiple
+              @change="handleInlineFileChange"
+            />
         </div>
       </div>
     </div>
@@ -16151,6 +16208,13 @@ onBeforeUnmount(() => {
 
   <RightClickMenu />
   <AvatarClickMenu />
+  <MessageImageEditor
+    :show="richInlineImageEditorVisible"
+    :file="richInlineImageEditorFile"
+    @update:show="value => { if (!value) closeRichInlineImageEditor(); }"
+    @cancel="closeRichInlineImageEditor"
+    @confirm="handleRichInlineImageEditorConfirm"
+  />
   <MultiSelectFloatingBar
     @copy="handleMultiSelectCopy"
     @archive="handleMultiSelectArchive"
