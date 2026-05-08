@@ -115,6 +115,13 @@ import MessageImageEditor from '@/components/chat/MessageImageEditor.vue';
 import { ensurePinyinLoaded, matchKeywords, matchText, type KeywordMatchResult } from '@/utils/pinyinMatch';
 import { generateIFormEmbedLink } from '@/utils/iformEmbedLink';
 import { resolveDeletedChannelFallbackId } from '@/stores/chatChannelSelection';
+import {
+  buildInputHistorySignature,
+  captureWhisperSnapshot,
+  normalizeWhisperSnapshot,
+  restoreWhisperSnapshot,
+  type WhisperSnapshot,
+} from './inputHistoryWhisperState';
 import { shouldMergeNeighborMessages } from './messageMerge';
 
 const EmojiPickerModal = defineAsyncComponent(() => import('./components/EmojiPickerModal.vue'));
@@ -8924,6 +8931,7 @@ interface SessionDraftEntry {
   content: string;
   updatedAt: number;
   images?: HistoryImageInfo[];
+  whisperSnapshot?: WhisperSnapshot;
 }
 
 interface InputHistoryEntry {
@@ -8933,6 +8941,7 @@ interface InputHistoryEntry {
   content: string;
   createdAt: number;
   images?: HistoryImageInfo[];
+  whisperSnapshot?: WhisperSnapshot;
 }
 
 type HistoryStore = Record<string, InputHistoryEntry[]>;
@@ -8951,8 +8960,6 @@ const hasHistoryEntries = computed(() => historyEntries.value.length > 0);
 const currentChannelKey = computed(() => chat.curChannel?.id ? String(chat.curChannel.id) : HISTORY_CHANNEL_FALLBACK);
 const draftOwnerChannelKey = ref(HISTORY_CHANNEL_FALLBACK);
 const lastHistorySignature = ref<string | null>(null);
-
-const buildHistorySignature = (mode: 'plain' | 'rich', content: string) => `${mode}:${content}`;
 
 const resolveSessionDraftStorageKey = () => {
   if (typeof window === 'undefined') {
@@ -9060,7 +9067,13 @@ const readSessionDraftForChannel = (channelKey: string): SessionDraftEntry | nul
   if (!entry || typeof entry.content !== 'string') {
     return null;
   }
-  return entry;
+  return {
+    mode: entry.mode === 'rich' ? 'rich' : 'plain',
+    content: entry.content,
+    updatedAt: typeof entry.updatedAt === 'number' ? entry.updatedAt : Date.now(),
+    images: Array.isArray(entry.images) ? entry.images : undefined,
+    whisperSnapshot: normalizeWhisperSnapshot((entry as any).whisperSnapshot),
+  };
 };
 
 const readHistoryStore = (): HistoryStore => {
@@ -9122,7 +9135,16 @@ const normalizeHistoryEntries = (entries: any[]): InputHistoryEntry[] => {
           images = undefined;
         }
       }
-      return { id, channelKey, mode, content, createdAt, images } as InputHistoryEntry;
+      const whisperSnapshot = normalizeWhisperSnapshot(entry.whisperSnapshot);
+      return {
+        id,
+        channelKey,
+        mode,
+        content,
+        createdAt,
+        images,
+        whisperSnapshot,
+      } as InputHistoryEntry;
     })
     .filter((entry): entry is InputHistoryEntry => !!entry);
 };
@@ -9135,7 +9157,7 @@ const refreshHistoryEntries = () => {
     .slice(0, MAX_HISTORY_PER_CHANNEL);
   historyEntries.value = entries;
   lastHistorySignature.value = entries.length
-    ? buildHistorySignature(entries[0].mode, entries[0].content)
+    ? buildInputHistorySignature(entries[0].mode, entries[0].content, entries[0].whisperSnapshot)
     : null;
 };
 
@@ -9146,7 +9168,11 @@ const pruneAndPersist = (channelKey: string, entries: InputHistoryEntry[]) => {
   if (channelKey === currentChannelKey.value) {
     historyEntries.value = store[channelKey].slice();
     lastHistorySignature.value = historyEntries.value.length
-      ? buildHistorySignature(historyEntries.value[0].mode, historyEntries.value[0].content)
+      ? buildInputHistorySignature(
+        historyEntries.value[0].mode,
+        historyEntries.value[0].content,
+        historyEntries.value[0].whisperSnapshot,
+      )
       : null;
   }
 };
@@ -9304,14 +9330,19 @@ const appendHistoryEntry = (mode: 'plain' | 'rich', content: string, options: { 
   if (!isContentMeaningful(mode, content)) {
     return false;
   }
-  const signature = buildHistorySignature(mode, content);
+  const whisperSnapshot = captureWhisperSnapshot(chat.whisperTargets);
+  const signature = buildInputHistorySignature(mode, content, whisperSnapshot);
   if (!options.force && signature === lastHistorySignature.value) {
     return false;
   }
   const channelKey = currentChannelKey.value;
   const store = readHistoryStore();
   const existing = normalizeHistoryEntries(store[channelKey] || []);
-  const filtered = existing.filter((entry) => buildHistorySignature(entry.mode, entry.content) !== signature);
+  const filtered = existing.filter((entry) => buildInputHistorySignature(
+    entry.mode,
+    entry.content,
+    entry.whisperSnapshot,
+  ) !== signature);
   
   // 提取当前图片信息
   const images = mode === 'plain' ? collectCurrentImageInfo() : undefined;
@@ -9323,6 +9354,7 @@ const appendHistoryEntry = (mode: 'plain' | 'rich', content: string, options: { 
     content,
     createdAt: Date.now(),
     images: images?.length ? images : undefined,
+    whisperSnapshot,
   };
   filtered.unshift(newEntry);
   pruneAndPersist(channelKey, filtered);
@@ -9424,6 +9456,7 @@ const restoreImagesFromHistory = (entry: InputHistoryEntry) => {
 const applyHistoryEntry = (entry: InputHistoryEntry, options?: { silent?: boolean }) => {
   try {
     draftOwnerChannelKey.value = entry.channelKey || currentChannelKey.value;
+    restoreWhisperSnapshot(chat, entry.whisperSnapshot);
     clearInputModeCache();
     inputMode.value = entry.mode;
     suspendInlineSync = true;
@@ -9491,6 +9524,7 @@ const persistSessionDraftForChannel = (
     content: textToSend.value,
     updatedAt: Date.now(),
     images: images?.length ? images : undefined,
+    whisperSnapshot: captureWhisperSnapshot(chat.whisperTargets),
   });
 };
 
@@ -9539,6 +9573,7 @@ const tryAutoRestoreSessionDraft = () => {
     content: draft.content,
     createdAt: draft.updatedAt,
     images: draft.images,
+    whisperSnapshot: draft.whisperSnapshot,
   };
   applyHistoryEntry(entry, { silent: true });
   notifyAutoRestoreSuccess(channelKey);
@@ -11866,6 +11901,7 @@ watch(() => chat.whisperTargets.map((target) => target.id).join(','), (targetIds
   if (targetIds === prevIds) {
     return;
   }
+  syncSessionDraftSnapshot();
   if (targetIds && whisperCandidateUsers.value.length === 0) {
     void loadWhisperCandidates();
   }

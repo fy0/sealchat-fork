@@ -2433,7 +2433,6 @@ export const useChatStore = defineStore({
             return;
           }
           this.curChannelUsers = resp2.data.data;
-          this.whisperTargets = [];
         } catch (error) {
           console.warn('channel.member.list.online failed', error);
         }
