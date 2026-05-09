@@ -94,6 +94,8 @@ import {
   remapDecorationsForImport,
   resolveIdentityMatchByName,
   resolveIdentityAssetFetchUrl,
+  resolveIdentityAssetTransferUrl,
+  shouldUseIdentityAssetRemoteImport,
   shouldIgnoreIdentityAssetFetchStatus,
   type IdentityAssetPayload,
   type IdentityAvatarPayload,
@@ -3434,11 +3436,12 @@ const maybePromptIdentitySync = async () => {
   await openIdentitySyncDialog();
 };
 
-const IDENTITY_EXPORT_VERSION = 'sealchat.channel-identity/v3';
+const IDENTITY_EXPORT_VERSION = 'sealchat.channel-identity/v4';
 const IDENTITY_EXPORT_COMPATIBLE_VERSIONS = [
   'sealchat.channel-identity/v1',
   'sealchat.channel-identity/v2',
   'sealchat.channel-identity/v3',
+  'sealchat.channel-identity/v4',
 ];
 
 interface IdentityAssetExportIssueState {
@@ -3460,10 +3463,23 @@ const downloadAttachmentAsPayload = async (
   if (!meta) {
     return null;
   }
+  if (meta.storageType === 's3') {
+    return {
+      attachmentId: normalizedId,
+      hash: meta.hash || '',
+      size: meta.size ?? 0,
+      filename: meta.filename || fallbackFilename,
+      mimeType: meta.mimeType || 'application/octet-stream',
+      externalUrl: meta.externalUrl || '',
+      publicUrl: meta.publicUrl || '',
+      presignedUrl: meta.presignedUrl || '',
+    };
+  }
   const downloadUrl = resolveIdentityAssetFetchUrl({
     normalizedId,
     externalUrl: meta.externalUrl,
     publicUrl: meta.publicUrl,
+    presignedUrl: meta.presignedUrl,
     urlBase,
   });
   const resp = await fetch(downloadUrl, {
@@ -3559,6 +3575,23 @@ const normalizeExportItemDecorations = (item: IdentityExportItem) => {
   return [] as IdentityExportDecorationItem[];
 };
 
+const importAttachmentFromRemoteUrl = async (
+  avatar: IdentityAvatarPayload,
+  options?: { channelId?: string },
+): Promise<string> => {
+  const transferUrl = resolveIdentityAssetTransferUrl(avatar);
+  if (!transferUrl) {
+    return '';
+  }
+  const resp = await api.post('api/v1/attachment-import-from-url', {
+    url: transferUrl,
+    filename: avatar.filename,
+    contentType: avatar.mimeType,
+    channelId: options?.channelId || chat.curChannel?.id,
+  });
+  return normalizeAttachmentId(resp.data?.file?.id || '');
+};
+
 const ensureImportAttachment = async (
   avatar?: IdentityAvatarPayload | null,
   options?: { channelId?: string },
@@ -3566,24 +3599,41 @@ const ensureImportAttachment = async (
   if (!avatar) {
     return '';
   }
+  if (avatar.hash && avatar.size) {
+    try {
+      const quickResp = await api.post('api/v1/attachment-upload-quick', {
+        hash: avatar.hash,
+        size: avatar.size,
+        extra: 'channel-identity-avatar',
+      });
+      const quickId = quickResp.data?.file?.id;
+      if (quickId) {
+        return quickId;
+      }
+    } catch (error: any) {
+      const msg = error?.response?.data?.message;
+      if (!msg || msg !== '此项数据无法进行快速上传') {
+        throw error;
+      }
+    }
+  }
+
+  if (shouldUseIdentityAssetRemoteImport(avatar)) {
+    try {
+      const importedId = await importAttachmentFromRemoteUrl(avatar, options);
+      if (importedId) {
+        return importedId;
+      }
+    } catch (error) {
+      console.warn('远端 URL 导入身份素材失败，准备回退', error);
+      if (!avatar.data) {
+        throw error;
+      }
+    }
+  }
+
   if (!avatar.hash || !avatar.data || !avatar.size) {
     return normalizeAttachmentId(avatar.attachmentId || '');
-  }
-  try {
-    const quickResp = await api.post('api/v1/attachment-upload-quick', {
-      hash: avatar.hash,
-      size: avatar.size,
-      extra: 'channel-identity-avatar',
-    });
-    const quickId = quickResp.data?.file?.id;
-    if (quickId) {
-      return quickId;
-    }
-  } catch (error: any) {
-    const msg = error?.response?.data?.message;
-    if (!msg || msg !== '此项数据无法进行快速上传') {
-      throw error;
-    }
   }
 
   try {
@@ -3615,6 +3665,9 @@ const ensureImportAssets = async (
       filename: asset.filename,
       mimeType: asset.mimeType,
       data: asset.data,
+      externalUrl: asset.externalUrl,
+      publicUrl: asset.publicUrl,
+      presignedUrl: asset.presignedUrl,
     }, options);
     if (attachmentId) {
       result.set(asset.assetKey, attachmentId);
@@ -3769,7 +3822,7 @@ const handleIdentityExport = async () => {
   }
   const membershipMap = identityFolderMembership.value;
   const folderList = identityFolders.value;
-  const favoriteSet = new Set(identityFavoriteFolderIds.value);
+  const favoriteSet = new Set<string>(identityFavoriteFolderIds.value);
   const scopedIcOocConfig = chat.getChannelIcOocRoleConfig(chat.curChannel.id, currentIdentityTargetUserId.value);
   identityExporting.value = true;
   try {
@@ -3902,7 +3955,7 @@ const importIdentityMigrationSnapshot = async (
       if (matchedIdentity && options.mode === 'overwrite') {
         const updated = await chat.channelIdentityUpdate(matchedIdentity.id, {
           channelId: targetChannelId,
-          targetUserId,
+          targetUserId: targetUserId || undefined,
           displayName,
           color: item.color || '',
           avatarAttachmentId: avatarId,
@@ -3922,7 +3975,7 @@ const importIdentityMigrationSnapshot = async (
 
       const created = await chat.channelIdentityCreate({
         channelId: targetChannelId,
-        targetUserId,
+        targetUserId: targetUserId || undefined,
         displayName,
         color: item.color || '',
         avatarAttachmentId: avatarId,
@@ -3971,7 +4024,7 @@ const importIdentityMigrationSnapshot = async (
       try {
         await chat.channelIdentityVariantCreate({
           channelId: targetChannelId,
-          targetUserId,
+          targetUserId: targetUserId || undefined,
           identityId: targetIdentityId,
           selectorEmoji: variant.selectorEmoji,
           keyword: variant.keyword,
@@ -4023,7 +4076,7 @@ const importIdentityMigrationSnapshot = async (
   };
 };
 
-const handleIdentityImportChange = async (event: Event) => {
+const handleIdentityImportChange = async (event: globalThis.Event) => {
   const input = event.target as HTMLInputElement | null;
   const file = input?.files?.[0];
   if (input) {

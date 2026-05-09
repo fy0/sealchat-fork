@@ -422,6 +422,7 @@ func Init(config *utils.AppConfig, uiStatic fs.FS) error {
 
 	v1Auth.Post("/attachment-upload", AttachmentUploadTempFile)
 	v1Auth.Post("/attachment-upload-quick", AttachmentUploadQuick)
+	v1Auth.Post("/attachment-import-from-url", AttachmentImportFromURL)
 	v1Auth.Post("/attachment-confirm", AttachmentSetConfirm)
 	v1Auth.Post("/attachments-delete", AttachmentDelete)
 	v1Auth.Get("/attachment/:id/meta", AttachmentMeta)

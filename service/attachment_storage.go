@@ -128,3 +128,28 @@ func AttachmentPublicURL(att *model.AttachmentModel) string {
 	}
 	return ""
 }
+
+func AttachmentPresignedURL(att *model.AttachmentModel) string {
+	if att == nil {
+		return ""
+	}
+	manager := GetStorageManager()
+	if manager == nil || strings.TrimSpace(att.ObjectKey) == "" {
+		return ""
+	}
+	return manager.PresignedURL(context.Background(), convertModelToBackend(att.StorageType), att.ObjectKey)
+}
+
+func AttachmentExportURL(att *model.AttachmentModel) string {
+	if att == nil {
+		return ""
+	}
+	if url := strings.TrimSpace(att.ExternalURL); url != "" {
+		return url
+	}
+	manager := GetStorageManager()
+	if manager == nil || strings.TrimSpace(att.ObjectKey) == "" {
+		return ""
+	}
+	return manager.ResolveAttachmentExportURL(context.Background(), convertModelToBackend(att.StorageType), att.ObjectKey)
+}
