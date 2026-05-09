@@ -3313,6 +3313,7 @@ const handleRetrySend = () => {
             :identity-id="senderIdentityId"
             :identity-color="nameColor"
             :channel-id="chat.curChannel?.id || ''"
+            :message-tone="props.tone"
           />
         </template>
 
@@ -3341,6 +3342,7 @@ const handleRetrySend = () => {
             :identity-id="senderIdentityId"
             :identity-color="nameColor"
             :channel-id="chat.curChannel?.id || ''"
+            :message-tone="props.tone"
           />
         </template>
         <n-popover trigger="hover" placement="bottom" v-if="!props.isRtl && timestampShouldRender">

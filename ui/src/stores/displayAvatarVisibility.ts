@@ -1,4 +1,5 @@
-export type AvatarVisibilityScope = 'all' | 'ic' | 'ooc'
+export type MessageVisibilityScope = 'all' | 'ic' | 'ooc'
+export type AvatarVisibilityScope = MessageVisibilityScope
 
 export interface AvatarRenderStateInput {
   avatarsEnabled: boolean
@@ -7,11 +8,15 @@ export interface AvatarRenderStateInput {
   mergedWithPrev?: boolean
 }
 
-export const normalizeAvatarVisibilityScope = (value: unknown): AvatarVisibilityScope => {
+export const normalizeMessageVisibilityScope = (value: unknown): MessageVisibilityScope => {
   if (value === 'ic' || value === 'ooc') {
     return value
   }
   return 'all'
+}
+
+export const normalizeAvatarVisibilityScope = (value: unknown): AvatarVisibilityScope => {
+  return normalizeMessageVisibilityScope(value)
 }
 
 export const normalizeMessageIcMode = (value: unknown): 'ic' | 'ooc' => {
@@ -19,6 +24,15 @@ export const normalizeMessageIcMode = (value: unknown): 'ic' | 'ooc' => {
     return 'ooc'
   }
   return 'ic'
+}
+
+export const messageVisibilityScopeMatches = (
+  scope: MessageVisibilityScope,
+  icMode?: string | null,
+) => {
+  const normalizedScope = normalizeMessageVisibilityScope(scope)
+  const normalizedIcMode = normalizeMessageIcMode(icMode)
+  return normalizedScope === 'all' || normalizedScope === normalizedIcMode
 }
 
 export const resolveAvatarRenderState = ({
@@ -34,9 +48,7 @@ export const resolveAvatarRenderState = ({
     }
   }
 
-  const normalizedScope = normalizeAvatarVisibilityScope(avatarVisibilityScope)
-  const normalizedIcMode = normalizeMessageIcMode(icMode)
-  const scopeMatched = normalizedScope === 'all' || normalizedScope === normalizedIcMode
+  const scopeMatched = messageVisibilityScopeMatches(avatarVisibilityScope, icMode)
 
   if (!scopeMatched) {
     return {

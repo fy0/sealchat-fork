@@ -3,7 +3,12 @@ import { useChatStore } from './chat'
 import { DEFAULT_MONO_FONT_STACK, buildGlobalFontFamilyStack, sanitizeFontFamilyName } from '@/services/font/fontUtils'
 import type { FontSourceType } from '@/services/font/types'
 import { restoreCachedFontById } from '@/services/font/fontLoader'
-import { normalizeAvatarVisibilityScope, type AvatarVisibilityScope } from './displayAvatarVisibility'
+import {
+  normalizeAvatarVisibilityScope,
+  normalizeMessageVisibilityScope,
+  type AvatarVisibilityScope,
+  type MessageVisibilityScope,
+} from './displayAvatarVisibility'
 import {
   migrateLegacyThemeSelection,
   resolveCustomThemeEnabledUpdate,
@@ -117,6 +122,7 @@ export interface DisplaySettings {
   inputAreaHeight: number  // 0 means auto
   // 人物卡
   characterCardBadgeEnabled: boolean
+  characterCardBadgeVisibilityScope: MessageVisibilityScope
   characterCardBadgeAutoContrastEnabled: boolean
   characterCardAutoSyncBotNickname: boolean
   characterCardBadgeTemplateByWorld: Record<string, string>
@@ -482,6 +488,7 @@ export const createDefaultDisplaySettings = (): DisplaySettings => ({
   messageSoundMode: 'away',
   inputAreaHeight: INPUT_AREA_HEIGHT_DEFAULT,
   characterCardBadgeEnabled: true,
+  characterCardBadgeVisibilityScope: 'ic',
   characterCardBadgeAutoContrastEnabled: true,
   characterCardAutoSyncBotNickname: true,
   characterCardBadgeTemplateByWorld: {},
@@ -759,8 +766,10 @@ const loadSettings = (): DisplaySettings => {
       disableContextMenu: coerceBoolean((parsed as any)?.disableContextMenu ?? true),
       quickGalleryLinkedEmojiSendDirectly: coerceBoolean((parsed as any)?.quickGalleryLinkedEmojiSendDirectly ?? false),
       quickGalleryPageSize: normalizeQuickGalleryPageSize((parsed as any)?.quickGalleryPageSize),
+      messageSoundMode: coerceMessageSoundMode((parsed as any)?.messageSoundMode),
       inputAreaHeight: normalizeInputAreaHeight((parsed as any)?.inputAreaHeight),
       characterCardBadgeEnabled: coerceBoolean((parsed as any)?.characterCardBadgeEnabled ?? true),
+      characterCardBadgeVisibilityScope: normalizeMessageVisibilityScope((parsed as any)?.characterCardBadgeVisibilityScope),
       characterCardBadgeAutoContrastEnabled: coerceBoolean((parsed as any)?.characterCardBadgeAutoContrastEnabled ?? true),
       characterCardAutoSyncBotNickname: coerceBoolean((parsed as any)?.characterCardAutoSyncBotNickname ?? true),
       characterCardBadgeTemplateByWorld: isPlainObject((parsed as any)?.characterCardBadgeTemplateByWorld)
@@ -1051,6 +1060,10 @@ const normalizeWith = (base: DisplaySettings, patch?: Partial<DisplaySettings>):
     patch && Object.prototype.hasOwnProperty.call(patch, 'characterCardBadgeEnabled')
       ? coerceBoolean((patch as any).characterCardBadgeEnabled)
       : base.characterCardBadgeEnabled,
+  characterCardBadgeVisibilityScope:
+    patch && Object.prototype.hasOwnProperty.call(patch, 'characterCardBadgeVisibilityScope')
+      ? normalizeMessageVisibilityScope((patch as any).characterCardBadgeVisibilityScope)
+      : base.characterCardBadgeVisibilityScope,
   characterCardBadgeAutoContrastEnabled:
     patch && Object.prototype.hasOwnProperty.call(patch, 'characterCardBadgeAutoContrastEnabled')
       ? coerceBoolean((patch as any).characterCardBadgeAutoContrastEnabled)

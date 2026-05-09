@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch, onMounted, onBeforeUnmount } from 'vue';
-import { NDrawer, NDrawerContent, NButton, NIcon, NEmpty, NCard, NInput, NForm, NFormItem, NModal, NPopconfirm, NTag, NSwitch, NSelect, NDivider, NCheckbox, useMessage } from 'naive-ui';
+import { NDrawer, NDrawerContent, NButton, NIcon, NEmpty, NCard, NInput, NForm, NFormItem, NModal, NPopconfirm, NTag, NSwitch, NSelect, NDivider, NCheckbox, NRadioGroup, NRadioButton, useMessage } from 'naive-ui';
 import { Plus, Trash, Edit, Link, Eye, Upload, X, Refresh } from '@vicons/tabler';
 import { characterApiUnsupportedText, useCharacterCardStore, type CharacterCard } from '@/stores/characterCard';
 import { useCharacterSheetStore } from '@/stores/characterSheet';
@@ -14,6 +14,7 @@ import { uploadImageAttachment } from '@/views/chat/composables/useAttachmentUpl
 import AvatarVue from '@/components/avatar.vue';
 import AvatarEditor from '@/components/AvatarEditor.vue';
 import type { ChannelIdentity } from '@/types';
+import type { MessageVisibilityScope } from '@/stores/displayAvatarVisibility';
 
 const props = defineProps<{
   visible: boolean;
@@ -92,6 +93,19 @@ const badgeAutoContrastEnabled = computed({
   get: () => displayStore.settings.characterCardBadgeAutoContrastEnabled,
   set: (value: boolean) => {
     displayStore.updateSettings({ characterCardBadgeAutoContrastEnabled: value });
+  },
+});
+
+const badgeVisibilityScopeOptions: Array<{ label: string; value: MessageVisibilityScope }> = [
+  { label: '全部显示', value: 'all' },
+  { label: '场内显示', value: 'ic' },
+  { label: '场外显示', value: 'ooc' },
+];
+
+const badgeVisibilityScope = computed({
+  get: () => displayStore.settings.characterCardBadgeVisibilityScope,
+  set: (value: MessageVisibilityScope) => {
+    displayStore.updateSettings({ characterCardBadgeVisibilityScope: value });
   },
 });
 
@@ -1087,6 +1101,25 @@ const openEditPanel = async (card: CharacterCard) => {
             <template #unchecked>已关闭</template>
           </n-switch>
         </div>
+        <div class="settings-row settings-row--stacked">
+          <div>
+            <p class="settings-title">徽章显示范围</p>
+            <p class="settings-desc">控制角色徽章在场内或场外消息中的可见性</p>
+          </div>
+          <n-radio-group
+            v-model:value="badgeVisibilityScope"
+            size="small"
+            :disabled="characterApiDisabled || !badgeEnabled"
+          >
+            <n-radio-button
+              v-for="option in badgeVisibilityScopeOptions"
+              :key="option.value"
+              :value="option.value"
+            >
+              {{ option.label }}
+            </n-radio-button>
+          </n-radio-group>
+        </div>
         <div class="settings-row">
           <div>
             <p class="settings-title">自动同步 BOT 昵称</p>
@@ -1521,6 +1554,11 @@ const openEditPanel = async (card: CharacterCard) => {
 
 .settings-row--template {
   align-items: flex-start;
+}
+
+.settings-row--stacked {
+  align-items: flex-start;
+  flex-direction: column;
 }
 
 .settings-title {
