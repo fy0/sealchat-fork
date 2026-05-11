@@ -64,7 +64,7 @@ import { Settings, Close as CloseIcon, EyeOutline, EyeOffOutline } from '@vicons
 import { dialogAskConfirm } from '@/utils/dialog';
 import { useI18n } from 'vue-i18n';
 import { isTipTapJson, tiptapJsonToHtml, tiptapJsonToPlainText } from '@/utils/tiptap-render';
-import { resolveAttachmentUrl, fetchAttachmentMetaById, normalizeAttachmentId, type AttachmentMeta } from '@/composables/useAttachmentResolver';
+import { resolveAttachmentUrl, fetchAttachmentMetaById, fetchAttachmentFileById, normalizeAttachmentId, type AttachmentMeta } from '@/composables/useAttachmentResolver';
 import { ensureDefaultDiceExpr, matchDiceExpressions, parseMultiDiceExpression, type DiceMatch } from '@/utils/dice';
 import { recordDiceHistory } from '@/views/chat/composables/useDiceHistory';
 import DOMPurify from 'dompurify';
@@ -2383,6 +2383,29 @@ const openRichInlineImageEditor = (
   activeInlineEditorSelection = selection ? { ...selection } : null;
   richInlineImageEditorFile.value = imageFiles[0] || null;
   richInlineImageEditorVisible.value = !!richInlineImageEditorFile.value;
+};
+
+const handleMessageInlineImageEdit = async (payload: { attachmentId: string; messageId?: string; src?: string }) => {
+  const attachmentId = normalizeAttachmentId(payload.attachmentId || payload.src || '');
+  if (!attachmentId) {
+    message.warning('无法识别消息图片');
+    return;
+  }
+
+  const source: InlineUploadSource = inputMode.value === 'rich' ? 'rich-editor' : 'default';
+  const selection = captureSelectionRange();
+
+  try {
+    const file = await fetchAttachmentFileById(attachmentId, `message-image-${attachmentId}.png`);
+    if (!file) {
+      message.error('图片载入失败');
+      return;
+    }
+    openRichInlineImageEditor([file], source, selection);
+  } catch (error: any) {
+    console.error('载入聊天消息图片失败', error);
+    message.error(error?.message || '图片载入失败');
+  }
 };
 
 const handleRichInlineImageEditorConfirm = async (file: File) => {
@@ -14878,6 +14901,7 @@ onBeforeUnmount(() => {
                 @reedit-revoked="handleReeditRevokedMessage"
                 @retry-send="retrySendMessage"
                 @image-layout-edit-state-change="handleImageLayoutEditStateChange"
+                @edit-inline-image="handleMessageInlineImageEdit"
               />
             </div>
           </div>
@@ -14974,6 +14998,7 @@ onBeforeUnmount(() => {
                     @reedit-revoked="handleReeditRevokedMessage"
                     @retry-send="retrySendMessage"
                     @image-layout-edit-state-change="handleImageLayoutEditStateChange"
+                    @edit-inline-image="handleMessageInlineImageEdit"
                   />
                 </div>
               </div>
@@ -15011,6 +15036,7 @@ onBeforeUnmount(() => {
                 @reedit-revoked="handleReeditRevokedMessage"
                 @retry-send="retrySendMessage"
                 @image-layout-edit-state-change="handleImageLayoutEditStateChange"
+                @edit-inline-image="handleMessageInlineImageEdit"
               />
             </template>
             <template v-else>
@@ -15046,6 +15072,7 @@ onBeforeUnmount(() => {
                 @reedit-revoked="handleReeditRevokedMessage"
                 @retry-send="retrySendMessage"
                 @image-layout-edit-state-change="handleImageLayoutEditStateChange"
+                @edit-inline-image="handleMessageInlineImageEdit"
               />
             </template>
           </div>

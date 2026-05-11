@@ -59,6 +59,12 @@ type EditingPreviewInfo = {
   tone: 'ic' | 'ooc';
 };
 
+type InlineImageEditPayload = {
+  attachmentId: string;
+  messageId: string;
+  src?: string;
+};
+
 const user = useUserStore();
 const chat = useChatStore();
 const stickyNoteStore = useStickyNoteStore();
@@ -103,7 +109,13 @@ const TIMESTAMP_HOVER_DELAY = 2000;
 let hasImage = ref(false);
 const messageContentRef = ref<HTMLElement | null>(null);
 let stopMessageLongPress: (() => void) | null = null;
-let inlineImageViewer: Viewer | null = null;
+
+type InlineImageViewerInstance = Viewer & {
+  images?: HTMLImageElement[];
+  index?: number;
+};
+
+let inlineImageViewer: InlineImageViewerInstance | null = null;
 
 const IMAGE_LAYOUT_MIN_SIZE = 48;
 const IMAGE_LAYOUT_MAX_SIZE = 4096;
@@ -831,6 +843,38 @@ const destroyImageViewer = () => {
   }
 };
 
+const getCurrentViewerImage = () => {
+  if (!inlineImageViewer) {
+    return null;
+  }
+  const images = inlineImageViewer.images || [];
+  if (!images.length) {
+    return null;
+  }
+  const currentIndex = Math.max(0, Math.min(Number(inlineImageViewer.index || 0), images.length - 1));
+  return images[currentIndex] || images[0] || null;
+};
+
+const handleViewerImageEdit = () => {
+  const image = getCurrentViewerImage();
+  if (!image) {
+    return;
+  }
+  const attachmentId = normalizeAttachmentId(image.dataset.attachmentId || image.getAttribute('data-attachment-id') || image.getAttribute('src') || '');
+  if (!attachmentId) {
+    return;
+  }
+
+  const activeElement = document.activeElement as HTMLElement | null;
+  activeElement?.blur?.();
+  inlineImageViewer?.hide();
+  emit('edit-inline-image', {
+    attachmentId,
+    messageId: String((props.item as any)?.id || ''),
+    src: image.currentSrc || image.src || '',
+  } satisfies InlineImageEditPayload);
+};
+
 const setupImageViewer = async () => {
   await nextTick();
   if (imageResizeMode.value) {
@@ -869,6 +913,11 @@ const setupImageViewer = async () => {
       rotateRight: true,
       flipHorizontal: false,
       flipVertical: false,
+      editMessageImage: {
+        show: true,
+        size: 'medium',
+        click: handleViewerImageEdit,
+      },
     },
     tooltip: true,
     movable: true,
@@ -1022,7 +1071,7 @@ const props = defineProps({
   },
 })
 
-const emit = defineEmits(['avatar-longpress', 'avatar-click', 'edit', 'edit-save', 'edit-cancel', 'toggle-select', 'range-click', 'image-layout-edit-state-change', 'retry-send', 'reedit-revoked']);
+const emit = defineEmits(['avatar-longpress', 'avatar-click', 'edit', 'edit-save', 'edit-cancel', 'toggle-select', 'range-click', 'image-layout-edit-state-change', 'retry-send', 'reedit-revoked', 'edit-inline-image']);
 
 const timestampTicker = ref(Date.now());
 const inlineTimestampText = computed(() => {
@@ -5071,5 +5120,19 @@ const handleRetrySend = () => {
 
 :root[data-display-palette='night'] .state-text-widget--active:hover {
   background-color: rgba(64, 152, 252, 0.25);
+}
+
+.viewer-edit-message-image::before {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none'%3E%3Cpath d='M4 20h4l10.5-10.5a2.121 2.121 0 0 0 0-3l-1-1a2.121 2.121 0 0 0-3 0L4 16v4Z' stroke='%23fff' stroke-width='1.8' stroke-linejoin='round'/%3E%3Cpath d='m13 7 4 4' stroke='%23fff' stroke-width='1.8' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 16px 16px;
+  content: '';
+  color: transparent;
+  display: block;
+  font-size: 0;
+  width: 20px;
+  height: 20px;
+  line-height: 0;
 }
 </style>
