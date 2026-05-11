@@ -1,12 +1,10 @@
 <script setup lang="ts">
-import { computed } from 'vue';
-import { NIcon, NCheckbox, NButton, NTooltip } from 'naive-ui';
-import { Copy, Archive, Trash, Photo, BoxMultiple, X, ArrowsVertical } from '@vicons/tabler';
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
+import { NIcon, NTooltip } from 'naive-ui';
+import { Copy, Archive, Trash, Photo, BoxMultiple, X, ArrowsVertical, DotsVertical } from '@vicons/tabler';
 import { useChatStore } from '@/stores/chat';
-import { useDisplayStore } from '@/stores/display';
 
 const chat = useChatStore();
-const display = useDisplayStore();
 
 const emit = defineEmits<{
   (e: 'copy'): void;
@@ -24,10 +22,155 @@ const isActive = computed(() => chat.multiSelect?.active ?? false);
 const rangeModeEnabled = computed(() => chat.multiSelect?.rangeModeEnabled ?? false);
 const tooltipZIndex = 2200;
 const tooltipPlacement = 'top';
+const FLOATING_BAR_MARGIN = 12;
+const barRef = ref<HTMLElement | null>(null);
+const draggedPosition = ref<{ left: number; top: number } | null>(null);
+const dragging = ref(false);
+const dragState = ref<{
+  pointerId: number;
+  offsetX: number;
+  offsetY: number;
+  captureTarget: HTMLElement | null;
+} | null>(null);
 const rangeHint = computed(() => {
   if (!rangeModeEnabled.value) return '';
   if (!chat.multiSelect?.rangeAnchorId) return '点击消息选择起点';
   return '点击另一条消息完成范围选择';
+});
+const barStyle = computed(() => {
+  if (!draggedPosition.value) {
+    return undefined;
+  }
+  return {
+    left: `${draggedPosition.value.left}px`,
+    top: `${draggedPosition.value.top}px`,
+    right: 'auto',
+    bottom: 'auto',
+    transform: 'none',
+  };
+});
+
+const resolveViewportSize = () => {
+  if (typeof window === 'undefined') {
+    return { width: 1280, height: 720 };
+  }
+  return { width: window.innerWidth, height: window.innerHeight };
+};
+
+const clampPosition = (left: number, top: number) => {
+  const element = barRef.value;
+  if (!element) {
+    return { left, top };
+  }
+  const { width, height } = element.getBoundingClientRect();
+  const viewport = resolveViewportSize();
+  const maxLeft = Math.max(FLOATING_BAR_MARGIN, viewport.width - width - FLOATING_BAR_MARGIN);
+  const maxTop = Math.max(FLOATING_BAR_MARGIN, viewport.height - height - FLOATING_BAR_MARGIN);
+
+  return {
+    left: Math.min(Math.max(FLOATING_BAR_MARGIN, left), maxLeft),
+    top: Math.min(Math.max(FLOATING_BAR_MARGIN, top), maxTop),
+  };
+};
+
+const syncDraggedPositionToViewport = () => {
+  if (!draggedPosition.value) {
+    return;
+  }
+  draggedPosition.value = clampPosition(draggedPosition.value.left, draggedPosition.value.top);
+};
+
+const resetFloatingPosition = () => {
+  draggedPosition.value = null;
+};
+
+const stopDragging = () => {
+  dragging.value = false;
+  dragState.value?.captureTarget?.releasePointerCapture?.(dragState.value.pointerId);
+  dragState.value = null;
+};
+
+const handleDragMove = (event: PointerEvent) => {
+  if (!dragState.value || event.pointerId !== dragState.value.pointerId) {
+    return;
+  }
+  event.preventDefault();
+  draggedPosition.value = clampPosition(
+    event.clientX - dragState.value.offsetX,
+    event.clientY - dragState.value.offsetY,
+  );
+};
+
+const handleDragEnd = (event: PointerEvent) => {
+  if (!dragState.value || event.pointerId !== dragState.value.pointerId) {
+    return;
+  }
+  stopDragging();
+};
+
+const startDragging = (event: PointerEvent) => {
+  if (event.pointerType === 'mouse' && event.button !== 0) {
+    return;
+  }
+  const element = barRef.value;
+  const target = event.currentTarget as HTMLElement | null;
+  if (!element || !target) {
+    return;
+  }
+
+  const rect = element.getBoundingClientRect();
+  draggedPosition.value = clampPosition(rect.left, rect.top);
+  dragState.value = {
+    pointerId: event.pointerId,
+    offsetX: event.clientX - rect.left,
+    offsetY: event.clientY - rect.top,
+    captureTarget: target,
+  };
+  dragging.value = true;
+  target.setPointerCapture?.(event.pointerId);
+  event.preventDefault();
+};
+
+watch(
+  () => isActive.value,
+  async (active) => {
+    if (active) {
+      await nextTick();
+      syncDraggedPositionToViewport();
+      return;
+    }
+    stopDragging();
+  },
+  { immediate: true },
+);
+
+watch(rangeModeEnabled, () => {
+  nextTick(() => syncDraggedPositionToViewport());
+});
+
+watch(selectedCount, () => {
+  nextTick(() => syncDraggedPositionToViewport());
+});
+
+const handleWindowResize = () => {
+  syncDraggedPositionToViewport();
+};
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('pointermove', handleDragMove, { passive: false });
+  window.addEventListener('pointerup', handleDragEnd);
+  window.addEventListener('pointercancel', handleDragEnd);
+  window.addEventListener('resize', handleWindowResize);
+}
+
+onBeforeUnmount(() => {
+  stopDragging();
+  if (typeof window !== 'undefined') {
+    window.removeEventListener('pointermove', handleDragMove);
+    window.removeEventListener('pointerup', handleDragEnd);
+    window.removeEventListener('pointercancel', handleDragEnd);
+    window.removeEventListener('resize', handleWindowResize);
+  }
 });
 
 const handleCancel = () => {
@@ -41,8 +184,25 @@ const handleToggleRangeMode = () => {
 </script>
 
 <template>
-  <Transition name="slide-up">
-    <div v-if="isActive" class="multi-select-bar">
+  <Transition name="slide-up" @after-leave="resetFloatingPosition">
+    <div
+      v-if="isActive"
+      ref="barRef"
+      class="multi-select-bar"
+      :class="{ 'is-dragging': dragging, 'is-floating': !!draggedPosition }"
+      :style="barStyle"
+    >
+      <button
+        type="button"
+        class="multi-select-bar__drag-handle"
+        :class="{ 'is-dragging': dragging }"
+        aria-label="拖动多选工具栏"
+        title="拖动工具栏"
+        @pointerdown.stop.prevent="startDragging"
+      >
+        <n-icon :size="18"><DotsVertical /></n-icon>
+      </button>
+
       <div class="multi-select-bar__info">
         <span class="multi-select-bar__count">已选 {{ selectedCount }} 条</span>
         <span v-if="rangeHint" class="multi-select-bar__hint">{{ rangeHint }}</span>
@@ -167,6 +327,9 @@ const handleToggleRangeMode = () => {
   box-shadow: 0 12px 40px rgba(15, 23, 42, 0.18);
   backdrop-filter: blur(12px);
   color: #111827;
+  box-sizing: border-box;
+  max-width: calc(100vw - 24px);
+  user-select: none;
 }
 
 :root[data-display-palette='night'] .multi-select-bar {
@@ -174,6 +337,45 @@ const handleToggleRangeMode = () => {
   border-color: rgba(255, 255, 255, 0.1);
   color: rgba(248, 250, 252, 0.95);
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+}
+
+.multi-select-bar.is-dragging {
+  transition: none;
+}
+
+.multi-select-bar__drag-handle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  align-self: stretch;
+  width: 28px;
+  min-height: 36px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  cursor: grab;
+  touch-action: none;
+  flex-shrink: 0;
+
+  &:hover {
+    background: rgba(15, 23, 42, 0.08);
+  }
+
+  &.is-dragging {
+    cursor: grabbing;
+    background: rgba(15, 23, 42, 0.12);
+  }
+}
+
+:root[data-display-palette='night'] .multi-select-bar__drag-handle {
+  &:hover {
+    background: rgba(255, 255, 255, 0.1);
+  }
+
+  &.is-dragging {
+    background: rgba(255, 255, 255, 0.16);
+  }
 }
 
 .multi-select-bar__info {
@@ -282,6 +484,10 @@ const handleToggleRangeMode = () => {
     flex-direction: row;
     justify-content: center;
     gap: 8px;
+  }
+
+  .multi-select-bar__drag-handle {
+    min-height: 32px;
   }
 
   .multi-select-bar__button span {
