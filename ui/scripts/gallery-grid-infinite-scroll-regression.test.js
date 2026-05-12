@@ -10,8 +10,9 @@ const source = readFileSync(galleryGridPath, 'utf8');
 
 test('GalleryGrid uses sentinel-based load-more observer', () => {
   assert.match(source, /ref="loadMoreSentinelRef"/, 'missing load-more sentinel ref');
-  assert.match(source, /useIntersectionObserver\(/, 'missing intersection observer for load-more');
+  assert.match(source, /useRobustInfiniteScroll\(/, 'missing robust infinite scroll composable');
   assert.doesNotMatch(source, /useInfiniteScroll\(/, 'should not depend on inner scroll container');
+  assert.match(source, /@scroll="handleContentScroll"/, 'missing raw scroll fallback');
 });
 
 test('GalleryGrid can shrink into a real scroll container inside flex layouts', () => {
@@ -23,7 +24,7 @@ test('GalleryGrid can shrink into a real scroll container inside flex layouts', 
 });
 
 test('GalleryGrid auto-fills short content with more pages', () => {
-  assert.match(source, /const maybeLoadMoreForShortContent = async \(\) =>/, 'missing short-content auto fill helper');
-  assert.match(source, /scrollHeight <= container\.clientHeight \+ 40/, 'missing short-content fill check');
-  assert.match(source, /autoFillPending\.value = true/, 'missing auto fill guard');
+  assert.match(source, /scrollFallback: true/, 'missing scroll fallback');
+  assert.match(source, /observeResize: true/, 'missing resize observer fallback');
+  assert.match(source, /requestAnimationFrameCheck: true/, 'missing raf recheck');
 });

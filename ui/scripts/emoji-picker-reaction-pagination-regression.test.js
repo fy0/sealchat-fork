@@ -10,8 +10,9 @@ const source = readFileSync(modalPath, 'utf8');
 
 test('EmojiPickerModal uses sentinel observer for reaction emoji pagination', () => {
   assert.match(source, /ref="customGridSentinelRef"/, 'missing reaction grid sentinel');
-  assert.match(source, /useIntersectionObserver\(/, 'missing sentinel observer');
-  assert.doesNotMatch(source, /@scroll="handleCustomGridScroll"/, 'should not depend on raw scroll handler');
+  assert.match(source, /useRobustInfiniteScroll\(/, 'missing robust infinite scroll composable');
+  assert.match(source, /@scroll="handleCustomGridScroll"/, 'missing raw scroll fallback');
+  assert.match(source, /v-if="props\.mode !== 'emoji-only' && activeTab === 'reaction'"/, 'reaction tab should render only when active');
 });
 
 test('EmojiPickerModal can request more reaction emoji pages from gallery store', () => {
@@ -21,7 +22,7 @@ test('EmojiPickerModal can request more reaction emoji pages from gallery store'
 });
 
 test('EmojiPickerModal auto-fills short reaction grids', () => {
-  assert.match(source, /const maybeLoadMoreCustomEmojiForShortContent = async \(\) =>/, 'missing short-content auto fill helper');
-  assert.match(source, /scrollHeight <= container\.clientHeight \+ 40/, 'missing short-content fill check');
-  assert.match(source, /autoFillCustomEmojiPending\.value = true/, 'missing auto fill guard');
+  assert.match(source, /scrollFallback: true/, 'missing scroll fallback');
+  assert.match(source, /observeResize: true/, 'missing resize observer fallback');
+  assert.match(source, /requestAnimationFrameCheck: true/, 'missing raf recheck');
 });

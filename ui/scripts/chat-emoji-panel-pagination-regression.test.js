@@ -11,7 +11,9 @@ const source = readFileSync(chatPath, 'utf8');
 test('chat emoji panel uses sentinel-based pagination', () => {
   assert.match(source, /const emojiPanelContentRef = ref<HTMLElement \| null>\(null\);/, 'missing emoji panel content ref');
   assert.match(source, /const emojiPanelLoadMoreSentinelRef = ref<HTMLElement \| null>\(null\);/, 'missing emoji panel sentinel ref');
-  assert.match(source, /useIntersectionObserver\(/, 'missing emoji panel observer');
+  assert.match(source, /const emojiPanelRenderKey = ref\(0\);/, 'missing panel render key');
+  assert.match(source, /useRobustInfiniteScroll\(/, 'missing robust infinite scroll composable');
+  assert.match(source, /@scroll="handleEmojiPanelContentScroll"/, 'missing raw scroll fallback');
 });
 
 test('chat emoji panel can append more collection pages', () => {
@@ -21,7 +23,8 @@ test('chat emoji panel can append more collection pages', () => {
 });
 
 test('chat emoji panel auto-fills short content', () => {
-  assert.match(source, /const maybeLoadMoreEmojiPanelForShortContent = async \(\) =>/, 'missing short-content auto fill helper');
-  assert.match(source, /scrollHeight <= container\.scrollHeight \+ 40|scrollHeight <= container\.clientHeight \+ 40/, 'missing short-content fill check');
-  assert.match(source, /emojiPanelAutoFillPending/, 'missing auto fill guard');
+  assert.match(source, /scrollFallback: true/, 'missing scroll fallback');
+  assert.match(source, /observeResize: true/, 'missing resize observer fallback');
+  assert.match(source, /requestAnimationFrameCheck: true/, 'missing raf recheck');
+  assert.match(source, /refreshEmojiPanelRender\(\);/, 'missing render refresh on open or tab switch');
 });
