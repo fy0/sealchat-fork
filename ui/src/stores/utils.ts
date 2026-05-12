@@ -11,6 +11,7 @@ import { api, urlBase } from "./_config";
 import { useChatStore } from "./chat";
 import { useDisplayStore } from "./display";
 import { useUserStore } from "./user";
+import { applyUITextReplaceConfig } from '@/utils/uiTextReplace';
 
 const resolveDefaultPageTitle = () => {
   if (typeof document === 'undefined') {
@@ -150,6 +151,7 @@ export const useUtilsStore = defineStore({
       applyPageTitle(this.config?.pageTitle);
       applyPageFavicon(this.config?.faviconAttachmentId);
       display.syncPlatformThemeManagement(this.config?.themeManagement);
+      applyUITextReplaceConfig(this.config?.uiTextReplace);
       return resp
     },
 
@@ -214,6 +216,7 @@ export const useUtilsStore = defineStore({
       applyPageTitle(this.config?.pageTitle);
       applyPageFavicon(this.config?.faviconAttachmentId);
       display.syncPlatformThemeManagement(this.config?.themeManagement);
+      applyUITextReplaceConfig(this.config?.uiTextReplace);
       return resp
     },
 

@@ -297,6 +297,7 @@ type AppConfig struct {
 	AuthSession               AuthSessionConfig       `json:"authSession" yaml:"authSession"`
 	LoginBackground           LoginBackgroundConfig   `json:"loginBackground" yaml:"loginBackground"`
 	ThemeManagement           ThemeManagementConfig   `json:"themeManagement" yaml:"themeManagement"`
+	UITextReplace             UITextReplaceConfig     `json:"uiTextReplace" yaml:"uiTextReplace"`
 	Certificate               CertificateConfig       `json:"certificate" yaml:"certificate"`
 }
 
@@ -475,6 +476,10 @@ func ReadConfig() *AppConfig {
 			PlatformThemes:         []PlatformThemeConfig{},
 			DefaultPlatformThemeID: "",
 		},
+		UITextReplace: UITextReplaceConfig{
+			Enabled: false,
+			Rules:   DefaultUITextReplaceRules(),
+		},
 		Certificate: defaultCertificateConfig(),
 	}
 
@@ -550,6 +555,7 @@ func ReadConfig() *AppConfig {
 	applyBackupDefaults(&config.Backup)
 	applyAuthSessionDefaults(&config.AuthSession)
 	config.ThemeManagement = NormalizeThemeManagementConfig(config.ThemeManagement)
+	config.UITextReplace = NormalizeUITextReplaceConfig(config.UITextReplace)
 	config.Certificate = NormalizeCertificateConfig(config.Certificate)
 
 	k.Print()
@@ -1024,6 +1030,7 @@ func WriteConfig(config *AppConfig) {
 		config.Captcha.normalize()
 		config.Storage.normalize()
 		config.Certificate = NormalizeCertificateConfig(config.Certificate)
+		config.UITextReplace = NormalizeUITextReplaceConfig(config.UITextReplace)
 		config.ImageCompressQuality = normalizeImageCompressQuality(config.ImageCompressQuality)
 		config.MessageSortBasis = NormalizeMessageSortBasis(config.MessageSortBasis)
 		if strings.TrimSpace(config.PageTitle) == "" {
@@ -1204,6 +1211,8 @@ func WriteConfig(config *AppConfig) {
 		config.ThemeManagement = NormalizeThemeManagementConfig(config.ThemeManagement)
 		_ = k.Set("themeManagement.platformThemes", config.ThemeManagement.PlatformThemes)
 		_ = k.Set("themeManagement.defaultPlatformThemeId", config.ThemeManagement.DefaultPlatformThemeID)
+		_ = k.Set("uiTextReplace.enabled", config.UITextReplace.Enabled)
+		_ = k.Set("uiTextReplace.rules", config.UITextReplace.Rules)
 
 		if err := k.Unmarshal("", config); err != nil {
 			fmt.Printf("配置解析失败: %v\n", err)
