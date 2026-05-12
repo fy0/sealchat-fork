@@ -1,6 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, reactive, ref, onMounted, onUnmounted, watch } from 'vue';
-import { useIntersectionObserver } from '@vueuse/core';
+import { computed, reactive, ref, onMounted, onUnmounted, watch } from 'vue';
 import { useMessage } from 'naive-ui';
 import { addRecentEmoji, loadRecentEmojis } from '@/utils/recentEmojis';
 import { normalizeAttachmentId, resolveAttachmentUrl, fetchAttachmentMetaById, type AttachmentMeta } from '@/composables/useAttachmentResolver';
@@ -9,6 +8,7 @@ import { DEFAULT_GALLERY_PAGE_SIZE, useGalleryStore } from '@/stores/gallery';
 import { useUserStore } from '@/stores/user';
 import { useChatStore } from '@/stores/chat';
 import { matchText } from '@/utils/pinyinMatch';
+import { useRobustInfiniteScroll } from '@/composables/useRobustInfiniteScroll';
 import 'emoji-picker-element';
 
 const props = withDefaults(defineProps<{
@@ -57,7 +57,6 @@ const reactionLoadingMore = computed(() => (
 const reactionLoading = computed(() => (
   reactionCollectionId.value ? gallery.isCollectionLoading(reactionCollectionId.value) : false
 ));
-const autoFillCustomEmojiPending = ref(false);
 
 const filteredCustomEmojiItems = computed(() => {
   const list = customEmojiItems.value;
@@ -156,6 +155,19 @@ const loadMoreCustomEmoji = async () => {
     pageSize: reactionPagination.value.pageSize,
     append: true,
   });
+};
+
+const handleCustomGridScroll = (event: Event) => {
+  if (activeTab.value !== 'reaction') {
+    return;
+  }
+  const target = event.target as HTMLElement | null;
+  if (!target) {
+    return;
+  }
+  if (target.scrollTop + target.clientHeight >= target.scrollHeight - 40) {
+    void loadMoreCustomEmoji();
+  }
 };
 
 const ensureCustomEmojiMeta = async (attachmentId: string) => {
@@ -386,39 +398,28 @@ onUnmounted(() => {
   }
 });
 
-useIntersectionObserver(
-  customGridSentinelRef,
-  ([entry]) => {
-    if (!entry?.isIntersecting || activeTab.value !== 'reaction') {
-      return;
-    }
-    void loadMoreCustomEmoji();
-  },
-  {
-    root: customGridRef,
-    rootMargin: '0px 0px 80px 0px',
-    threshold: 0.01,
-  }
-);
-
-const maybeLoadMoreCustomEmojiForShortContent = async () => {
-  await nextTick();
-  const container = customGridRef.value;
-  if (!container || activeTab.value !== 'reaction') {
-    return;
-  }
-  const shouldFill = container.scrollHeight <= container.clientHeight + 40;
-  if (
-    shouldFill &&
-    (hasMoreCustomEmoji.value || canLoadMoreCustomEmoji.value) &&
-    !reactionLoading.value &&
-    !reactionLoadingMore.value &&
-    !autoFillCustomEmojiPending.value
-  ) {
-    autoFillCustomEmojiPending.value = true;
-    await loadMoreCustomEmoji();
-  }
-};
+useRobustInfiniteScroll({
+  containerRef: customGridRef,
+  sentinelRef: customGridSentinelRef,
+  enabled: computed(() => activeTab.value === 'reaction'),
+  canLoadMore: computed(() => hasMoreCustomEmoji.value || canLoadMoreCustomEmoji.value),
+  loading: computed(() => reactionLoading.value || reactionLoadingMore.value),
+  onLoadMore: loadMoreCustomEmoji,
+  triggerDeps: () => [
+    customEmojiItems.value.length,
+    visibleCustomEmojiItems.value.length,
+    filteredCustomEmojiItems.value.length,
+    activeTab.value,
+    reactionLoading.value,
+    reactionLoadingMore.value,
+    searchKeyword.value,
+  ],
+  rootMargin: '0px 0px 80px 0px',
+  bottomOffset: 40,
+  scrollFallback: true,
+  observeResize: true,
+  requestAnimationFrameCheck: true,
+});
 
 watch(searchKeyword, () => {
   displayLimit.value = PAGE_SIZE;
@@ -426,19 +427,6 @@ watch(searchKeyword, () => {
     customGridRef.value.scrollTop = 0;
   }
 });
-
-watch(
-  () => [customEmojiItems.value.length, visibleCustomEmojiItems.value.length, activeTab.value, reactionLoadingMore.value, reactionLoading.value],
-  async () => {
-    if (reactionLoadingMore.value) {
-      autoFillCustomEmojiPending.value = false;
-      return;
-    }
-    autoFillCustomEmojiPending.value = false;
-    await maybeLoadMoreCustomEmojiForShortContent();
-  },
-  { immediate: true }
-);
 
 watch(
   () => props.mode,
@@ -485,7 +473,7 @@ watch(
           </button>
         </div>
         <div class="emoji-picker-body">
-          <div v-if="props.mode !== 'emoji-only'" v-show="activeTab === 'reaction'" class="custom-emoji-section">
+          <div v-if="props.mode !== 'emoji-only' && activeTab === 'reaction'" class="custom-emoji-section">
             <div class="custom-emoji-header">
               <span>自定义表情反应</span>
               <button class="custom-emoji-upload" type="button" :disabled="uploading" @click="triggerUpload">
@@ -517,6 +505,7 @@ watch(
               v-if="filteredCustomEmojiItems.length"
               ref="customGridRef"
               class="custom-emoji-grid"
+              @scroll="handleCustomGridScroll"
             >
               <button
                 v-for="item in visibleCustomEmojiItems"
@@ -541,7 +530,7 @@ watch(
               已显示 {{ visibleCustomEmojiItems.length }}/{{ filteredCustomEmojiItems.length }} 个匹配项，继续下拉查看更多
             </div>
           </div>
-          <div v-show="activeTab === 'emoji'" class="emoji-picker-pane">
+          <div v-if="activeTab === 'emoji'" class="emoji-picker-pane">
             <emoji-picker class="light"></emoji-picker>
           </div>
         </div>
@@ -650,6 +639,11 @@ watch(
 }
 
 .custom-emoji-section {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
   padding: 12px 16px 8px;
 }
 
@@ -713,8 +707,14 @@ watch(
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(40px, 1fr));
   gap: 6px;
+  flex: 1;
   max-height: min(240px, 35vh);
   overflow: auto;
+  min-height: 0;
+  align-content: start;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
   padding-right: 4px;
 }
 

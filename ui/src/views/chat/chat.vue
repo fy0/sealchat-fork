@@ -127,6 +127,7 @@ import {
 } from './inputHistoryWhisperState';
 import { buildEditMessageUpdateOptions } from './editMessageUpdate';
 import { shouldMergeNeighborMessages } from './messageMerge';
+import { useRobustInfiniteScroll } from '@/composables/useRobustInfiniteScroll';
 
 const EmojiPickerModal = defineAsyncComponent(() => import('./components/EmojiPickerModal.vue'));
 
@@ -1423,6 +1424,7 @@ const emojiPopoverXCoord = computed(() => emojiPopoverX.value ?? undefined);
 const emojiPopoverYCoord = computed(() => emojiPopoverY.value ?? undefined);
 const emojiSearchQuery = ref('');
 const emojiPanelTab = ref<'gallery' | 'utf' | 'variant'>('gallery');
+const emojiPanelRenderKey = ref(0);
 const emojiPanelContentRef = ref<HTMLElement | null>(null);
 const emojiPanelLoadMoreSentinelRef = ref<HTMLElement | null>(null);
 const isManagingEmoji = ref(false);
@@ -1532,7 +1534,6 @@ const emojiPanelHasMore = computed(() => {
   if (!tabId) return false;
   return emojiPanelPagination.value.total > gallery.getItemsByCollection(tabId).length;
 });
-const emojiPanelAutoFillPending = ref(false);
 
 const toggleEmojiRemarkVisible = () => {
   const userId = user.info?.id;
@@ -1568,39 +1569,6 @@ const syncEmojiPopoverPosition = (trigger?: HTMLElement | null) => {
   return true;
 };
 
-if (typeof window !== 'undefined') {
-  useEventListener(window, 'resize', () => {
-    if (emojiPopoverShow.value) {
-      syncEmojiPopoverPosition();
-    }
-  });
-  useEventListener(
-    window,
-    'scroll',
-    () => {
-      if (emojiPopoverShow.value) {
-        syncEmojiPopoverPosition();
-      }
-    },
-    { passive: true, capture: true },
-  );
-}
-
-useIntersectionObserver(
-  emojiPanelLoadMoreSentinelRef,
-  ([entry]) => {
-    if (!entry?.isIntersecting || emojiPanelTab.value !== 'gallery') {
-      return;
-    }
-    void loadMoreEmojiPanelItems();
-  },
-  {
-    root: emojiPanelContentRef,
-    rootMargin: '0px 0px 80px 0px',
-    threshold: 0.01,
-  }
-);
-
 const allGalleryItems = computed(() =>
   Object.values(gallery.items).flatMap((entry) => entry?.items ?? [])
 );
@@ -1633,24 +1601,61 @@ const loadMoreEmojiPanelItems = async () => {
   });
 };
 
-const maybeLoadMoreEmojiPanelForShortContent = async () => {
-  await nextTick();
-  const container = emojiPanelContentRef.value;
-  if (!container || emojiPanelTab.value !== 'gallery') {
+const handleEmojiPanelContentScroll = (event: Event) => {
+  if (emojiPanelTab.value !== 'gallery') {
     return;
   }
-  const shouldFill = container.scrollHeight <= container.clientHeight + 40;
-  if (
-    shouldFill &&
-    emojiPanelHasMore.value &&
-    !emojiPanelLoading.value &&
-    !emojiPanelLoadingMore.value &&
-    !emojiPanelAutoFillPending.value
-  ) {
-    emojiPanelAutoFillPending.value = true;
-    await loadMoreEmojiPanelItems();
+  const target = event.target as HTMLElement | null;
+  if (!target) {
+    return;
+  }
+  if (target.scrollTop + target.clientHeight >= target.scrollHeight - 40) {
+    void loadMoreEmojiPanelItems();
   }
 };
+
+const refreshEmojiPanelRender = () => {
+  emojiPanelRenderKey.value += 1;
+};
+
+if (typeof window !== 'undefined') {
+  useEventListener(window, 'resize', () => {
+    if (emojiPopoverShow.value) {
+      syncEmojiPopoverPosition();
+    }
+  });
+  useEventListener(
+    window,
+    'scroll',
+    () => {
+      if (emojiPopoverShow.value) {
+        syncEmojiPopoverPosition();
+      }
+    },
+    { passive: true, capture: true },
+  );
+}
+
+useRobustInfiniteScroll({
+  containerRef: emojiPanelContentRef,
+  sentinelRef: emojiPanelLoadMoreSentinelRef,
+  enabled: computed(() => emojiPanelTab.value === 'gallery'),
+  canLoadMore: emojiPanelHasMore,
+  loading: computed(() => emojiPanelLoading.value || emojiPanelLoadingMore.value),
+  onLoadMore: loadMoreEmojiPanelItems,
+  triggerDeps: () => [
+    emojiPanelTab.value,
+    activeEmojiTab.value,
+    filteredEmojiItems.value.length,
+    emojiPanelLoading.value,
+    emojiPanelLoadingMore.value,
+  ],
+  rootMargin: '0px 0px 80px 0px',
+  bottomOffset: 40,
+  scrollFallback: true,
+  observeResize: true,
+  requestAnimationFrameCheck: true,
+});
 
 onMounted(() => {
   try {
@@ -2446,6 +2451,7 @@ watch(emojiPopoverShow, (show, prevShow) => {
     isManagingEmoji.value = false;
     emojiSearchQuery.value = '';
   } else {
+    refreshEmojiPanelRender();
     nextTick(() => {
       syncEmojiPopoverPosition();
     });
@@ -2469,25 +2475,6 @@ watch(isManagingEmoji, (val) => {
     void ensureEmojiCollectionLoaded();
   }
 });
-
-watch(
-  () => [
-    emojiPanelTab.value,
-    activeEmojiTab.value,
-    filteredEmojiItems.value.length,
-    emojiPanelLoading.value,
-    emojiPanelLoadingMore.value,
-  ],
-  async () => {
-    if (emojiPanelLoadingMore.value) {
-      emojiPanelAutoFillPending.value = false;
-      return;
-    }
-    emojiPanelAutoFillPending.value = false;
-    await maybeLoadMoreEmojiPanelForShortContent();
-  },
-  { immediate: true }
-);
 
 const openGalleryPanel = async () => {
   const userId = user.info?.id;
@@ -2540,6 +2527,7 @@ const handleEmojiTriggerClick = (event?: MouseEvent) => {
 
 const switchEmojiPanelTab = (tab: 'gallery' | 'utf' | 'variant') => {
   emojiPanelTab.value = tab;
+  refreshEmojiPanelRender();
   if (tab !== 'gallery') {
     isManagingEmoji.value = false;
   }
@@ -14481,9 +14469,11 @@ onBeforeUnmount(() => {
                   </div>
 
                   <div
+                    :key="`emoji-panel-${emojiPanelRenderKey}`"
                     ref="emojiPanelContentRef"
                     class="emoji-panel__content"
                     :class="{ 'emoji-panel__content--utf': emojiPanelTab === 'utf' }"
+                    @scroll="handleEmojiPanelContentScroll"
                   >
                     <template v-if="emojiPanelTab === 'utf'">
                       <div class="emoji-panel__utf-host">
@@ -15548,9 +15538,11 @@ onBeforeUnmount(() => {
                         </div>
 
                         <div
+                          :key="`emoji-panel-${emojiPanelRenderKey}`"
                           ref="emojiPanelContentRef"
                           class="emoji-panel__content"
                           :class="{ 'emoji-panel__content--utf': emojiPanelTab === 'utf' }"
+                          @scroll="handleEmojiPanelContentScroll"
                         >
                           <template v-if="emojiPanelTab === 'utf'">
                             <div class="emoji-panel__utf-host">
