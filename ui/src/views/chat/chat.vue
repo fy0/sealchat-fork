@@ -345,8 +345,61 @@ const getStickyNoteVisible = () => stickyNoteStore.uiVisible;
 
 const getCharacterCardVisible = () => characterCardPanelVisible.value;
 
+const refreshPresenceForShell = async (silent = true) => {
+  const selfId = user.info?.id || '';
+  const channelId = chat.curChannel?.id ? String(chat.curChannel.id) : '';
+  if (!channelId) {
+    chat.curChannelUsers = [];
+    chat.clearPresenceMap();
+    if (!silent) {
+      message.warning('当前无可用频道');
+    }
+    return;
+  }
+
+  try {
+    const onlineResp = await chat.sendAPI<any>('channel.member.list.online', { channel_id: channelId } as any);
+    const onlineItems = Array.isArray(onlineResp?.data?.data) ? onlineResp.data.data : [];
+    chat.curChannelUsers = onlineItems;
+
+    const data = await chat.getChannelPresence();
+    const updatedAt = typeof data?.updated_at === 'number' ? data.updated_at : undefined;
+    if (typeof updatedAt === 'number') {
+      chat.syncServerTime(updatedAt);
+    }
+    if (Array.isArray(data?.data)) {
+      data.data.forEach((item: any) => {
+        const userId = item?.user?.id || item?.user_id;
+        if (!userId) {
+          return;
+        }
+        const isSelf = selfId && userId === selfId;
+        const lastSeenServer = item?.lastSeen ?? item?.last_seen;
+        chat.updatePresence(userId, {
+          lastPing: isSelf
+            ? Date.now()
+            : (typeof lastSeenServer === 'number' ? chat.serverTsToLocal(lastSeenServer) : Date.now()),
+          latencyMs: isSelf ? chat.lastLatencyMs : (item?.latency ?? item?.latency_ms ?? 0),
+          isFocused: isSelf ? chat.isAppFocused : (item?.focused ?? item?.is_focused ?? false),
+        });
+      });
+    }
+    chat.measureLatency();
+    if (!silent) {
+      message.success('状态已刷新');
+    }
+  } catch (error) {
+    if (!silent) {
+      message.error('刷新失败');
+    } else {
+      console.error('shell refresh presence failed', error);
+    }
+  }
+};
+
 defineExpose({
   openPanelForShell,
+  refreshPresenceForShell,
   setSearchPanelVisibleForShell,
   setFiltersForShell,
   setStickyNoteVisible,

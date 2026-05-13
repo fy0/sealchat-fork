@@ -12,6 +12,21 @@ import AudioDrawer from '@/components/audio/AudioDrawer.vue';
 
 type PaneId = 'A' | 'B';
 type ConnectState = 'connecting' | 'connected' | 'disconnected' | 'reconnecting';
+type PresenceData = {
+  lastPing: number;
+  latencyMs: number;
+  isFocused: boolean;
+};
+type PresenceMember = {
+  id: string;
+  nick?: string;
+  name?: string;
+  avatar?: string;
+  identity?: {
+    displayName?: string;
+    color?: string;
+  };
+};
 
 type FilterState = {
   icFilter: 'all' | 'ic' | 'ooc';
@@ -175,6 +190,52 @@ const normalizeChannelTree = (nodes: any): SplitChannelNode[] => {
   return walk(raw);
 };
 
+const normalizePresenceMembers = (members: any): PresenceMember[] => {
+  const raw = Array.isArray(members) ? members : [];
+  return raw
+    .map((item) => {
+      const id = typeof item?.id === 'string' ? item.id : String(item?.id || '');
+      if (!id) return null;
+      const identityDisplayName = typeof item?.identity?.displayName === 'string'
+        ? item.identity.displayName
+        : typeof item?.identity?.display_name === 'string'
+          ? item.identity.display_name
+          : undefined;
+      const identityColor = typeof item?.identity?.color === 'string'
+        ? item.identity.color
+        : undefined;
+      return {
+        id,
+        nick: typeof item?.nick === 'string' ? item.nick : undefined,
+        name: typeof item?.name === 'string' ? item.name : undefined,
+        avatar: typeof item?.avatar === 'string' ? item.avatar : undefined,
+        identity: identityDisplayName || identityColor
+          ? {
+            displayName: identityDisplayName,
+            color: identityColor,
+          }
+          : undefined,
+      };
+    })
+    .filter(Boolean) as PresenceMember[];
+};
+
+const normalizePresenceMap = (map: any): Record<string, PresenceData> => {
+  const raw = map && typeof map === 'object' ? map : {};
+  return Object.entries(raw).reduce<Record<string, PresenceData>>((acc, [userId, value]) => {
+    if (!userId) return acc;
+    const entry = value && typeof value === 'object' ? value as Record<string, any> : {};
+    const lastPing = Number(entry.lastPing);
+    const latencyMs = Number(entry.latencyMs);
+    acc[String(userId)] = {
+      lastPing: Number.isFinite(lastPing) ? lastPing : 0,
+      latencyMs: Number.isFinite(latencyMs) ? latencyMs : 0,
+      isFocused: !!entry.isFocused,
+    };
+    return acc;
+  }, {});
+};
+
 const postState = (type: 'sealchat.embed.ready' | 'sealchat.embed.state') => {
   if (!paneId.value) return;
   const channelId = chat.curChannel?.id ? String(chat.curChannel.id) : '';
@@ -196,6 +257,8 @@ const postState = (type: 'sealchat.embed.ready' | 'sealchat.embed.state') => {
     channelName,
     connectState,
     onlineMembersCount,
+    members: normalizePresenceMembers(toRaw(chat.curChannelUsers)),
+    presenceMap: normalizePresenceMap(toRaw(chat.presenceMap)),
     currentChannelUnread,
     audioStudioDrawerVisible: !!audioStudio.drawerVisible,
     filterState: normalizeFilterState(toRaw(chat.filterState)),
@@ -272,6 +335,14 @@ const handleMessage = async (event: MessageEvent) => {
     const panel = typeof data.panel === 'string' ? data.panel : '';
     if (panel && chatViewRef.value?.openPanelForShell) {
       chatViewRef.value.openPanelForShell(panel);
+    }
+    postStateThrottled('sealchat.embed.state');
+    return;
+  }
+
+  if (data.type === 'sealchat.embed.refreshPresence') {
+    if (chatViewRef.value?.refreshPresenceForShell) {
+      await chatViewRef.value.refreshPresenceForShell(!!data.silent);
     }
     postStateThrottled('sealchat.embed.state');
     return;
@@ -436,6 +507,15 @@ watch(
     if (restoringSession.value) return;
     postStateThrottled('sealchat.embed.state');
   },
+);
+
+watch(
+  () => chat.presenceMap,
+  () => {
+    if (restoringSession.value) return;
+    postStateThrottled('sealchat.embed.state');
+  },
+  { deep: true },
 );
 
 watch(

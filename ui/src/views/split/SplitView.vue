@@ -22,6 +22,21 @@ import {
 
 type ConnectState = 'connecting' | 'connected' | 'disconnected' | 'reconnecting';
 type PaneMode = 'chat' | 'web';
+type PresenceData = {
+  lastPing: number;
+  latencyMs: number;
+  isFocused: boolean;
+};
+type PresenceMember = {
+  id: string;
+  nick?: string;
+  name?: string;
+  avatar?: string;
+  identity?: {
+    displayName?: string;
+    color?: string;
+  };
+};
 
 type FilterState = {
   icFilter: 'all' | 'ic' | 'ooc';
@@ -41,6 +56,8 @@ type EmbedStateMessage = {
   channelName?: string;
   connectState?: ConnectState;
   onlineMembersCount?: number;
+  members?: PresenceMember[];
+  presenceMap?: Record<string, PresenceData>;
   currentChannelUnread?: number;
   audioStudioDrawerVisible?: boolean;
   filterState?: FilterState;
@@ -72,7 +89,18 @@ type EmbedRestoreSessionMessage = {
   snapshot: SplitSessionPaneSnapshot;
 };
 
-type EmbedMessage = EmbedStateMessage | EmbedFocusMessage | EmbedToggleSidebarMessage | EmbedRestoreSessionMessage;
+type EmbedRefreshPresenceMessage = {
+  type: 'sealchat.embed.refreshPresence';
+  paneId: PaneId;
+  silent?: boolean;
+};
+
+type EmbedMessage =
+  | EmbedStateMessage
+  | EmbedFocusMessage
+  | EmbedToggleSidebarMessage
+  | EmbedRestoreSessionMessage
+  | EmbedRefreshPresenceMessage;
 
 interface PaneState {
   id: PaneId;
@@ -88,6 +116,8 @@ interface PaneState {
   channelName: string;
   connectState: ConnectState;
   onlineMembersCount: number;
+  members: PresenceMember[];
+  presenceMap: Record<string, PresenceData>;
   currentChannelUnread: number;
   audioStudioDrawerVisible: boolean;
   filterState: FilterState;
@@ -215,6 +245,8 @@ const paneA = reactive<PaneState>({
   channelName: '',
   connectState: 'connecting',
   onlineMembersCount: 0,
+  members: [],
+  presenceMap: {},
   currentChannelUnread: 0,
   audioStudioDrawerVisible: false,
   filterState: { ...defaultFilterState },
@@ -245,6 +277,8 @@ const paneB = reactive<PaneState>({
   channelName: '',
   connectState: 'connecting',
   onlineMembersCount: 0,
+  members: [],
+  presenceMap: {},
   currentChannelUnread: 0,
   audioStudioDrawerVisible: false,
   filterState: { ...defaultFilterState },
@@ -292,6 +326,8 @@ const activeChannelTitle = computed(() => {
 
 const activePaneConnectState = computed<ConnectState>(() => (activePane.value.mode === 'chat' ? activePane.value.connectState : 'disconnected'));
 const activePaneOnlineMembersCount = computed(() => (activePane.value.mode === 'chat' ? activePane.value.onlineMembersCount : 0));
+const activePanePresenceMembers = computed(() => (activePane.value.mode === 'chat' ? activePane.value.members : []));
+const activePanePresenceMap = computed(() => (activePane.value.mode === 'chat' ? activePane.value.presenceMap : {}));
 const activePaneAudioStudioActive = computed(() => activePane.value.mode === 'chat' && activePane.value.audioStudioDrawerVisible);
 const activePaneSearchActive = computed(() => activePane.value.mode === 'chat' && activePane.value.searchPanelVisible);
 const activePaneStickyNoteActive = computed(() => activePane.value.mode === 'chat' && activePane.value.stickyNoteVisible);
@@ -504,6 +540,8 @@ const handleEmbedMessage = (event: MessageEvent) => {
     if (typeof msg.channelName === 'string') target.channelName = msg.channelName;
     if (typeof msg.connectState === 'string') target.connectState = msg.connectState;
     if (typeof msg.onlineMembersCount === 'number') target.onlineMembersCount = msg.onlineMembersCount;
+    if (Array.isArray(msg.members)) target.members = msg.members;
+    if (msg.presenceMap && typeof msg.presenceMap === 'object') target.presenceMap = msg.presenceMap;
     if (typeof msg.currentChannelUnread === 'number') target.currentChannelUnread = msg.currentChannelUnread;
     if (typeof msg.audioStudioDrawerVisible === 'boolean') target.audioStudioDrawerVisible = msg.audioStudioDrawerVisible;
     if (msg.filterState) target.filterState = { ...msg.filterState };
@@ -715,6 +753,12 @@ const openAudioStudio = () => {
   postToPane(targetPaneId, { type: 'sealchat.embed.openAudioStudio', paneId: targetPaneId });
 };
 
+const refreshPresenceForActivePane = () => {
+  if (!activePaneHasChannel.value) return;
+  if (!canOperateChatPane(activePaneId.value)) return;
+  postToPane(activePaneId.value, { type: 'sealchat.embed.refreshPresence', paneId: activePaneId.value, silent: false });
+};
+
 const openEmbedPanel = () => {
   if (!activePaneHasChannel.value) return;
   if (!canOperateChatPane(activePaneId.value)) return;
@@ -916,6 +960,8 @@ watch(
         :channel-title="activeChannelTitle"
         :connect-state="activePaneConnectState"
         :online-members-count="activePaneOnlineMembersCount"
+        :presence-members="activePanePresenceMembers"
+        :presence-map="activePanePresenceMap"
         :audio-studio-active="activePaneAudioStudioActive"
         :search-active="activePaneSearchActive"
         :embed-panel-active="activePaneEmbedPanelActive"
@@ -923,6 +969,7 @@ watch(
         :embed-panel-disabled="!activePaneHasChannel"
         :action-ribbon-active="actionRibbonVisible"
         @toggle-sidebar="isMobileViewport ? (drawerVisible = !drawerVisible) : (sidebarCollapsed = !sidebarCollapsed)"
+        @request-presence-refresh="refreshPresenceForActivePane"
         @open-audio-studio="openAudioStudio"
         @toggle-search="toggleSearch"
         @open-embed-panel="openEmbedPanel"

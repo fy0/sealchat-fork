@@ -2,11 +2,12 @@
 import { computed, defineAsyncComponent, h, ref, shallowRef, type Component } from 'vue';
 import { useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
-import { NDropdown, NIcon, NTooltip, useDialog, type DropdownOption } from 'naive-ui';
+import { NDropdown, NIcon, NPopover, NTooltip, useDialog, type DropdownOption } from 'naive-ui';
 import { LayoutSidebarLeftCollapse, LayoutSidebarLeftExpand, Link, Refresh, Users } from '@vicons/tabler';
 import { SearchOutline, UnlinkOutline, AppsOutline, MusicalNotesOutline, BrowsersOutline } from '@vicons/ionicons5';
 import Notif from '@/views/notif.vue';
 import UserProfile from '@/views/components/user-profile.vue';
+import UserPresencePopover from '@/views/chat/components/UserPresencePopover.vue';
 import { setLocale, setLocaleByNavigator } from '@/lang';
 import { useUserStore } from '@/stores/user';
 import { useChatStore } from '@/stores/chat';
@@ -17,12 +18,29 @@ const AdminSettings = defineAsyncComponent(() => import('@/views/admin/admin-set
 const chat = useChatStore();
 
 type ConnectState = 'connecting' | 'connected' | 'disconnected' | 'reconnecting';
+type PresenceData = {
+  lastPing: number;
+  latencyMs: number;
+  isFocused: boolean;
+};
+type PresenceMember = {
+  id: string;
+  nick?: string;
+  name?: string;
+  avatar?: string;
+  identity?: {
+    displayName?: string;
+    color?: string;
+  };
+};
 
 const props = withDefaults(defineProps<{
   sidebarCollapsed?: boolean;
   channelTitle?: string;
   connectState?: ConnectState;
   onlineMembersCount?: number;
+  presenceMembers?: PresenceMember[];
+  presenceMap?: Record<string, PresenceData>;
   audioStudioActive?: boolean;
   searchActive?: boolean;
   embedPanelActive?: boolean;
@@ -34,6 +52,8 @@ const props = withDefaults(defineProps<{
   channelTitle: '',
   connectState: 'connecting',
   onlineMembersCount: 0,
+  presenceMembers: () => [],
+  presenceMap: () => ({}),
   audioStudioActive: false,
   searchActive: false,
   embedPanelActive: false,
@@ -44,6 +64,7 @@ const props = withDefaults(defineProps<{
 
 const emit = defineEmits<{
   (e: 'toggle-sidebar'): void;
+  (e: 'request-presence-refresh'): void;
   (e: 'open-audio-studio'): void;
   (e: 'toggle-search'): void;
   (e: 'open-embed-panel'): void;
@@ -61,6 +82,7 @@ const adminShow = ref(false);
 const inputStatsShow = ref(false);
 const inputStatsLoading = ref(false);
 const inputStatsComponent = shallowRef<any>(null);
+const presencePopoverVisible = ref(false);
 
 const userDisplayName = computed(() => user.info.nick || user.info.username || '个人中心');
 
@@ -210,15 +232,20 @@ const handleSelect = async (key: string | number) => {
         <span>{{ connectionStatus.label }}</span>
       </n-tooltip>
 
-      <n-tooltip placement="bottom" trigger="hover">
+      <n-popover trigger="click" placement="bottom-end" :show="presencePopoverVisible"
+        @update:show="presencePopoverVisible = $event">
         <template #trigger>
-          <button type="button" class="sc-icon-button sc-online-button" aria-label="在线成员数">
+          <button type="button" class="sc-icon-button sc-online-button" aria-label="查看在线成员">
             <n-icon :component="Users" size="16" />
             <span class="online-badge">{{ onlineMembersCount }}</span>
           </button>
         </template>
-        <span>在线成员：{{ onlineMembersCount }}</span>
-      </n-tooltip>
+        <UserPresencePopover
+          :members="presenceMembers"
+          :presence-map="presenceMap"
+          @request-refresh="emit('request-presence-refresh')"
+        />
+      </n-popover>
 
       <n-tooltip placement="bottom" trigger="hover">
         <template #trigger>
