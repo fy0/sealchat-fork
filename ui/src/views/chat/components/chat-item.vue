@@ -528,7 +528,7 @@ const parseContent = (payload: any, overrideContent?: string) => {
       });
       const sanitizedHtml = DOMPurify.sanitize(html);
       hasImage.value = html.includes('<img');
-      return <span v-html={sanitizedHtml}></span>;
+      return <div class="message-rich-content" v-html={sanitizedHtml}></div>;
     } catch (error) {
       console.error('TipTap JSON 渲染失败:', error);
       // 降级处理：显示错误消息
@@ -4307,6 +4307,31 @@ const handleRetrySend = () => {
 .content.typo p {
   line-height: inherit;
 }
+
+:global(.message-rich-content) {
+  display: block;
+  white-space: break-spaces;
+}
+
+:global(.message-rich-content p),
+:global(.message-rich-content li),
+:global(.message-rich-content blockquote),
+:global(.message-rich-content h1),
+:global(.message-rich-content h2),
+:global(.message-rich-content h3),
+:global(.message-rich-content h4),
+:global(.message-rich-content h5),
+:global(.message-rich-content h6),
+:global(.message-rich-content span),
+:global(.message-rich-content a),
+:global(.message-rich-content strong),
+:global(.message-rich-content em),
+:global(.message-rich-content u),
+:global(.message-rich-content s),
+:global(.message-rich-content mark) {
+  white-space: break-spaces;
+}
+
 .edited-label {
   @apply text-xs font-medium;
   margin-left: 0.2rem;
