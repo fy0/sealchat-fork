@@ -60,3 +60,4 @@ backup_settings.patch
 /cap
 .codex
 ui/tsconfig.app.tsbuildinfo
+config yun.yaml
