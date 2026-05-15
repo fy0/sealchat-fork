@@ -5,6 +5,7 @@ import { chatEvent, useChatStore } from './chat';
 import { useUserStore } from './user';
 import type { ChannelIForm, ChannelIFormEventPayload, ChannelIFormStatePayload } from '@/types/iform';
 import { ensureDetachedEffectScope } from './storeEffectScope';
+import { isPrivateIFormChannel, resolveIFormVisibleChannelId } from './iformScope';
 
 interface PanelState {
   windowId: string;
@@ -42,6 +43,7 @@ interface EmbedHostEntry {
 
 interface IFormStoreState {
   currentChannelId: string | null;
+  lastNonPrivateChannelId: string | null;
   pendingSharedWindowCarryFromChannelId: string | null;
   drawerVisible: boolean;
   loading: boolean;
@@ -66,6 +68,7 @@ let bootstrapScope: EffectScope | null = null;
 export const useIFormStore = defineStore('iform', {
   state: (): IFormStoreState => ({
     currentChannelId: null,
+    lastNonPrivateChannelId: null,
     pendingSharedWindowCarryFromChannelId: null,
     drawerVisible: false,
     loading: false,
@@ -83,24 +86,31 @@ export const useIFormStore = defineStore('iform', {
     embedHostsByChannel: Object.create(null),
   }),
   getters: {
+    visibleChannelId(state): string | null {
+      const chat = useChatStore();
+      return resolveStoreVisibleChannelId(chat, state.currentChannelId, state.lastNonPrivateChannelId);
+    },
     currentForms(state): ChannelIForm[] {
-      if (!state.currentChannelId) {
+      const channelId = this.visibleChannelId;
+      if (!channelId) {
         return [];
       }
-      return state.formsByChannel[state.currentChannelId] || [];
+      return state.formsByChannel[channelId] || [];
     },
     currentPanels(state): PanelState[] {
-      if (!state.currentChannelId) {
+      const channelId = this.visibleChannelId;
+      if (!channelId) {
         return [];
       }
-      const map = state.panelsByChannel[state.currentChannelId];
+      const map = state.panelsByChannel[channelId];
       return map ? Object.values(map) : [];
     },
     currentFloatingWindows(state): FloatingState[] {
-      if (!state.currentChannelId) {
+      const channelId = this.visibleChannelId;
+      if (!channelId) {
         return [];
       }
-      const map = state.floatingByChannel[state.currentChannelId];
+      const map = state.floatingByChannel[channelId];
       return map ? Object.values(map).sort((a, b) => a.zIndex - b.zIndex) : [];
     },
     hasInlinePanels(): boolean {
@@ -110,12 +120,12 @@ export const useIFormStore = defineStore('iform', {
       return this.currentFloatingWindows.length > 0;
     },
     canManage(state): boolean {
-      const channelId = state.currentChannelId;
+      const channelId = this.visibleChannelId;
       if (!channelId) return false;
       return !!state.capabilities[channelId]?.manage;
     },
     canBroadcast(state): boolean {
-      const channelId = state.currentChannelId;
+      const channelId = this.visibleChannelId;
       if (!channelId) return false;
       return !!state.capabilities[channelId]?.broadcast;
     },
@@ -145,14 +155,14 @@ export const useIFormStore = defineStore('iform', {
         && this.selectedWorldShareEligibleForms.every((form) => !!form.worldShared);
     },
     hasAttention(state): boolean {
-      const channelId = state.currentChannelId;
+      const channelId = this.visibleChannelId;
       if (!channelId) {
         return false;
       }
       return !!state.attentionChannels[channelId];
     },
     activeEmbedWindowIds(state): string[] {
-      const channelId = state.currentChannelId;
+      const channelId = this.visibleChannelId;
       if (!channelId) {
         return [];
       }
@@ -261,20 +271,28 @@ export const useIFormStore = defineStore('iform', {
       if (this.currentChannelId === channelId) {
         return;
       }
+      const chat = useChatStore();
       const previousChannelId = this.currentChannelId;
+      const previousVisibleChannelId = resolveStoreVisibleChannelId(chat, previousChannelId, this.lastNonPrivateChannelId);
+      const nextChannel = channelId ? chat.findChannelById(channelId) : null;
+      const nextIsPrivate = channelId ? isPrivateIFormChannel(nextChannel) : false;
       this.currentChannelId = channelId;
-      this.drawerVisible = false;
+      if (!nextIsPrivate) {
+        this.lastNonPrivateChannelId = channelId;
+        this.drawerVisible = false;
+      }
       this.selectedFormIds = [];
       this.pendingSharedWindowCarryFromChannelId = null;
-      if (channelId && previousChannelId && previousChannelId !== channelId) {
-        if (this.hasLoadedForms(channelId)) {
-          this.carrySharedRuntimeState(previousChannelId, channelId);
+      const nextVisibleChannelId = resolveStoreVisibleChannelId(chat, this.currentChannelId, this.lastNonPrivateChannelId);
+      if (nextVisibleChannelId && previousVisibleChannelId && previousVisibleChannelId !== nextVisibleChannelId) {
+        if (this.hasLoadedForms(nextVisibleChannelId)) {
+          this.carrySharedRuntimeState(previousVisibleChannelId, nextVisibleChannelId);
         } else {
-          this.pendingSharedWindowCarryFromChannelId = previousChannelId;
+          this.pendingSharedWindowCarryFromChannelId = previousVisibleChannelId;
         }
       }
-      if (channelId) {
-        this.markAttention(channelId, false);
+      if (nextVisibleChannelId) {
+        this.markAttention(nextVisibleChannelId, false);
       }
     },
     carrySharedRuntimeState(fromChannelId: string, toChannelId: string) {
@@ -351,8 +369,8 @@ export const useIFormStore = defineStore('iform', {
     },
     openDrawer() {
       this.drawerVisible = true;
-      if (this.currentChannelId) {
-        this.markAttention(this.currentChannelId, false);
+      if (this.visibleChannelId) {
+        this.markAttention(this.visibleChannelId, false);
       }
     },
     closeDrawer() {
@@ -364,8 +382,8 @@ export const useIFormStore = defineStore('iform', {
       } else {
         this.drawerVisible = !this.drawerVisible;
       }
-      if (this.drawerVisible && this.currentChannelId) {
-        this.markAttention(this.currentChannelId, false);
+      if (this.drawerVisible && this.visibleChannelId) {
+        this.markAttention(this.visibleChannelId, false);
       }
     },
     markAttention(channelId: string, flag: boolean) {
@@ -413,7 +431,7 @@ export const useIFormStore = defineStore('iform', {
       return `${formId}::${this.windowCounter}`;
     },
     getWindowFormId(windowId: string, channelId?: string | null) {
-      const targetChannel = channelId ?? this.currentChannelId;
+      const targetChannel = channelId ?? this.visibleChannelId;
       if (!targetChannel) {
         return undefined;
       }
@@ -442,8 +460,8 @@ export const useIFormStore = defineStore('iform', {
         };
       }
     },
-    openPanel(formId: string, options?: Partial<PanelState>) {
-      const channelId = this.currentChannelId;
+    openPanel(formId: string, options?: Partial<PanelState>, channelIdOverride?: string | null) {
+      const channelId = channelIdOverride ?? this.visibleChannelId;
       if (!channelId || !formId) {
         return;
       }
@@ -468,7 +486,7 @@ export const useIFormStore = defineStore('iform', {
       };
     },
     closePanel(windowId: string) {
-      const channelId = this.currentChannelId;
+      const channelId = this.visibleChannelId;
       if (!channelId || !this.panelsByChannel[channelId]) {
         return;
       }
@@ -480,7 +498,7 @@ export const useIFormStore = defineStore('iform', {
       };
     },
     togglePanelCollapse(windowId: string) {
-      const channelId = this.currentChannelId;
+      const channelId = this.visibleChannelId;
       if (!channelId) {
         return;
       }
@@ -491,7 +509,7 @@ export const useIFormStore = defineStore('iform', {
       current.collapsed = !current.collapsed;
     },
     resizePanel(windowId: string, height: number) {
-      const channelId = this.currentChannelId;
+      const channelId = this.visibleChannelId;
       if (!channelId) {
         return;
       }
@@ -501,8 +519,8 @@ export const useIFormStore = defineStore('iform', {
       }
       current.height = Math.max(1, Math.round(height));
     },
-    openFloating(formId: string, options?: Partial<FloatingState>) {
-      const channelId = this.currentChannelId;
+    openFloating(formId: string, options?: Partial<FloatingState>, channelIdOverride?: string | null) {
+      const channelId = channelIdOverride ?? this.visibleChannelId;
       if (!channelId || !formId) {
         return;
       }
@@ -541,7 +559,7 @@ export const useIFormStore = defineStore('iform', {
       };
     },
     closeFloating(windowId: string) {
-      const channelId = this.currentChannelId;
+      const channelId = this.visibleChannelId;
       if (!channelId || !this.floatingByChannel[channelId]) {
         return;
       }
@@ -553,7 +571,7 @@ export const useIFormStore = defineStore('iform', {
       };
     },
     closeInstancesByFormId(formId: string, channelId?: string | null) {
-      const targetChannel = channelId ?? this.currentChannelId;
+      const targetChannel = channelId ?? this.visibleChannelId;
       if (!targetChannel || !formId) {
         return;
       }
@@ -660,14 +678,14 @@ export const useIFormStore = defineStore('iform', {
       state.zIndex = ++this.zCounter;
     },
     getFloatingState(windowId: string): FloatingState | undefined {
-      const channelId = this.currentChannelId;
+      const channelId = this.visibleChannelId;
       if (!channelId) {
         return undefined;
       }
       return this.floatingByChannel[channelId]?.[windowId];
     },
     async createForm(payload: Partial<ChannelIForm> & { name: string }): Promise<ChannelIForm | undefined> {
-      const channelId = this.currentChannelId;
+      const channelId = this.visibleChannelId;
       if (!channelId) {
         throw new Error('未选择频道');
       }
@@ -681,7 +699,7 @@ export const useIFormStore = defineStore('iform', {
       }
     },
     async updateForm(formId: string, payload: Record<string, unknown>) {
-      const channelId = this.currentChannelId;
+      const channelId = this.visibleChannelId;
       if (!channelId) {
         throw new Error('未选择频道');
       }
@@ -694,7 +712,7 @@ export const useIFormStore = defineStore('iform', {
       }
     },
     async deleteForm(formId: string) {
-      const channelId = this.currentChannelId;
+      const channelId = this.visibleChannelId;
       if (!channelId) {
         throw new Error('未选择频道');
       }
@@ -703,7 +721,7 @@ export const useIFormStore = defineStore('iform', {
       this.closeInstancesByFormId(formId, channelId);
     },
     async pushStates(states: ChannelIFormStatePayload[], options?: { targetUserIds?: string[]; force?: boolean }) {
-      const channelId = this.currentChannelId;
+      const channelId = this.visibleChannelId;
       if (!channelId) {
         throw new Error('未选择频道');
       }
@@ -717,7 +735,7 @@ export const useIFormStore = defineStore('iform', {
       });
     },
     async toggleWorldShare(formIds: string[], enabled: boolean) {
-      const channelId = this.currentChannelId;
+      const channelId = this.visibleChannelId;
       if (!channelId) {
         throw new Error('未选择频道');
       }
@@ -739,7 +757,7 @@ export const useIFormStore = defineStore('iform', {
       await this.ensureForms(channelId, true);
     },
     async migrateForms(targetIds: string[], formIds: string[], mode: 'copy' | 'move') {
-      const channelId = this.currentChannelId;
+      const channelId = this.visibleChannelId;
       if (!channelId) {
         throw new Error('未选择频道');
       }
@@ -764,11 +782,11 @@ export const useIFormStore = defineStore('iform', {
         ...this.formsByChannel,
         [channelId]: forms,
       };
-      if (channelId === this.currentChannelId) {
+      if (channelId === this.visibleChannelId) {
         this.markAttention(channelId, false);
       }
       this.cleanRuntimeState(channelId);
-      if (this.currentChannelId === channelId) {
+      if (this.visibleChannelId === channelId) {
         this.selectedFormIds = this.selectedFormIds.filter((id) => forms.some((form) => form.id === id));
       }
     },
@@ -778,11 +796,9 @@ export const useIFormStore = defineStore('iform', {
         return;
       }
       this.mergeForms(channelId, payload?.forms);
-      if (this.currentChannelId !== channelId) {
+      if (this.visibleChannelId !== channelId) {
         this.markAttention(channelId, true);
       }
-      const prevChannel = this.currentChannelId;
-      this.currentChannelId = channelId;
       states.forEach((state) => {
         const windowId = this.resolveWindowId(state.formId, state.windowId);
         if (state.floating) {
@@ -797,7 +813,7 @@ export const useIFormStore = defineStore('iform', {
             fromPush: true,
             autoPlayHint: !!state.autoPlay,
             autoUnmuteHint: !!state.autoUnmute,
-          });
+          }, channelId);
         } else {
           this.openPanel(state.formId, {
             windowId,
@@ -807,10 +823,9 @@ export const useIFormStore = defineStore('iform', {
             fromPush: true,
             autoPlayHint: !!state.autoPlay,
             autoUnmuteHint: !!state.autoUnmute,
-          });
+          }, channelId);
         }
       });
-      this.currentChannelId = prevChannel;
     },
     mergeForms(channelId: string, forms?: ChannelIForm[]) {
       if (!forms?.length) {
@@ -887,7 +902,7 @@ export const useIFormStore = defineStore('iform', {
       }
     },
     registerEmbedHost(windowId: string, formId: string, el: HTMLElement, surface: IFormSurface, channelId?: string | null) {
-      const targetChannel = channelId ?? this.currentChannelId;
+      const targetChannel = channelId ?? this.visibleChannelId;
       if (!targetChannel || !windowId || !formId || !el) {
         return;
       }
@@ -912,7 +927,7 @@ export const useIFormStore = defineStore('iform', {
       };
     },
     unregisterEmbedHost(windowId: string, surface: IFormSurface, el?: HTMLElement | null, channelId?: string | null) {
-      const targetChannel = channelId ?? this.currentChannelId;
+      const targetChannel = channelId ?? this.visibleChannelId;
       if (!targetChannel) {
         return;
       }
@@ -944,7 +959,7 @@ export const useIFormStore = defineStore('iform', {
       };
     },
     resolveEmbedHost(windowId: string, channelId?: string | null): HTMLElement | null {
-      const targetChannel = channelId ?? this.currentChannelId;
+      const targetChannel = channelId ?? this.visibleChannelId;
       if (!targetChannel) {
         return null;
       }
@@ -1001,6 +1016,19 @@ function resolveViewport() {
 
 function resolveDefaultWindowId(formId: string) {
   return `${formId}::${DEFAULT_WINDOW_SUFFIX}`;
+}
+
+function resolveStoreVisibleChannelId(
+  chat: ReturnType<typeof useChatStore>,
+  currentChannelId: string | null,
+  lastNonPrivateChannelId: string | null,
+) {
+  const currentChannel = currentChannelId ? chat.findChannelById(currentChannelId) : null;
+  return resolveIFormVisibleChannelId({
+    currentChannelId,
+    currentChannelIsPrivate: currentChannelId ? isPrivateIFormChannel(currentChannel) : null,
+    lastNonPrivateChannelId,
+  });
 }
 
 function resolveMaxFloatingSize() {
