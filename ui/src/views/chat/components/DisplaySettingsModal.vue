@@ -621,6 +621,19 @@ const handleThemeSelectionModeUpdate = (mode: ThemeSelectionMode) => {
       <section class="display-settings__section">
         <header>
           <div>
+            <p class="section-title">频道未读小蓝点</p>
+            <p class="section-desc">在顶部当前频道名右侧显示其他频道未读提醒</p>
+          </div>
+        </header>
+        <n-switch v-model:value="draft.channelAggregateBadgeEnabled">
+          <template #checked>显示徽标</template>
+          <template #unchecked>隐藏徽标</template>
+        </n-switch>
+      </section>
+
+      <section class="display-settings__section">
+        <header>
+          <div>
             <p class="section-title">头像装饰性能</p>
             <p class="section-desc">低性能模式下优先使用静态兜底资源；若动效装饰未配置兜底图，则直接隐藏动效层</p>
           </div>

@@ -19,6 +19,8 @@ import AudioDrawer from '@/components/audio/AudioDrawer.vue';
 import { useAudioStudioStore } from '@/stores/audioStudio';
 import { useIFormStore } from '@/stores/iform';
 import { sortObserverRoleOptions } from '@/utils/observerRoleOptions';
+import { useDisplayStore } from '@/stores/display';
+import { resolveOtherChannelUnreadAggregate } from './channelAggregateBadge';
 
 const AdminSettings = defineAsyncComponent(() => import('../admin/admin-settings.vue'));
 
@@ -48,6 +50,7 @@ const channelSearch = useChannelSearchStore();
 const channelImages = useChannelImagesStore();
 const audioStudio = useAudioStudioStore();
 const iFormStore = useIFormStore();
+const display = useDisplayStore();
 iFormStore.bootstrap();
 
 const timelineItems = ref<any[]>([]);
@@ -61,6 +64,17 @@ const channelTitle = computed(() => {
   const raw = chat.curChannel?.name;
   const name = typeof raw === 'string' ? raw.trim() : '';
   return name ? `# ${name}` : t('headText');
+});
+
+const channelAggregateBadge = computed(() => {
+  if (!display.settings.channelAggregateBadgeEnabled) {
+    return { visible: false, count: 0, label: '' };
+  }
+  return resolveOtherChannelUnreadAggregate({
+    currentChannelId: chat.curChannel?.id || '',
+    unreadCountMap: chat.unreadCountMap,
+    channelTree: chat.currentWorldChannels,
+  });
 });
 
 const currentWorldName = computed(() => chat.currentWorld?.name || '未选择世界');
@@ -676,7 +690,17 @@ const sidebarToggleIcon = computed(() => sidebarCollapsed.value ? LayoutSidebarL
         >
           <n-icon :component="sidebarToggleIcon" size="20" />
         </button>
-        <span class="text-sm font-bold sm:text-xl">{{ channelTitle }}</span>
+        <div class="sc-channel-title-group">
+          <span class="text-sm font-bold sm:text-xl">{{ channelTitle }}</span>
+          <span
+            v-if="channelAggregateBadge.visible"
+            class="sc-channel-aggregate-badge"
+            :aria-label="`其他频道有 ${channelAggregateBadge.label} 条未读消息`"
+            :title="`其他频道未读 ${channelAggregateBadge.label}`"
+          >
+            {{ channelAggregateBadge.label }}
+          </span>
+        </div>
       </div>
 
       <!-- <n-button>登录</n-button>
@@ -915,6 +939,32 @@ const sidebarToggleIcon = computed(() => sidebarCollapsed.value ? LayoutSidebarL
 
 .sc-actions {
   gap: 0.45rem;
+}
+
+.sc-channel-title-group {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.sc-channel-aggregate-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.125rem;
+  height: 1.125rem;
+  padding: 0 0.38rem;
+  border-radius: 9999px;
+  background: #2563eb;
+  color: #f8fbff;
+  font-size: 0.68rem;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.01em;
+  box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.18), 0 4px 14px rgba(37, 99, 235, 0.24);
+  white-space: nowrap;
+  flex: 0 0 auto;
 }
 
 .sc-actions--observer {
