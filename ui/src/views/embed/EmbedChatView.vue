@@ -12,6 +12,21 @@ import AudioDrawer from '@/components/audio/AudioDrawer.vue';
 
 type PaneId = 'A' | 'B';
 type ConnectState = 'connecting' | 'connected' | 'disconnected' | 'reconnecting';
+type PresenceData = {
+  lastPing: number;
+  latencyMs: number;
+  isFocused: boolean;
+};
+type PresenceMember = {
+  id: string;
+  nick?: string;
+  name?: string;
+  avatar?: string;
+  identity?: {
+    displayName?: string;
+    color?: string;
+  };
+};
 
 type FilterState = {
   icFilter: 'all' | 'ic' | 'ooc';
@@ -26,6 +41,19 @@ type SplitChannelNode = {
   name: string;
   unread: number;
   children?: SplitChannelNode[];
+};
+
+type SplitSessionPaneSnapshot = {
+  mode: 'chat' | 'web';
+  worldId: string;
+  channelId: string;
+  webUrl: string;
+  filterState: FilterState;
+  searchPanelVisible: boolean;
+  stickyNoteVisible: boolean;
+  characterCardVisible: boolean;
+  audioStudioDrawerVisible: boolean;
+  embedPanelActive: boolean;
 };
 
 const route = useRoute();
@@ -47,6 +75,7 @@ const initialAudioOwner = computed(() => {
 
 const chatViewRef = ref<any>(null);
 const initializing = ref(false);
+const restoringSession = ref(false);
 const roleOptions = ref<RoleOption[]>([]);
 const audioOwner = ref(initialAudioOwner.value);
 
@@ -161,6 +190,52 @@ const normalizeChannelTree = (nodes: any): SplitChannelNode[] => {
   return walk(raw);
 };
 
+const normalizePresenceMembers = (members: any): PresenceMember[] => {
+  const raw = Array.isArray(members) ? members : [];
+  return raw
+    .map((item) => {
+      const id = typeof item?.id === 'string' ? item.id : String(item?.id || '');
+      if (!id) return null;
+      const identityDisplayName = typeof item?.identity?.displayName === 'string'
+        ? item.identity.displayName
+        : typeof item?.identity?.display_name === 'string'
+          ? item.identity.display_name
+          : undefined;
+      const identityColor = typeof item?.identity?.color === 'string'
+        ? item.identity.color
+        : undefined;
+      return {
+        id,
+        nick: typeof item?.nick === 'string' ? item.nick : undefined,
+        name: typeof item?.name === 'string' ? item.name : undefined,
+        avatar: typeof item?.avatar === 'string' ? item.avatar : undefined,
+        identity: identityDisplayName || identityColor
+          ? {
+            displayName: identityDisplayName,
+            color: identityColor,
+          }
+          : undefined,
+      };
+    })
+    .filter(Boolean) as PresenceMember[];
+};
+
+const normalizePresenceMap = (map: any): Record<string, PresenceData> => {
+  const raw = map && typeof map === 'object' ? map : {};
+  return Object.entries(raw).reduce<Record<string, PresenceData>>((acc, [userId, value]) => {
+    if (!userId) return acc;
+    const entry = value && typeof value === 'object' ? value as Record<string, any> : {};
+    const lastPing = Number(entry.lastPing);
+    const latencyMs = Number(entry.latencyMs);
+    acc[String(userId)] = {
+      lastPing: Number.isFinite(lastPing) ? lastPing : 0,
+      latencyMs: Number.isFinite(latencyMs) ? latencyMs : 0,
+      isFocused: !!entry.isFocused,
+    };
+    return acc;
+  }, {});
+};
+
 const postState = (type: 'sealchat.embed.ready' | 'sealchat.embed.state') => {
   if (!paneId.value) return;
   const channelId = chat.curChannel?.id ? String(chat.curChannel.id) : '';
@@ -171,7 +246,7 @@ const postState = (type: 'sealchat.embed.ready' | 'sealchat.embed.state') => {
   const onlineMembersCount = Array.isArray(chat.curChannelUsers) ? chat.curChannelUsers.length : 0;
   const currentChannelUnread = channelId ? (chat.unreadCountMap?.[channelId] || 0) : 0;
 
-  postToParent({
+  const payload = {
     type,
     paneId: paneId.value,
     worldId,
@@ -182,6 +257,8 @@ const postState = (type: 'sealchat.embed.ready' | 'sealchat.embed.state') => {
     channelName,
     connectState,
     onlineMembersCount,
+    members: normalizePresenceMembers(toRaw(chat.curChannelUsers)),
+    presenceMap: normalizePresenceMap(toRaw(chat.presenceMap)),
     currentChannelUnread,
     audioStudioDrawerVisible: !!audioStudio.drawerVisible,
     filterState: normalizeFilterState(toRaw(chat.filterState)),
@@ -195,7 +272,8 @@ const postState = (type: 'sealchat.embed.ready' | 'sealchat.embed.state') => {
     characterCardReason: typeof chat.curChannel?.characterApiReason === 'string' ? chat.curChannel.characterApiReason : '',
     iFormButtonActive: !!iFormButtonActive.value,
     iFormHasAttention: !!iFormHasAttention.value,
-  });
+  };
+  postToParent(payload);
 };
 
 const postStateThrottled = throttle((type: 'sealchat.embed.ready' | 'sealchat.embed.state') => postState(type), 200, {
@@ -257,6 +335,14 @@ const handleMessage = async (event: MessageEvent) => {
     const panel = typeof data.panel === 'string' ? data.panel : '';
     if (panel && chatViewRef.value?.openPanelForShell) {
       chatViewRef.value.openPanelForShell(panel);
+    }
+    postStateThrottled('sealchat.embed.state');
+    return;
+  }
+
+  if (data.type === 'sealchat.embed.refreshPresence') {
+    if (chatViewRef.value?.refreshPresenceForShell) {
+      await chatViewRef.value.refreshPresenceForShell(!!data.silent);
     }
     postStateThrottled('sealchat.embed.state');
     return;
@@ -326,6 +412,54 @@ const handleMessage = async (event: MessageEvent) => {
     }
     return;
   }
+
+  if (data.type === 'sealchat.embed.restoreSession') {
+    const snapshot = data.snapshot as SplitSessionPaneSnapshot | undefined;
+    if (!snapshot || snapshot.mode !== 'chat') return;
+    restoringSession.value = true;
+    try {
+      if (snapshot.worldId) {
+        await chat.switchWorld(snapshot.worldId, { force: true });
+      }
+      if (snapshot.channelId) {
+        await chat.channelSwitchTo(snapshot.channelId);
+      }
+      chat.setFilterState(normalizeFilterState(snapshot.filterState));
+      if (chatViewRef.value?.setSearchPanelVisibleForShell) {
+        chatViewRef.value.setSearchPanelVisibleForShell(!!snapshot.searchPanelVisible);
+      } else if (snapshot.searchPanelVisible && chatViewRef.value?.openPanelForShell) {
+        chatViewRef.value.openPanelForShell('search');
+      }
+      if (chatViewRef.value?.setStickyNoteVisible) {
+        chatViewRef.value.setStickyNoteVisible(!!snapshot.stickyNoteVisible);
+      }
+      if (chatViewRef.value?.setCharacterCardVisible) {
+        chatViewRef.value.setCharacterCardVisible(!!snapshot.characterCardVisible);
+      }
+      if (snapshot.audioStudioDrawerVisible) {
+        const channelId = chat.curChannel?.id ? String(chat.curChannel.id) : '';
+        audioStudio.setActiveChannel(channelId || null);
+        audioStudio.toggleDrawer(true);
+      } else {
+        audioStudio.toggleDrawer(false);
+      }
+      if (snapshot.embedPanelActive) {
+        const channelId = chat.curChannel?.id ? String(chat.curChannel.id) : '';
+        if (channelId) {
+          await iFormStore.ensureForms(channelId);
+          iFormStore.openDrawer();
+        }
+      } else {
+        iFormStore.closeDrawer();
+      }
+      postState('sealchat.embed.state');
+    } catch (e) {
+      console.warn('[embed] restoreSession failed', e);
+    } finally {
+      restoringSession.value = false;
+    }
+    return;
+  }
 };
 
 const initialize = async () => {
@@ -354,56 +488,93 @@ watch(
   () => chat.curChannel?.id,
   (channelId) => {
     fetchRoleOptions(channelId ? String(channelId) : '');
+    if (restoringSession.value) return;
     postStateThrottled('sealchat.embed.state');
   },
 );
 
 watch(
   () => [chat.curChannel?.id, chat.curChannel?.characterApiEnabled, chat.curChannel?.characterApiReason] as const,
-  () => postStateThrottled('sealchat.embed.state'),
+  () => {
+    if (restoringSession.value) return;
+    postStateThrottled('sealchat.embed.state');
+  },
 );
 
 watch(
   () => [chat.currentWorldId, chat.connectState, chat.curChannelUsers.length] as const,
-  () => postStateThrottled('sealchat.embed.state'),
+  () => {
+    if (restoringSession.value) return;
+    postStateThrottled('sealchat.embed.state');
+  },
+);
+
+watch(
+  () => chat.presenceMap,
+  () => {
+    if (restoringSession.value) return;
+    postStateThrottled('sealchat.embed.state');
+  },
+  { deep: true },
 );
 
 watch(
   () => chat.unreadCountMap,
-  () => postStateThrottled('sealchat.embed.state'),
+  () => {
+    if (restoringSession.value) return;
+    postStateThrottled('sealchat.embed.state');
+  },
   { deep: true },
 );
 
 watch(
   () => chat.filterState,
-  () => postStateThrottled('sealchat.embed.state'),
+  () => {
+    if (restoringSession.value) return;
+    postStateThrottled('sealchat.embed.state');
+  },
   { deep: true },
 );
 
 watch(
   () => chat.channelTree,
-  () => postStateThrottled('sealchat.embed.state'),
+  () => {
+    if (restoringSession.value) return;
+    postStateThrottled('sealchat.embed.state');
+  },
   { deep: true },
 );
 
 watch(
   () => chat.worldDetailMap[chat.currentWorldId]?.memberRole,
-  () => postStateThrottled('sealchat.embed.state'),
+  () => {
+    if (restoringSession.value) return;
+    postStateThrottled('sealchat.embed.state');
+  },
 );
 
 watch(
   () => channelSearch.panelVisible,
-  () => postStateThrottled('sealchat.embed.state'),
+  () => {
+    if (restoringSession.value) return;
+    postStateThrottled('sealchat.embed.state');
+  },
 );
 
 watch(
   () => [iFormButtonActive.value, iFormHasAttention.value] as const,
-  () => postStateThrottled('sealchat.embed.state'),
+  () => {
+    if (restoringSession.value) return;
+    postStateThrottled('sealchat.embed.state');
+  },
 );
 
 watch(
   () => audioStudio.drawerVisible,
-  () => postStateThrottled('sealchat.embed.state'),
+  () => {
+    if (restoringSession.value) return;
+    postStateThrottled('sealchat.embed.state');
+  },
 );
 
 watch(

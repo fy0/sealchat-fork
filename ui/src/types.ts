@@ -239,6 +239,18 @@ export interface ThemeManagementConfig {
   defaultPlatformThemeId?: string;
 }
 
+export interface UITextReplaceRule {
+  id: string;
+  searchText: string;
+  replaceText: string;
+  enabled: boolean;
+}
+
+export interface UITextReplaceConfig {
+  enabled: boolean;
+  rules: UITextReplaceRule[];
+}
+
 export type CertificateIssuer = 'letsencrypt_shortlived' | 'zerossl_90d';
 export type CertificateChallenge = 'http-01' | 'tls-alpn-01';
 
@@ -252,6 +264,10 @@ export interface CertificateConfig {
   httpsServeAt?: string;
   forceHTTPS: boolean;
   redirectHTTP: boolean;
+  checkIntervalMinutes: number;
+  renewBeforeDays: number;
+  retryInitialMinutes: number;
+  retryMaxMinutes: number;
   zeroSSLAPIKey?: string;
   zeroSSLEABKeyID?: string;
   zeroSSLEABMACKey?: string;
@@ -269,6 +285,15 @@ export interface CertificateStatus {
   notAfter?: string;
   remainingDays: number;
   lastError?: string;
+  lastCheckAt?: string;
+  lastSuccessAt?: string;
+  nextCheckAt?: string;
+  retryCount: number;
+  retrying: boolean;
+  renewBeforeDays: number;
+  checkIntervalMinutes: number;
+  retryInitialMinutes: number;
+  retryMaxMinutes: number;
 }
 
 export interface CertificateLogEntry {
@@ -315,6 +340,7 @@ export interface ServerConfig {
   audioImportEnabled?: boolean;
   loginBackground?: LoginBackgroundConfig;
   themeManagement?: ThemeManagementConfig;
+  uiTextReplace?: UITextReplaceConfig;
   certificate?: CertificateConfig;
 }
 

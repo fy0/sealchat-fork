@@ -80,6 +80,29 @@ export const fetchAttachmentMetaById = async (attachmentId: string): Promise<Att
   return attachmentMetaStore[normalized] || null;
 };
 
+export const fetchAttachmentFileById = async (attachmentId: string, fallbackName?: string): Promise<File | null> => {
+  const normalized = normalizeAttachmentId(attachmentId);
+  if (!normalized) {
+    return null;
+  }
+
+  const meta = await fetchAttachmentMetaById(normalized);
+  const resp = await api.get<Blob>(`api/v1/attachment/${normalized}`, {
+    responseType: 'blob',
+  });
+  const blob = resp.data;
+  if (!blob) {
+    return null;
+  }
+
+  const fileName = String(meta?.filename || fallbackName || `attachment-${normalized}`).trim() || `attachment-${normalized}`;
+  const fileType = blob.type || meta?.mimeType || 'application/octet-stream';
+  return new File([blob], fileName, {
+    type: fileType,
+    lastModified: Date.now(),
+  });
+};
+
 export const resolveAttachmentUrl = (value?: string) => {
   const raw = stripAttachmentPathIdPrefix((value || '').trim());
   if (!raw) {

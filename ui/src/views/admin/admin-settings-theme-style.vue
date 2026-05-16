@@ -3,13 +3,14 @@ import { cloneDeep } from 'lodash-es'
 import { computed, onMounted, ref } from 'vue'
 import { Photo as ImageIcon, X } from '@vicons/tabler'
 import { NIcon, useMessage } from 'naive-ui'
-import type { LoginBackgroundConfig, ServerConfig, ThemeManagementConfig } from '@/types'
+import type { LoginBackgroundConfig, ServerConfig, ThemeManagementConfig, UITextReplaceConfig, UITextReplaceRule } from '@/types'
 import { resolveAttachmentUrl } from '@/composables/useAttachmentResolver'
 import { useImageCompressor } from '@/composables/useImageCompressor'
 import { useLoginGlass } from '@/composables/useLoginGlass'
 import type { CustomThemeColors, PlatformTheme } from '@/services/theme/themeTypes'
 import { useDisplayStore } from '@/stores/display'
 import { useUtilsStore } from '@/stores/utils'
+import { normalizeUITextReplaceConfig } from '@/utils/uiTextReplace'
 import { uploadImageAttachment } from '@/views/chat/composables/useAttachmentUploader'
 
 type AdminThemeStyleExpose = {
@@ -37,6 +38,7 @@ const selectedPersonalThemeId = ref<string | null>(null)
 const loginBgFileInputRef = ref<HTMLInputElement | null>(null)
 const expandedNames = ref<string[]>([])
 const loginBackground = ref<LoginBackgroundConfig>({})
+const uiTextReplace = ref<UITextReplaceConfig>(normalizeUITextReplaceConfig())
 
 const { compress: compressImage } = useImageCompressor()
 const loginBgUploading = ref(false)
@@ -56,6 +58,7 @@ const isModified = computed(() =>
   JSON.stringify({
     themeManagement: model.value,
     loginBackground: loginBackground.value,
+    uiTextReplace: uiTextReplace.value,
   }) !== originalSnapshot.value,
 )
 
@@ -316,6 +319,39 @@ const formatTimestamp = (value?: number) => {
   return new Date(value).toLocaleString()
 }
 
+const buildUITextReplaceRule = (seed?: Partial<UITextReplaceRule>): UITextReplaceRule => ({
+  id: String(seed?.id || `ui-text-replace-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`).trim(),
+  searchText: String(seed?.searchText || ''),
+  replaceText: String(seed?.replaceText || ''),
+  enabled: seed?.enabled !== false,
+})
+
+const uiTextReplaceRules = computed(() => uiTextReplace.value.rules || [])
+
+const addUITextReplaceRule = () => {
+  uiTextReplace.value = {
+    ...uiTextReplace.value,
+    rules: [...uiTextReplaceRules.value, buildUITextReplaceRule()],
+  }
+  if (!expandedNames.value.includes('ui-text-replace')) {
+    expandedNames.value = [...expandedNames.value, 'ui-text-replace']
+  }
+}
+
+const removeUITextReplaceRule = (ruleId: string) => {
+  uiTextReplace.value = {
+    ...uiTextReplace.value,
+    rules: uiTextReplaceRules.value.filter((item) => item.id !== ruleId),
+  }
+}
+
+const resetUITextReplaceDefaults = () => {
+  uiTextReplace.value = normalizeUITextReplaceConfig({
+    enabled: uiTextReplace.value.enabled,
+    rules: [],
+  })
+}
+
 const readImportedTheme = async (file: File): Promise<ThemeImportPayload> => {
   const rawText = await file.text()
   let parsed: any
@@ -392,9 +428,11 @@ const resetFromConfig = async () => {
   }
   model.value = normalizeThemeManagement(utils.config?.themeManagement)
   loginBackground.value = cloneDeep(utils.config?.loginBackground || {})
+  uiTextReplace.value = normalizeUITextReplaceConfig(utils.config?.uiTextReplace)
   originalSnapshot.value = JSON.stringify({
     themeManagement: model.value,
     loginBackground: loginBackground.value,
+    uiTextReplace: uiTextReplace.value,
   })
 }
 
@@ -407,12 +445,15 @@ const save = async () => {
     const payload: ServerConfig = cloneDeep((utils.config || {}) as ServerConfig)
     payload.themeManagement = cloneDeep(model.value)
     payload.loginBackground = cloneDeep(loginBackground.value)
+    payload.uiTextReplace = cloneDeep(uiTextReplace.value)
     await utils.configSet(payload)
     model.value = normalizeThemeManagement(payload.themeManagement)
     loginBackground.value = cloneDeep(payload.loginBackground || {})
+    uiTextReplace.value = normalizeUITextReplaceConfig(payload.uiTextReplace)
     originalSnapshot.value = JSON.stringify({
       themeManagement: model.value,
       loginBackground: loginBackground.value,
+      uiTextReplace: uiTextReplace.value,
     })
     message.success('主题与样式管理已保存')
   } catch (error: any) {
@@ -620,6 +661,53 @@ defineExpose<AdminThemeStyleExpose>({
                 <div class="login-bg-preview-input"></div>
                 <div class="login-bg-preview-input"></div>
                 <div class="login-bg-preview-btn"></div>
+              </div>
+            </div>
+          </n-form-item>
+        </n-collapse-item>
+
+        <n-collapse-item title="界面文本自定义" name="ui-text-replace">
+          <n-form-item label="启用替换">
+            <div class="ui-text-replace-toggle-row">
+              <n-switch v-model:value="uiTextReplace.enabled" />
+              <span class="ui-text-replace-hint">这个功能允许自定义界面设置的任意文本</span>
+            </div>
+          </n-form-item>
+          <n-form-item label="作用范围">
+            <div class="ui-text-replace-note">
+              仅替换固定界面文字；不会处理聊天消息、输入框、富文本正文，以及标记为忽略的区域。
+            </div>
+          </n-form-item>
+          <n-form-item label="规则操作">
+            <div class="flex flex-wrap items-center gap-2 w-full">
+              <n-button size="small" secondary @click="addUITextReplaceRule">新增规则</n-button>
+              <n-button size="small" quaternary @click="resetUITextReplaceDefaults">恢复默认四条</n-button>
+              <span class="ui-text-replace-count">共 {{ uiTextReplaceRules.length }} 条；原文本留空时保存会自动忽略</span>
+            </div>
+          </n-form-item>
+          <n-form-item label="规则列表">
+            <div class="ui-text-replace-rule-list">
+              <n-empty v-if="uiTextReplaceRules.length === 0" description="暂无规则，点击上方按钮添加" />
+              <div v-for="rule in uiTextReplaceRules" :key="rule.id" class="ui-text-replace-rule">
+                <div class="ui-text-replace-rule__fields">
+                  <n-input
+                    v-model:value="rule.searchText"
+                    placeholder="原文本，例如：世界大厅"
+                    maxlength="64"
+                    show-count
+                  />
+                  <span class="ui-text-replace-rule__arrow">→</span>
+                  <n-input
+                    v-model:value="rule.replaceText"
+                    placeholder="替换文本，例如：超级大厅"
+                    maxlength="64"
+                    show-count
+                  />
+                </div>
+                <div class="ui-text-replace-rule__actions">
+                  <n-switch v-model:value="rule.enabled" />
+                  <n-button size="small" quaternary type="error" @click="removeUITextReplaceRule(rule.id)">删除</n-button>
+                </div>
               </div>
             </div>
           </n-form-item>
@@ -845,6 +933,84 @@ defineExpose<AdminThemeStyleExpose>({
   color: #9ca3af;
 }
 
+.ui-text-replace-toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.ui-text-replace-hint,
+.ui-text-replace-count {
+  font-size: 12px;
+  color: var(--sc-text-secondary, #6b7280);
+}
+
+.ui-text-replace-note {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--sc-border-mute, rgba(148, 163, 184, 0.2));
+  background: color-mix(in srgb, var(--sc-bg-elevated, #ffffff) 92%, transparent);
+  color: var(--sc-text-secondary, #475569);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.ui-text-replace-rule-list {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ui-text-replace-rule {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px;
+  border-radius: 10px;
+  border: 1px solid var(--sc-border-mute, rgba(148, 163, 184, 0.2));
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--sc-bg-surface, #f8fafc) 96%, transparent),
+    color-mix(in srgb, var(--sc-bg-elevated, #ffffff) 92%, transparent)
+  );
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--sc-border-strong, rgba(255, 255, 255, 0.16)) 20%, transparent);
+}
+
+.ui-text-replace-rule__fields {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+}
+
+.ui-text-replace-rule__arrow {
+  color: var(--sc-text-secondary, #64748b);
+  font-size: 13px;
+}
+
+.ui-text-replace-rule__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ui-text-replace-rule :deep(.n-input) {
+  --n-color: var(--sc-bg-input, #f3f4f6);
+  --n-color-focus: var(--sc-bg-input, #f3f4f6);
+  --n-text-color: var(--sc-text-primary, #0f172a);
+  --n-placeholder-color: var(--sc-text-secondary, #64748b);
+}
+
+.ui-text-replace-rule :deep(.n-input-wrapper) {
+  background-color: var(--sc-bg-input, #f3f4f6);
+}
+
 @media (max-width: 720px) {
   .theme-list-item {
     flex-direction: column;
@@ -852,6 +1018,22 @@ defineExpose<AdminThemeStyleExpose>({
   }
 
   .theme-list-item__actions {
+    justify-content: flex-start;
+  }
+
+  .ui-text-replace-rule {
+    flex-direction: column;
+  }
+
+  .ui-text-replace-rule__fields {
+    grid-template-columns: 1fr;
+  }
+
+  .ui-text-replace-rule__arrow {
+    display: none;
+  }
+
+  .ui-text-replace-rule__actions {
     justify-content: flex-start;
   }
 }

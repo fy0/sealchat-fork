@@ -793,6 +793,10 @@ func Init(config *utils.AppConfig, uiStatic fs.FS) error {
 		if validateErr := utils.ValidateThemeManagementConfig(newConfig.ThemeManagement); validateErr != nil {
 			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": validateErr.Error()})
 		}
+		newConfig.UITextReplace = utils.NormalizeUITextReplaceConfig(newConfig.UITextReplace)
+		if validateErr := utils.ValidateUITextReplaceConfig(newConfig.UITextReplace); validateErr != nil {
+			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": validateErr.Error()})
+		}
 
 		appConfig = mergeConfigForWrite(appConfig, &newConfig)
 		utils.WriteConfig(appConfig)

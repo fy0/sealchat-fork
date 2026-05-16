@@ -239,6 +239,8 @@ const (
 	CertificateIssuerZeroSSL90Days         CertificateIssuer = "zerossl_90d"
 )
 
+const certificateShortLivedMinRenewBeforeDays = 3
+
 type CertificateChallenge string
 
 const (
@@ -256,6 +258,10 @@ type CertificateConfig struct {
 	HTTPSServeAt     string               `json:"httpsServeAt" yaml:"httpsServeAt"`
 	ForceHTTPS       bool                 `json:"forceHTTPS" yaml:"forceHTTPS"`
 	RedirectHTTP     bool                 `json:"redirectHTTP" yaml:"redirectHTTP"`
+	CheckIntervalMinutes int              `json:"checkIntervalMinutes" yaml:"checkIntervalMinutes"`
+	RenewBeforeDays      int              `json:"renewBeforeDays" yaml:"renewBeforeDays"`
+	RetryInitialMinutes  int              `json:"retryInitialMinutes" yaml:"retryInitialMinutes"`
+	RetryMaxMinutes      int              `json:"retryMaxMinutes" yaml:"retryMaxMinutes"`
 	ZeroSSLAPIKey    string               `json:"zeroSSLAPIKey,omitempty" yaml:"zeroSSLAPIKey"`
 	ZeroSSLEABKeyID  string               `json:"zeroSSLEABKeyID,omitempty" yaml:"zeroSSLEABKeyID"`
 	ZeroSSLEABMACKey string               `json:"zeroSSLEABMACKey,omitempty" yaml:"zeroSSLEABMACKey"`
@@ -297,6 +303,7 @@ type AppConfig struct {
 	AuthSession               AuthSessionConfig       `json:"authSession" yaml:"authSession"`
 	LoginBackground           LoginBackgroundConfig   `json:"loginBackground" yaml:"loginBackground"`
 	ThemeManagement           ThemeManagementConfig   `json:"themeManagement" yaml:"themeManagement"`
+	UITextReplace             UITextReplaceConfig     `json:"uiTextReplace" yaml:"uiTextReplace"`
 	Certificate               CertificateConfig       `json:"certificate" yaml:"certificate"`
 }
 
@@ -475,6 +482,10 @@ func ReadConfig() *AppConfig {
 			PlatformThemes:         []PlatformThemeConfig{},
 			DefaultPlatformThemeID: "",
 		},
+		UITextReplace: UITextReplaceConfig{
+			Enabled: false,
+			Rules:   DefaultUITextReplaceRules(),
+		},
 		Certificate: defaultCertificateConfig(),
 	}
 
@@ -550,6 +561,7 @@ func ReadConfig() *AppConfig {
 	applyBackupDefaults(&config.Backup)
 	applyAuthSessionDefaults(&config.AuthSession)
 	config.ThemeManagement = NormalizeThemeManagementConfig(config.ThemeManagement)
+	config.UITextReplace = NormalizeUITextReplaceConfig(config.UITextReplace)
 	config.Certificate = NormalizeCertificateConfig(config.Certificate)
 
 	k.Print()
@@ -575,6 +587,21 @@ func NormalizeCertificateConfig(cfg CertificateConfig) CertificateConfig {
 	if cfg.StorageDir == "" {
 		cfg.StorageDir = defaultCertificateStorageDir
 	}
+	if cfg.CheckIntervalMinutes == 0 {
+		cfg.CheckIntervalMinutes = 360
+	}
+	if cfg.RenewBeforeDays == 0 {
+		cfg.RenewBeforeDays = 14
+	}
+	if cfg.Issuer == CertificateIssuerLetsEncryptShortLived && cfg.RenewBeforeDays < certificateShortLivedMinRenewBeforeDays {
+		cfg.RenewBeforeDays = certificateShortLivedMinRenewBeforeDays
+	}
+	if cfg.RetryInitialMinutes == 0 {
+		cfg.RetryInitialMinutes = 5
+	}
+	if cfg.RetryMaxMinutes == 0 {
+		cfg.RetryMaxMinutes = 240
+	}
 	return cfg
 }
 
@@ -585,10 +612,29 @@ func defaultCertificateConfig() CertificateConfig {
 		StorageDir:   defaultCertificateStorageDir,
 		ForceHTTPS:   true,
 		RedirectHTTP: true,
+		CheckIntervalMinutes: 360,
+		RenewBeforeDays:      14,
+		RetryInitialMinutes:  5,
+		RetryMaxMinutes:      240,
 	})
 }
 
 func ValidateCertificateConfig(cfg CertificateConfig) error {
+	if cfg.CheckIntervalMinutes < 0 {
+		return fmt.Errorf("证书检查周期必须大于 0")
+	}
+	if cfg.RenewBeforeDays < 0 {
+		return fmt.Errorf("证书最小续期阈值天数必须大于 0")
+	}
+	if cfg.RetryInitialMinutes < 0 {
+		return fmt.Errorf("证书重试初始间隔必须大于 0")
+	}
+	if cfg.RetryMaxMinutes < 0 {
+		return fmt.Errorf("证书重试最大间隔必须大于 0")
+	}
+	if cfg.RetryInitialMinutes > 0 && cfg.RetryMaxMinutes > 0 && cfg.RetryMaxMinutes < cfg.RetryInitialMinutes {
+		return fmt.Errorf("证书重试最大间隔不能小于初始间隔")
+	}
 	cfg = NormalizeCertificateConfig(cfg)
 	if !cfg.Enabled {
 		return nil
@@ -1024,6 +1070,7 @@ func WriteConfig(config *AppConfig) {
 		config.Captcha.normalize()
 		config.Storage.normalize()
 		config.Certificate = NormalizeCertificateConfig(config.Certificate)
+		config.UITextReplace = NormalizeUITextReplaceConfig(config.UITextReplace)
 		config.ImageCompressQuality = normalizeImageCompressQuality(config.ImageCompressQuality)
 		config.MessageSortBasis = NormalizeMessageSortBasis(config.MessageSortBasis)
 		if strings.TrimSpace(config.PageTitle) == "" {
@@ -1077,6 +1124,10 @@ func WriteConfig(config *AppConfig) {
 		_ = k.Set("certificate.httpsServeAt", config.Certificate.HTTPSServeAt)
 		_ = k.Set("certificate.forceHTTPS", config.Certificate.ForceHTTPS)
 		_ = k.Set("certificate.redirectHTTP", config.Certificate.RedirectHTTP)
+		_ = k.Set("certificate.checkIntervalMinutes", config.Certificate.CheckIntervalMinutes)
+		_ = k.Set("certificate.renewBeforeDays", config.Certificate.RenewBeforeDays)
+		_ = k.Set("certificate.retryInitialMinutes", config.Certificate.RetryInitialMinutes)
+		_ = k.Set("certificate.retryMaxMinutes", config.Certificate.RetryMaxMinutes)
 		_ = k.Set("certificate.zeroSSLAPIKey", config.Certificate.ZeroSSLAPIKey)
 		_ = k.Set("certificate.zeroSSLEABKeyID", config.Certificate.ZeroSSLEABKeyID)
 		_ = k.Set("certificate.zeroSSLEABMACKey", config.Certificate.ZeroSSLEABMACKey)
@@ -1204,6 +1255,8 @@ func WriteConfig(config *AppConfig) {
 		config.ThemeManagement = NormalizeThemeManagementConfig(config.ThemeManagement)
 		_ = k.Set("themeManagement.platformThemes", config.ThemeManagement.PlatformThemes)
 		_ = k.Set("themeManagement.defaultPlatformThemeId", config.ThemeManagement.DefaultPlatformThemeID)
+		_ = k.Set("uiTextReplace.enabled", config.UITextReplace.Enabled)
+		_ = k.Set("uiTextReplace.rules", config.UITextReplace.Rules)
 
 		if err := k.Unmarshal("", config); err != nil {
 			fmt.Printf("配置解析失败: %v\n", err)

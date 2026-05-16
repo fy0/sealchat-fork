@@ -59,12 +59,12 @@ import dayjs from 'dayjs';
 import IconNumber from '@/components/icons/IconNumber.vue'
 import IconBuildingBroadcastTower from '@/components/icons/IconBuildingBroadcastTower.vue'
 import { computedAsync, useDebounceFn, useEventListener, useWindowSize, useIntersectionObserver } from '@vueuse/core';
-import { useGalleryStore } from '@/stores/gallery';
+import { DEFAULT_GALLERY_PAGE_SIZE, useGalleryStore } from '@/stores/gallery';
 import { Settings, Close as CloseIcon, EyeOutline, EyeOffOutline } from '@vicons/ionicons5';
 import { dialogAskConfirm } from '@/utils/dialog';
 import { useI18n } from 'vue-i18n';
 import { isTipTapJson, tiptapJsonToHtml, tiptapJsonToPlainText } from '@/utils/tiptap-render';
-import { resolveAttachmentUrl, fetchAttachmentMetaById, normalizeAttachmentId, type AttachmentMeta } from '@/composables/useAttachmentResolver';
+import { resolveAttachmentUrl, fetchAttachmentMetaById, fetchAttachmentFileById, normalizeAttachmentId, type AttachmentMeta } from '@/composables/useAttachmentResolver';
 import { ensureDefaultDiceExpr, matchDiceExpressions, parseMultiDiceExpression, type DiceMatch } from '@/utils/dice';
 import { recordDiceHistory } from '@/views/chat/composables/useDiceHistory';
 import DOMPurify from 'dompurify';
@@ -127,6 +127,7 @@ import {
 } from './inputHistoryWhisperState';
 import { buildEditMessageUpdateOptions } from './editMessageUpdate';
 import { shouldMergeNeighborMessages } from './messageMerge';
+import { useRobustInfiniteScroll } from '@/composables/useRobustInfiniteScroll';
 
 const EmojiPickerModal = defineAsyncComponent(() => import('./components/EmojiPickerModal.vue'));
 
@@ -192,6 +193,7 @@ const openSplitView = async () => {
       name: 'split',
       query: {
         layout: 'left-column',
+        scopeWorldId: worldId,
         worldId,
         a: currentChannelId,
         b: '',
@@ -315,6 +317,14 @@ const openPanelForShell = (panel: ExternalPanelKey) => {
   }
 };
 
+const setSearchPanelVisibleForShell = (visible: boolean) => {
+  if (visible) {
+    channelSearch.openPanel();
+    return;
+  }
+  channelSearch.closePanel();
+};
+
 const setFiltersForShell = (filters: any) => {
   chat.setFilterState(filters);
 };
@@ -335,8 +345,62 @@ const getStickyNoteVisible = () => stickyNoteStore.uiVisible;
 
 const getCharacterCardVisible = () => characterCardPanelVisible.value;
 
+const refreshPresenceForShell = async (silent = true) => {
+  const selfId = user.info?.id || '';
+  const channelId = chat.curChannel?.id ? String(chat.curChannel.id) : '';
+  if (!channelId) {
+    chat.curChannelUsers = [];
+    chat.clearPresenceMap();
+    if (!silent) {
+      message.warning('当前无可用频道');
+    }
+    return;
+  }
+
+  try {
+    const onlineResp = await chat.sendAPI<any>('channel.member.list.online', { channel_id: channelId } as any);
+    const onlineItems = Array.isArray(onlineResp?.data?.data) ? onlineResp.data.data : [];
+    chat.curChannelUsers = onlineItems;
+
+    const data = await chat.getChannelPresence();
+    const updatedAt = typeof data?.updated_at === 'number' ? data.updated_at : undefined;
+    if (typeof updatedAt === 'number') {
+      chat.syncServerTime(updatedAt);
+    }
+    if (Array.isArray(data?.data)) {
+      data.data.forEach((item: any) => {
+        const userId = item?.user?.id || item?.user_id;
+        if (!userId) {
+          return;
+        }
+        const isSelf = selfId && userId === selfId;
+        const lastSeenServer = item?.lastSeen ?? item?.last_seen;
+        chat.updatePresence(userId, {
+          lastPing: isSelf
+            ? Date.now()
+            : (typeof lastSeenServer === 'number' ? chat.serverTsToLocal(lastSeenServer) : Date.now()),
+          latencyMs: isSelf ? chat.lastLatencyMs : (item?.latency ?? item?.latency_ms ?? 0),
+          isFocused: isSelf ? chat.isAppFocused : (item?.focused ?? item?.is_focused ?? false),
+        });
+      });
+    }
+    chat.measureLatency();
+    if (!silent) {
+      message.success('状态已刷新');
+    }
+  } catch (error) {
+    if (!silent) {
+      message.error('刷新失败');
+    } else {
+      console.error('shell refresh presence failed', error);
+    }
+  }
+};
+
 defineExpose({
   openPanelForShell,
+  refreshPresenceForShell,
+  setSearchPanelVisibleForShell,
   setFiltersForShell,
   setStickyNoteVisible,
   setCharacterCardVisible,
@@ -1423,6 +1487,9 @@ const emojiPopoverXCoord = computed(() => emojiPopoverX.value ?? undefined);
 const emojiPopoverYCoord = computed(() => emojiPopoverY.value ?? undefined);
 const emojiSearchQuery = ref('');
 const emojiPanelTab = ref<'gallery' | 'utf' | 'variant'>('gallery');
+const emojiPanelRenderKey = ref(0);
+const emojiPanelContentRef = ref<HTMLElement | null>(null);
+const emojiPanelLoadMoreSentinelRef = ref<HTMLElement | null>(null);
 const isManagingEmoji = ref(false);
 const emojiRemarkVisible = computed(() => gallery.emojiRemarkVisible);
 const activeIdentityForEmojiPanel = computed(() => chat.getActiveIdentity(chat.curChannel?.id || ''));
@@ -1510,6 +1577,26 @@ const emojiTabOptions = computed(() => {
   });
 });
 const hasMultipleTabs = computed(() => emojiTabOptions.value.length > 1);
+const emojiPanelPagination = computed(() => {
+  const tabId = activeEmojiTab.value;
+  if (!tabId) {
+    return { page: 1, pageSize: DEFAULT_GALLERY_PAGE_SIZE, total: emojiItems.value.length };
+  }
+  return gallery.getItemPagination(tabId);
+});
+const emojiPanelLoading = computed(() => {
+  const tabId = activeEmojiTab.value;
+  return tabId ? gallery.isCollectionLoading(tabId) : false;
+});
+const emojiPanelLoadingMore = computed(() => {
+  const tabId = activeEmojiTab.value;
+  return tabId ? gallery.isCollectionLoadingMore(tabId) : false;
+});
+const emojiPanelHasMore = computed(() => {
+  const tabId = activeEmojiTab.value;
+  if (!tabId) return false;
+  return emojiPanelPagination.value.total > gallery.getItemsByCollection(tabId).length;
+});
 
 const toggleEmojiRemarkVisible = () => {
   const userId = user.info?.id;
@@ -1545,24 +1632,6 @@ const syncEmojiPopoverPosition = (trigger?: HTMLElement | null) => {
   return true;
 };
 
-if (typeof window !== 'undefined') {
-  useEventListener(window, 'resize', () => {
-    if (emojiPopoverShow.value) {
-      syncEmojiPopoverPosition();
-    }
-  });
-  useEventListener(
-    window,
-    'scroll',
-    () => {
-      if (emojiPopoverShow.value) {
-        syncEmojiPopoverPosition();
-      }
-    },
-    { passive: true, capture: true },
-  );
-}
-
 const allGalleryItems = computed(() =>
   Object.values(gallery.items).flatMap((entry) => entry?.items ?? [])
 );
@@ -1581,6 +1650,75 @@ const ensureEmojiCollectionLoaded = async () => {
     // ignore load errors for emoji collections
   }
 };
+
+const loadMoreEmojiPanelItems = async () => {
+  const tabId = activeEmojiTab.value;
+  if (!tabId || emojiPanelLoading.value || emojiPanelLoadingMore.value || !emojiPanelHasMore.value) {
+    return;
+  }
+  const current = gallery.getItemPagination(tabId);
+  await gallery.loadItems(tabId, {
+    page: current.page + 1,
+    pageSize: current.pageSize,
+    append: true,
+  });
+};
+
+const handleEmojiPanelContentScroll = (event: Event) => {
+  if (emojiPanelTab.value !== 'gallery') {
+    return;
+  }
+  const target = event.target as HTMLElement | null;
+  if (!target) {
+    return;
+  }
+  if (target.scrollTop + target.clientHeight >= target.scrollHeight - 40) {
+    void loadMoreEmojiPanelItems();
+  }
+};
+
+const refreshEmojiPanelRender = () => {
+  emojiPanelRenderKey.value += 1;
+};
+
+if (typeof window !== 'undefined') {
+  useEventListener(window, 'resize', () => {
+    if (emojiPopoverShow.value) {
+      syncEmojiPopoverPosition();
+    }
+  });
+  useEventListener(
+    window,
+    'scroll',
+    () => {
+      if (emojiPopoverShow.value) {
+        syncEmojiPopoverPosition();
+      }
+    },
+    { passive: true, capture: true },
+  );
+}
+
+useRobustInfiniteScroll({
+  containerRef: emojiPanelContentRef,
+  sentinelRef: emojiPanelLoadMoreSentinelRef,
+  enabled: computed(() => emojiPanelTab.value === 'gallery'),
+  canLoadMore: emojiPanelHasMore,
+  loading: computed(() => emojiPanelLoading.value || emojiPanelLoadingMore.value),
+  onLoadMore: loadMoreEmojiPanelItems,
+  triggerDeps: () => [
+    emojiPanelTab.value,
+    activeEmojiTab.value,
+    filteredEmojiItems.value.length,
+    emojiPanelLoading.value,
+    emojiPanelLoadingMore.value,
+  ],
+  rootMargin: '0px 0px 80px 0px',
+  bottomOffset: 40,
+  scrollFallback: true,
+  observeResize: true,
+  requestAnimationFrameCheck: true,
+});
 
 onMounted(() => {
   try {
@@ -1824,7 +1962,6 @@ const inputExtraActionsTeleportTarget = computed<HTMLElement | null>(() => {
 });
 const showMinimalStackedSideControls = computed(() => (
   isMinimalInputActive.value
-  && !isEditing.value
   && minimalInputMeasuredHeight.value >= MINIMAL_INPUT_STACKED_THRESHOLD
 ));
 const showMinimalWideInputShortcut = computed(() => (
@@ -2315,6 +2452,29 @@ const openRichInlineImageEditor = (
   richInlineImageEditorVisible.value = !!richInlineImageEditorFile.value;
 };
 
+const handleMessageInlineImageEdit = async (payload: { attachmentId: string; messageId?: string; src?: string }) => {
+  const attachmentId = normalizeAttachmentId(payload.attachmentId || payload.src || '');
+  if (!attachmentId) {
+    message.warning('无法识别消息图片');
+    return;
+  }
+
+  const source: InlineUploadSource = inputMode.value === 'rich' ? 'rich-editor' : 'default';
+  const selection = captureSelectionRange();
+
+  try {
+    const file = await fetchAttachmentFileById(attachmentId, `message-image-${attachmentId}.png`);
+    if (!file) {
+      message.error('图片载入失败');
+      return;
+    }
+    openRichInlineImageEditor([file], source, selection);
+  } catch (error: any) {
+    console.error('载入聊天消息图片失败', error);
+    message.error(error?.message || '图片载入失败');
+  }
+};
+
 const handleRichInlineImageEditorConfirm = async (file: File) => {
   const shouldInsertIntoRichEditor = activeInlineEditorSource === 'rich-editor' || inputMode.value === 'rich';
   const targetSelection = activeInlineEditorSelection ? { ...activeInlineEditorSelection } : undefined;
@@ -2353,6 +2513,7 @@ watch(emojiPopoverShow, (show, prevShow) => {
     isManagingEmoji.value = false;
     emojiSearchQuery.value = '';
   } else {
+    refreshEmojiPanelRender();
     nextTick(() => {
       syncEmojiPopoverPosition();
     });
@@ -2428,6 +2589,7 @@ const handleEmojiTriggerClick = (event?: MouseEvent) => {
 
 const switchEmojiPanelTab = (tab: 'gallery' | 'utf' | 'variant') => {
   emojiPanelTab.value = tab;
+  refreshEmojiPanelRender();
   if (tab !== 'gallery') {
     isManagingEmoji.value = false;
   }
@@ -14369,8 +14531,11 @@ onBeforeUnmount(() => {
                   </div>
 
                   <div
+                    :key="`emoji-panel-${emojiPanelRenderKey}`"
+                    ref="emojiPanelContentRef"
                     class="emoji-panel__content"
                     :class="{ 'emoji-panel__content--utf': emojiPanelTab === 'utf' }"
+                    @scroll="handleEmojiPanelContentScroll"
                   >
                     <template v-if="emojiPanelTab === 'utf'">
                       <div class="emoji-panel__utf-host">
@@ -14506,6 +14671,12 @@ onBeforeUnmount(() => {
                       </div>
                     </template>
                     </template>
+                    <div
+                      v-if="emojiPanelTab === 'gallery' && filteredEmojiItems.length"
+                      ref="emojiPanelLoadMoreSentinelRef"
+                      class="emoji-grid__sentinel"
+                      aria-hidden="true"
+                    ></div>
                   </div>
                 </div>
               </n-popover>
@@ -14782,6 +14953,7 @@ onBeforeUnmount(() => {
                 @reedit-revoked="handleReeditRevokedMessage"
                 @retry-send="retrySendMessage"
                 @image-layout-edit-state-change="handleImageLayoutEditStateChange"
+                @edit-inline-image="handleMessageInlineImageEdit"
               />
             </div>
           </div>
@@ -14878,6 +15050,7 @@ onBeforeUnmount(() => {
                     @reedit-revoked="handleReeditRevokedMessage"
                     @retry-send="retrySendMessage"
                     @image-layout-edit-state-change="handleImageLayoutEditStateChange"
+                    @edit-inline-image="handleMessageInlineImageEdit"
                   />
                 </div>
               </div>
@@ -14915,6 +15088,7 @@ onBeforeUnmount(() => {
                 @reedit-revoked="handleReeditRevokedMessage"
                 @retry-send="retrySendMessage"
                 @image-layout-edit-state-change="handleImageLayoutEditStateChange"
+                @edit-inline-image="handleMessageInlineImageEdit"
               />
             </template>
             <template v-else>
@@ -14950,6 +15124,7 @@ onBeforeUnmount(() => {
                 @reedit-revoked="handleReeditRevokedMessage"
                 @retry-send="retrySendMessage"
                 @image-layout-edit-state-change="handleImageLayoutEditStateChange"
+                @edit-inline-image="handleMessageInlineImageEdit"
               />
             </template>
           </div>
@@ -15425,8 +15600,11 @@ onBeforeUnmount(() => {
                         </div>
 
                         <div
+                          :key="`emoji-panel-${emojiPanelRenderKey}`"
+                          ref="emojiPanelContentRef"
                           class="emoji-panel__content"
                           :class="{ 'emoji-panel__content--utf': emojiPanelTab === 'utf' }"
+                          @scroll="handleEmojiPanelContentScroll"
                         >
                           <template v-if="emojiPanelTab === 'utf'">
                             <div class="emoji-panel__utf-host">
@@ -15562,6 +15740,12 @@ onBeforeUnmount(() => {
                             </div>
                           </template>
                           </template>
+                          <div
+                            v-if="emojiPanelTab === 'gallery' && filteredEmojiItems.length"
+                            ref="emojiPanelLoadMoreSentinelRef"
+                            class="emoji-grid__sentinel"
+                            aria-hidden="true"
+                          ></div>
                         </div>
                       </div>
                     </n-popover>
@@ -16076,7 +16260,10 @@ onBeforeUnmount(() => {
               :class="{ 'chat-input-editor-row--side-stacked': showMinimalStackedSideControls }"
               :style="chatInputStyle"
             >
-              <div class="chat-input-minimal-side">
+              <div
+                class="chat-input-minimal-side"
+                :class="{ 'chat-input-minimal-side--editing-floating': isEditing && !showMinimalStackedSideControls }"
+              >
                 <div class="chat-input-actions__cell identity-switcher-cell identity-switcher-cell--minimal">
                   <ChannelIdentitySwitcher
                     v-if="chat.curChannel"
@@ -16091,8 +16278,26 @@ onBeforeUnmount(() => {
                   />
                 </div>
                 <div
-                  v-if="showMinimalStackedSideControls"
+                  v-if="showMinimalStackedSideControls && isEditing"
+                  class="chat-input-minimal-side__aux chat-input-minimal-side__aux--editing"
+                >
+                  <ChatIcOocToggle
+                    v-model="inputIcMode"
+                    compact
+                  />
+                </div>
+                <div
+                  v-else-if="showMinimalStackedSideControls"
                   class="chat-input-minimal-side__aux"
+                >
+                  <ChatIcOocToggle
+                    v-model="inputIcMode"
+                    compact
+                  />
+                </div>
+                <div
+                  v-else-if="isEditing"
+                  class="chat-input-actions__cell chat-input-minimal-side__floating-toggle"
                 >
                   <ChatIcOocToggle
                     v-model="inputIcMode"
@@ -19314,6 +19519,7 @@ onBeforeUnmount(() => {
   align-self: stretch;
   justify-content: flex-end;
   gap: 0.4rem;
+  position: relative;
 }
 
 .chat-input-minimal-actions {
@@ -19323,6 +19529,12 @@ onBeforeUnmount(() => {
 .chat-input-editor-row--minimal:not(.chat-input-editor-row--side-stacked) .chat-input-minimal-side {
   align-self: center;
   justify-content: center;
+}
+
+.chat-input-minimal-side--editing-floating {
+  padding-inline-end: 0.8rem;
+  align-self: stretch;
+  justify-content: flex-start;
 }
 
 .chat-input-minimal-actions--draft,
@@ -19351,6 +19563,21 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+.chat-input-minimal-side__aux--editing {
+  margin-top: auto;
+}
+
+.chat-input-minimal-side__floating-toggle {
+  position: absolute;
+  inset-inline-end: 0;
+  inset-block-end: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transform: translateX(42%);
+  z-index: 1;
 }
 
 .chat-input-minimal-actions__primary {
@@ -20432,6 +20659,11 @@ onBeforeUnmount(() => {
   display: grid;
   grid-template-columns: repeat(5, minmax(64px, 1fr));
   gap: 0.5rem;
+}
+
+.emoji-grid__sentinel {
+  grid-column: 1 / -1;
+  height: 1px;
 }
 
 @media (max-width: 768px) {

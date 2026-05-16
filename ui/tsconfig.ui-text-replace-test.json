@@ -1,0 +1,15 @@
+{
+  "extends": "./tsconfig.app.json",
+  "include": [
+    "env.d.ts",
+    "src/types.ts",
+    "src/services/theme/themeTypes.ts",
+    "src/utils/uiTextReplace.ts",
+    "scripts/ui-text-replace-regression.test.ts"
+  ],
+  "compilerOptions": {
+    "composite": false,
+    "noEmit": false,
+    "outDir": "/tmp/ui-text-replace-green"
+  }
+}

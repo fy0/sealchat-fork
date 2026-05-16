@@ -4,10 +4,11 @@ import { useMessage } from 'naive-ui';
 import { addRecentEmoji, loadRecentEmojis } from '@/utils/recentEmojis';
 import { normalizeAttachmentId, resolveAttachmentUrl, fetchAttachmentMetaById, type AttachmentMeta } from '@/composables/useAttachmentResolver';
 import { uploadImageAttachment } from '@/views/chat/composables/useAttachmentUploader';
-import { useGalleryStore } from '@/stores/gallery';
+import { DEFAULT_GALLERY_PAGE_SIZE, useGalleryStore } from '@/stores/gallery';
 import { useUserStore } from '@/stores/user';
 import { useChatStore } from '@/stores/chat';
 import { matchText } from '@/utils/pinyinMatch';
+import { useRobustInfiniteScroll } from '@/composables/useRobustInfiniteScroll';
 import 'emoji-picker-element';
 
 const props = withDefaults(defineProps<{
@@ -38,11 +39,24 @@ const customEmojiItems = computed(() => gallery.reactionEmojiItems);
 const searchKeyword = ref('');
 const displayLimit = ref(120);
 const customGridRef = ref<HTMLElement | null>(null);
+const customGridSentinelRef = ref<HTMLElement | null>(null);
 const PAGE_SIZE = 120;
 const EMOJI_LOAD_TIMEOUT_MS = 5000;
 const activeTab = ref<'emoji' | 'reaction'>(props.mode === 'emoji-only' ? 'emoji' : props.initialTab);
 const customEmojiMetaCache = reactive<Record<string, AttachmentMeta | null>>({});
 const pendingCustomEmojiMeta = new Set<string>();
+const reactionCollectionId = computed(() => gallery.reactionCollectionId);
+const reactionPagination = computed(() => (
+  reactionCollectionId.value
+    ? gallery.getItemPagination(reactionCollectionId.value)
+    : { page: 1, pageSize: DEFAULT_GALLERY_PAGE_SIZE, total: 0 }
+));
+const reactionLoadingMore = computed(() => (
+  reactionCollectionId.value ? gallery.isCollectionLoadingMore(reactionCollectionId.value) : false
+));
+const reactionLoading = computed(() => (
+  reactionCollectionId.value ? gallery.isCollectionLoading(reactionCollectionId.value) : false
+));
 
 const filteredCustomEmojiItems = computed(() => {
   const list = customEmojiItems.value;
@@ -59,6 +73,9 @@ const visibleCustomEmojiItems = computed(() =>
 );
 
 const hasMoreCustomEmoji = computed(() => filteredCustomEmojiItems.value.length > displayLimit.value);
+const canLoadMoreCustomEmoji = computed(() =>
+  reactionPagination.value.total > customEmojiItems.value.length
+);
 
 const handleEmojiClick = (event: CustomEvent) => {
   const emoji = event.detail?.unicode;
@@ -121,12 +138,35 @@ const handleFileInput = async (event: Event) => {
   }
 };
 
-const handleCustomGridScroll = (event: Event) => {
-  if (!hasMoreCustomEmoji.value) return;
-  const target = event.target as HTMLElement | null;
-  if (!target) return;
-  if (target.scrollTop + target.clientHeight >= target.scrollHeight - 40) {
+const loadMoreCustomEmoji = async () => {
+  const collectionId = reactionCollectionId.value;
+  if (!collectionId) return;
+
+  if (hasMoreCustomEmoji.value) {
     displayLimit.value += PAGE_SIZE;
+  }
+
+  if (!canLoadMoreCustomEmoji.value || reactionLoading.value || reactionLoadingMore.value) {
+    return;
+  }
+
+  await gallery.loadItems(collectionId, {
+    page: reactionPagination.value.page + 1,
+    pageSize: reactionPagination.value.pageSize,
+    append: true,
+  });
+};
+
+const handleCustomGridScroll = (event: Event) => {
+  if (activeTab.value !== 'reaction') {
+    return;
+  }
+  const target = event.target as HTMLElement | null;
+  if (!target) {
+    return;
+  }
+  if (target.scrollTop + target.clientHeight >= target.scrollHeight - 40) {
+    void loadMoreCustomEmoji();
   }
 };
 
@@ -358,6 +398,29 @@ onUnmounted(() => {
   }
 });
 
+useRobustInfiniteScroll({
+  containerRef: customGridRef,
+  sentinelRef: customGridSentinelRef,
+  enabled: computed(() => activeTab.value === 'reaction'),
+  canLoadMore: computed(() => hasMoreCustomEmoji.value || canLoadMoreCustomEmoji.value),
+  loading: computed(() => reactionLoading.value || reactionLoadingMore.value),
+  onLoadMore: loadMoreCustomEmoji,
+  triggerDeps: () => [
+    customEmojiItems.value.length,
+    visibleCustomEmojiItems.value.length,
+    filteredCustomEmojiItems.value.length,
+    activeTab.value,
+    reactionLoading.value,
+    reactionLoadingMore.value,
+    searchKeyword.value,
+  ],
+  rootMargin: '0px 0px 80px 0px',
+  bottomOffset: 40,
+  scrollFallback: true,
+  observeResize: true,
+  requestAnimationFrameCheck: true,
+});
+
 watch(searchKeyword, () => {
   displayLimit.value = PAGE_SIZE;
   if (customGridRef.value) {
@@ -410,7 +473,7 @@ watch(
           </button>
         </div>
         <div class="emoji-picker-body">
-          <div v-if="props.mode !== 'emoji-only'" v-show="activeTab === 'reaction'" class="custom-emoji-section">
+          <div v-if="props.mode !== 'emoji-only' && activeTab === 'reaction'" class="custom-emoji-section">
             <div class="custom-emoji-header">
               <span>自定义表情反应</span>
               <button class="custom-emoji-upload" type="button" :disabled="uploading" @click="triggerUpload">
@@ -454,13 +517,20 @@ watch(
               >
                 <img :src="resolveCustomEmojiSrc(item.attachmentId, item.thumbUrl)" :alt="item.remark || 'emoji'" />
               </button>
+              <div ref="customGridSentinelRef" class="custom-emoji-grid__sentinel" aria-hidden="true"></div>
             </div>
             <div v-else class="custom-emoji-empty">
               {{ searchKeyword ? '没有匹配的表情' : '暂无自定义表情' }}
             </div>
-            <div v-if="hasMoreCustomEmoji" class="custom-emoji-more">继续下拉加载更多</div>
+            <div v-if="reactionLoadingMore" class="custom-emoji-more">加载更多中...</div>
+            <div v-else-if="canLoadMoreCustomEmoji" class="custom-emoji-more">
+              已加载 {{ customEmojiItems.length }}/{{ reactionPagination.total }} 个，继续下拉加载更多
+            </div>
+            <div v-else-if="hasMoreCustomEmoji" class="custom-emoji-more">
+              已显示 {{ visibleCustomEmojiItems.length }}/{{ filteredCustomEmojiItems.length }} 个匹配项，继续下拉查看更多
+            </div>
           </div>
-          <div v-show="activeTab === 'emoji'" class="emoji-picker-pane">
+          <div v-if="activeTab === 'emoji'" class="emoji-picker-pane">
             <emoji-picker class="light"></emoji-picker>
           </div>
         </div>
@@ -569,6 +639,11 @@ watch(
 }
 
 .custom-emoji-section {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
   padding: 12px 16px 8px;
 }
 
@@ -632,8 +707,14 @@ watch(
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(40px, 1fr));
   gap: 6px;
+  flex: 1;
   max-height: min(240px, 35vh);
   overflow: auto;
+  min-height: 0;
+  align-content: start;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
   padding-right: 4px;
 }
 
@@ -658,6 +739,11 @@ watch(
 .custom-emoji-item:hover {
   border-color: var(--sc-border-strong, rgba(15, 23, 42, 0.12));
   background: var(--sc-bg-layer, rgba(15, 23, 42, 0.04));
+}
+
+.custom-emoji-grid__sentinel {
+  grid-column: 1 / -1;
+  height: 1px;
 }
 
 .custom-emoji-empty {

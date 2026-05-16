@@ -5,7 +5,7 @@
     </div>
     <div v-if="loading" class="gallery-grid__placeholder">加载中...</div>
     <div v-else-if="!items.length" class="gallery-grid__placeholder">暂无图片资源</div>
-    <div v-else ref="contentRef" class="gallery-grid__content">
+    <div v-else ref="contentRef" class="gallery-grid__content" @scroll="handleContentScroll">
       <div
         v-for="(item, index) in items"
         :key="item.id"
@@ -40,7 +40,7 @@
           <n-button quaternary size="tiny" type="error" @click.stop="emit('delete', item)">删除</n-button>
         </div>
       </div>
-      <div class="gallery-grid__footer">
+      <div ref="loadMoreSentinelRef" class="gallery-grid__footer">
         <span v-if="loadingMore">加载更多中...</span>
         <span v-else-if="hasMore">已加载 {{ items.length }}/{{ totalCount }} 张，向下滚动继续加载</span>
         <span v-else>已加载全部 {{ totalCount }} 张</span>
@@ -51,11 +51,11 @@
 
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue';
-import { useInfiniteScroll } from '@vueuse/core';
 import { NButton, NImage, NCheckbox } from 'naive-ui';
 import type { GalleryItem } from '@/types';
 import { fetchAttachmentMetaById, normalizeAttachmentId, resolveAttachmentUrl, type AttachmentMeta } from '@/composables/useAttachmentResolver';
 import { urlBase } from '@/stores/_config';
+import { useRobustInfiniteScroll } from '@/composables/useRobustInfiniteScroll';
 
 const props = defineProps<{
   items: GalleryItem[];
@@ -86,6 +86,7 @@ const sizeClass = computed(() => `gallery-grid--${props.thumbnailSize ?? 'medium
 const totalCount = computed(() => Math.max(props.total ?? 0, props.items.length));
 const dragOverIndex = ref<number | null>(null);
 const contentRef = ref<HTMLElement | null>(null);
+const loadMoreSentinelRef = ref<HTMLElement | null>(null);
 let lastClickIndex = -1;
 let draggingIndex = -1;
 
@@ -144,6 +145,14 @@ function resolveGalleryItemSrc(item: GalleryItem) {
   return `${urlBase}/api/v1/attachment/${normalized}/thumb?size=${size}`;
 }
 
+const handleContentScroll = (event: Event) => {
+  const target = event.target as HTMLElement | null;
+  if (!target) return;
+  if (target.scrollTop + target.clientHeight >= target.scrollHeight - 40) {
+    emit('load-more');
+  }
+};
+
 watch(
   () => props.items,
   (items) => {
@@ -154,18 +163,19 @@ watch(
   { immediate: true },
 );
 
-useInfiniteScroll(
-  contentRef,
-  () => {
-    if (!props.loading && !props.loadingMore && props.hasMore) {
-      emit('load-more');
-    }
-  },
-  {
-    distance: 120,
-    canLoadMore: () => Boolean(props.hasMore) && !props.loading && !props.loadingMore
-  }
-);
+useRobustInfiniteScroll({
+  containerRef: contentRef,
+  sentinelRef: loadMoreSentinelRef,
+  canLoadMore: computed(() => Boolean(props.hasMore)),
+  loading: computed(() => Boolean(props.loading || props.loadingMore)),
+  onLoadMore: () => emit('load-more'),
+  triggerDeps: () => [props.items.length, props.hasMore, props.loading, props.loadingMore],
+  rootMargin: '0px 0px 120px 0px',
+  bottomOffset: 40,
+  scrollFallback: true,
+  observeResize: true,
+  requestAnimationFrameCheck: true,
+});
 
 function handleClick(item: GalleryItem, index: number, evt: MouseEvent) {
   if (!props.selectable) {
@@ -242,9 +252,11 @@ function handleDrop(toIndex: number, evt: DragEvent) {
 <style scoped>
 .gallery-grid {
   display: flex;
+  flex: 1;
   flex-direction: column;
   gap: 8px;
   height: 100%;
+  min-height: 0;
   --grid-min-size: 96px;
   --grid-gap: 12px;
   --grid-item-padding: 8px;

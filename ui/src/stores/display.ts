@@ -87,6 +87,7 @@ export interface DisplaySettings {
   messagePaddingY: number
   sendShortcut: 'enter' | 'ctrlEnter'
   mobileMinimalInputEnabled: boolean
+  channelAggregateBadgeEnabled: boolean
   enableIcToggleHotkey: boolean
   favoriteChannelBarEnabled: boolean
   favoriteChannelIdsByWorld: Record<string, string[]>
@@ -459,6 +460,7 @@ export const createDefaultDisplaySettings = (): DisplaySettings => ({
   messagePaddingY: MESSAGE_PADDING_Y_DEFAULT,
   sendShortcut: SEND_SHORTCUT_DEFAULT,
   mobileMinimalInputEnabled: false,
+  channelAggregateBadgeEnabled: true,
   enableIcToggleHotkey: true,
   favoriteChannelBarEnabled: false,
   favoriteChannelIdsByWorld: {},
@@ -724,6 +726,7 @@ const loadSettings = (): DisplaySettings => {
       ),
       sendShortcut: coerceSendShortcut((parsed as any)?.sendShortcut),
       mobileMinimalInputEnabled: coerceBoolean((parsed as any)?.mobileMinimalInputEnabled ?? false),
+      channelAggregateBadgeEnabled: coerceBoolean((parsed as any)?.channelAggregateBadgeEnabled ?? true),
       enableIcToggleHotkey: coerceBoolean((parsed as any)?.enableIcToggleHotkey ?? true),
       favoriteChannelBarEnabled: coerceBoolean(parsed.favoriteChannelBarEnabled),
       favoriteChannelIdsByWorld,
@@ -935,6 +938,10 @@ const normalizeWith = (base: DisplaySettings, patch?: Partial<DisplaySettings>):
     patch && Object.prototype.hasOwnProperty.call(patch, 'mobileMinimalInputEnabled')
       ? coerceBoolean((patch as any).mobileMinimalInputEnabled ?? false)
       : base.mobileMinimalInputEnabled,
+  channelAggregateBadgeEnabled:
+    patch && Object.prototype.hasOwnProperty.call(patch, 'channelAggregateBadgeEnabled')
+      ? coerceBoolean((patch as any).channelAggregateBadgeEnabled ?? true)
+      : base.channelAggregateBadgeEnabled,
   enableIcToggleHotkey:
     patch && Object.prototype.hasOwnProperty.call(patch, 'enableIcToggleHotkey')
       ? coerceBoolean((patch as any).enableIcToggleHotkey)
