@@ -237,11 +237,15 @@
       <n-drawer-content>
         <template #header>
           <div class="audio-library__drawer-header">
+            <n-button v-if="isMobileLayout" quaternary size="tiny" @click="folderDrawerVisible = false">返回</n-button>
             <span>文件夹</span>
             <n-button quaternary size="tiny" @click="folderDrawerVisible = false">关闭</n-button>
           </div>
         </template>
-        <div class="audio-library__drawer-panel">
+          <div class="audio-library__drawer-panel">
+          <p v-if="isMobileLayout" class="audio-library__mobile-tip">
+            点击文件夹进入内容，开启“编辑文件夹”后点击查看详情
+          </p>
           <div class="audio-library__panel-top">
             <div class="audio-library__panel-title">
               <span>文件夹</span>
@@ -257,6 +261,14 @@
                 @click="confirmDeleteFolder"
               >
                 删除
+              </n-button>
+              <n-button
+                quaternary
+                size="tiny"
+                :type="folderEditMode ? 'primary' : 'default'"
+                @click="folderEditMode = !folderEditMode"
+              >
+                {{ folderEditMode ? '完成编辑' : '编辑文件夹' }}
               </n-button>
             </div>
           </div>
@@ -282,7 +294,9 @@
       <n-drawer-content>
         <template #header>
           <div class="audio-library__drawer-header">
+            <n-button v-if="isMobileLayout" quaternary size="tiny" @click="detailDrawerVisible = false">返回</n-button>
             <span>素材详情</span>
+            <n-button v-if="isMobileLayout" quaternary size="tiny" @click="detailDrawerVisible = false">关闭</n-button>
           </div>
         </template>
         <component :is="detailContent" />
@@ -574,6 +588,7 @@ const folderDrawerVisible = ref(false);
 const uploadDrawerVisible = ref(false);
 const dragUploadActive = ref(false);
 const dragUploadDepth = ref(0);
+const folderEditMode = ref(false);
 
 const { width: viewportWidth } = useWindowSize();
 const isMobileLayout = computed(() => viewportWidth.value > 0 && viewportWidth.value < 640);
@@ -1090,17 +1105,20 @@ async function handleFolderSelect(keys: Array<string | number>) {
   const target = keys.length ? String(keys[0]) : 'all';
   folderKeys.value = target ? [target] : [];
   clearSelection();
+  if (isMobileLayout.value && folderEditMode.value && target !== 'all') {
+    detailFocus.value = 'folder';
+    audio.setSelectedAsset(null);
+    await audio.applyFilters({ folderId: target });
+    detailDrawerVisible.value = true;
+    return;
+  }
+  detailFocus.value = 'asset';
   if (target === 'all') {
-    detailFocus.value = 'asset';
     if (!audio.selectedAsset && audio.filteredAssets.length) {
       audio.setSelectedAsset(audio.filteredAssets[0].id);
     }
   } else {
-    detailFocus.value = 'folder';
     audio.setSelectedAsset(null);
-    if (isMobileLayout.value) {
-      detailDrawerVisible.value = true;
-    }
   }
   if (target === 'all') {
     if (isMobileLayout.value) {
@@ -1510,12 +1528,13 @@ watch(
 watch(
   isMobileLayout,
   (mobile) => {
-  if (mobile) {
-    detailPanelCollapsed.value = true;
-    folderPanelCollapsed.value = true;
-    folderDrawerVisible.value = false;
-    return;
-  }
+    if (mobile) {
+      detailPanelCollapsed.value = true;
+      folderPanelCollapsed.value = true;
+      folderDrawerVisible.value = false;
+      return;
+    }
+    folderEditMode.value = false;
     if (detailPanelCollapsed.value) {
       detailPanelCollapsed.value = false;
     }
@@ -1864,6 +1883,12 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
+}
+
+.audio-library__mobile-tip {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--sc-text-secondary);
 }
 
 .audio-library__detail-empty {
