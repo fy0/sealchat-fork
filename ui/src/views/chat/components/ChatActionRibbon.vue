@@ -46,6 +46,8 @@ interface Props {
   importActive?: boolean
   splitEnabled?: boolean
   splitActive?: boolean
+  icOocSplitEnabled?: boolean
+  icOocSplitActive?: boolean
   stickyNoteEnabled?: boolean
   stickyNoteActive?: boolean
   webhookEnabled?: boolean
@@ -68,6 +70,7 @@ interface Emits {
   (e: 'open-favorites'): void
   (e: 'open-channel-images'): void
   (e: 'open-split'): void
+  (e: 'open-ic-ooc-split'): void
   (e: 'toggle-sticky-note'): void
   (e: 'open-webhook'): void
   (e: 'open-email-notification'): void
@@ -127,6 +130,10 @@ const allActionButtons = computed<ActionButton[]>(() => {
   // 分屏入口（置于“消息归档”之后）
   if (props.splitEnabled !== false) {
     buttons.push({ key: 'split', label: '分屏', icon: SplitIcon, emitEvent: 'open-split', activeKey: 'splitActive' })
+  }
+
+  if (props.icOocSplitEnabled !== false) {
+    buttons.push({ key: 'ic-ooc-split', label: '场内外分屏', icon: SplitIcon, emitEvent: 'open-ic-ooc-split', activeKey: 'icOocSplitActive' })
   }
 
   // 便签入口（置于“分屏”之后）

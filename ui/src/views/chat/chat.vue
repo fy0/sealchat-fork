@@ -36,6 +36,12 @@ import StickyNoteManager from './components/StickyNoteManager.vue';
 import CharacterSheetManager from './components/character-sheet/CharacterSheetManager.vue';
 import { useStickyNoteStore } from '@/stores/stickyNote';
 import { useAudioStudioStore } from '@/stores/audioStudio';
+import { usePushNotificationStore } from '@/stores/pushNotification';
+import {
+  buildIcOocSplitScopeWorldId,
+  createIcOocSplitSessionSnapshot,
+  writeSplitSessionSnapshot,
+} from '@/utils/splitSessionStorage';
 import { uploadImageAttachment } from './composables/useAttachmentUploader';
 import { api, urlBase } from '@/stores/_config';
 import { liveQuery } from "dexie";
@@ -185,19 +191,17 @@ const scheduleCharacterSheetRefresh = () => {
 
 const audioStudio = useAudioStudioStore();
 
-const openSplitView = async () => {
-  const currentChannelId = chat.curChannel?.id ? String(chat.curChannel.id) : '';
-  const worldId = chat.currentWorldId ? String(chat.currentWorldId) : '';
+const openSplitRoute = async (scopeWorldId: string, worldId: string, channelIdA: string, channelIdB: string) => {
   audioStudio.setPlaybackAuthority(false);
   try {
     await router.push({
       name: 'split',
       query: {
         layout: 'left-column',
-        scopeWorldId: worldId,
+        scopeWorldId,
         worldId,
-        a: currentChannelId,
-        b: '',
+        a: channelIdA,
+        b: channelIdB,
         notify: '',
       },
     });
@@ -205,6 +209,28 @@ const openSplitView = async () => {
     audioStudio.setPlaybackAuthority(true);
     throw error;
   }
+};
+
+const openSplitView = async () => {
+  const currentChannelId = chat.curChannel?.id ? String(chat.curChannel.id) : '';
+  const worldId = chat.currentWorldId ? String(chat.currentWorldId) : '';
+  await openSplitRoute(worldId, worldId, currentChannelId, '');
+};
+
+const openIcOocSplitView = async () => {
+  const currentChannelId = chat.curChannel?.id ? String(chat.curChannel.id) : '';
+  const worldId = chat.currentWorldId ? String(chat.currentWorldId) : '';
+  if (!worldId || !currentChannelId) {
+    message.warning('请先进入频道');
+    return;
+  }
+  const scopeWorldId = buildIcOocSplitScopeWorldId(worldId);
+  const snapshot = createIcOocSplitSessionSnapshot(scopeWorldId, worldId, currentChannelId);
+  if (!writeSplitSessionSnapshot(scopeWorldId, snapshot)) {
+    message.error('初始化场内外分屏失败');
+    return;
+  }
+  await openSplitRoute(scopeWorldId, worldId, currentChannelId, currentChannelId);
 };
 
 const toggleStickyNotes = () => {
@@ -14401,6 +14427,8 @@ onBeforeUnmount(() => {
           :import-active="importDialogVisible"
           :split-enabled="splitEntryEnabled"
           :split-active="false"
+          :ic-ooc-split-enabled="splitEntryEnabled"
+          :ic-ooc-split-active="false"
           :sticky-note-enabled="true"
           :sticky-note-active="stickyNoteStore.uiVisible"
           :webhook-enabled="webhookManageAllowed"
@@ -14420,6 +14448,7 @@ onBeforeUnmount(() => {
           @open-character-remark="characterRemarkManagerVisible = true"
           @open-channel-images="openChannelImagesPanel"
           @open-split="openSplitView"
+          @open-ic-ooc-split="openIcOocSplitView"
           @toggle-sticky-note="toggleStickyNotes"
           @open-webhook="webhookDrawerVisible = true"
           @open-email-notification="emailNotificationDrawerVisible = true"
