@@ -197,7 +197,7 @@ const moreMenuOptions = computed(() => {
         icon: () => h(NIcon, null, { default: () => h(btn.icon) }),
         children: [
           { key: SPLIT_DUAL_MORE_LEFT_KEY, label: '左场内', disabled },
-          { key: SPLIT_DUAL_MORE_RIGHT_KEY, label: '右场内', disabled },
+          { key: SPLIT_DUAL_MORE_RIGHT_KEY, label: '右场外', disabled },
         ],
       }
     }
@@ -731,6 +731,7 @@ const cycleIcFilter = () => {
   min-height: 2.1rem;
   border-radius: 999px;
   border: 1px solid transparent;
+  border-color: var(--sc-border-strong);
   padding: 0.45rem 0.9rem;
   display: inline-flex;
   align-items: center;
@@ -738,7 +739,7 @@ const cycleIcFilter = () => {
   gap: 0.35rem;
   color: var(--sc-text-primary);
   background: transparent;
-  transition: opacity 0.2s ease, background-color 0.2s ease, color 0.2s ease;
+  transition: opacity 0.2s ease, background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease;
 }
 
 .ribbon-dual-split__trigger:hover {
@@ -749,6 +750,10 @@ const cycleIcFilter = () => {
 .ribbon-dual-split__trigger-label {
   display: inline-flex;
   align-items: center;
+}
+
+.ribbon-dual-split__trigger-label {
+  white-space: nowrap;
 }
 
 .ribbon-dual-split__overlay {
@@ -956,7 +961,7 @@ const cycleIcFilter = () => {
 
   .ribbon-actions-grid {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 0.5rem;
   }
 
@@ -971,6 +976,7 @@ const cycleIcFilter = () => {
 
   .ribbon-dual-split__trigger {
     justify-content: center;
+    padding-inline: 0.7rem;
   }
 
   .ribbon-actions-anchor :deep(.n-button) {
@@ -985,6 +991,12 @@ const cycleIcFilter = () => {
   .ribbon-section--summary {
     min-width: auto;
     justify-content: center;
+  }
+}
+
+@media (max-width: 520px) {
+  .ribbon-actions-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 </style>
