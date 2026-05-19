@@ -153,6 +153,7 @@ const characterSheetStore = useCharacterSheetStore();
 iFormStore.bootstrap();
 const router = useRouter();
 const route = useRoute();
+const pushStore = usePushNotificationStore();
 const isEditing = computed(() => !!chat.editing);
 
 const isEmbedMode = computed(() => route.path === '/embed');
@@ -12461,6 +12462,7 @@ chatEvent.on('message-created', (e?: Event) => {
     messageChannelId: incomingChannelId,
     currentChannelId,
     currentWorldChannels: currentWorldChannelTree.value,
+    embedNotifyOwnerEnabled: pushStore.embedNotifyOwnerEnabled,
   })) {
     sound.play();
   }
