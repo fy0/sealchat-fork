@@ -8564,9 +8564,19 @@ const activeIdentityAppearancePreviewSignature = computed(() => {
 });
 const effectiveIdentityVariantForEmojiPanel = computed(() => activeIdentityVariantForPreview.value);
 const selfPreviewUserId = computed(() => user.info?.id || '__self__');
+const isTypingPreviewVisibleForCurrentFilter = (tone: 'ic' | 'ooc') => {
+  const filter = chat.filterState.icFilter;
+  if (filter === 'ic') {
+    return tone === 'ic';
+  }
+  if (filter === 'ooc') {
+    return tone === 'ooc';
+  }
+  return true;
+};
 const typingPreviewItems = computed(() =>
   typingPreviewList.value
-    .filter((item) => item.mode === 'typing')
+    .filter((item) => item.mode === 'typing' && isTypingPreviewVisibleForCurrentFilter(item.tone))
     .slice()
     .sort((a, b) => a.orderKey - b.orderKey),
 );
@@ -8812,6 +8822,10 @@ const syncSelfTypingPreview = () => {
     ? normalizeHexColor(activeIdentityAppearanceForPreview.value.color || '') || undefined
     : undefined;
   const tone = inputIcMode.value || 'ic';
+  if (!isTypingPreviewVisibleForCurrentFilter(tone)) {
+    removeSelfTypingPreview();
+    return;
+  }
   let previewContent = draft;
   if (inputMode.value !== 'rich') {
     const normalized = replaceEmojiRemarksForPreview(draft);
