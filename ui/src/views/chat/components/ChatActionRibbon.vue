@@ -197,7 +197,7 @@ const moreMenuOptions = computed(() => {
         icon: () => h(NIcon, null, { default: () => h(btn.icon) }),
         children: [
           { key: SPLIT_DUAL_MORE_LEFT_KEY, label: '左场内', disabled },
-          { key: SPLIT_DUAL_MORE_RIGHT_KEY, label: '右场外', disabled },
+          { key: SPLIT_DUAL_MORE_RIGHT_KEY, label: '右场内', disabled },
         ],
       }
     }
