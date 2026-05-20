@@ -136,6 +136,7 @@ import {
 import { buildEditMessageUpdateOptions } from './editMessageUpdate';
 import { shouldMergeNeighborMessages } from './messageMerge';
 import { useRobustInfiniteScroll } from '@/composables/useRobustInfiniteScroll';
+import { shouldResetMentionOptionsOnSearchStart, sortMentionableMembersByMode } from './mentionOptionOrdering';
 
 const EmojiPickerModal = defineAsyncComponent(() => import('./components/EmojiPickerModal.vue'));
 
@@ -13881,6 +13882,9 @@ const atHandleSearch = async (pattern: string, prefix: string) => {
   try {
     switch (prefix) {
       case '@': {
+        if (shouldResetMentionOptionsOnSearchStart(prefix)) {
+          atOptions.value = [];
+        }
         await ensurePinyinLoaded();
         if (requestSeq !== atSearchRequestSeq) {
           return;
@@ -13890,8 +13894,7 @@ const atHandleSearch = async (pattern: string, prefix: string) => {
           atOptions.value = [];
           break;
         }
-        const icMode = chat.icMode as 'ic' | 'ooc' | undefined;
-        const result = await chat.fetchMentionableMembers(channelId, icMode);
+        const result = await chat.fetchMentionableMembers(channelId);
         if (requestSeq !== atSearchRequestSeq) {
           return;
         }
@@ -13908,8 +13911,9 @@ const atHandleSearch = async (pattern: string, prefix: string) => {
             });
           }
         }
+        const sortedItems = sortMentionableMembersByMode(result.items || [], inputIcMode.value === 'ooc' ? 'ooc' : 'ic');
         // Filter and map members
-        for (const item of result.items) {
+        for (const item of sortedItems) {
           if (pattern && !matchText(pattern, item.displayName)) {
             continue;
           }
