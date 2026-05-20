@@ -28,6 +28,7 @@ import ChatImportDialog from './components/ChatImportDialog.vue'
 import ChatImportProgress from './components/ChatImportProgress.vue'
 import ChannelImageViewerDrawer from './components/ChannelImageViewerDrawer.vue'
 import DiceTray from './components/DiceTray.vue'
+import ChatDiceModeControl from './components/ChatDiceModeControl.vue'
 import IFormPanelHost from '@/components/iform/IFormPanelHost.vue';
 import IFormFloatingWindows from '@/components/iform/IFormFloatingWindows.vue';
 import IFormDrawer from '@/components/iform/IFormDrawer.vue';
@@ -14972,7 +14973,32 @@ onBeforeUnmount(() => {
                 @roll="handleDiceRollNow"
                 @update-default="handleDiceDefaultUpdate"
                 @close="isDiceTrayEdgeAnchored ? (diceTrayMobileVisible = false) : (diceTrayDesktopVisible = false)"
-              />
+              >
+                <template #header-actions>
+                  <ChatDiceModeControl
+                    :visible="diceSettingsVisible"
+                    :show-status="showDiceModeStatus"
+                    :show-settings="showDiceModeSettings"
+                    :is-mobile="isMobileUa"
+                    :mode-label="diceModeLabel"
+                    :mode-tooltip="diceModeTooltip"
+                    :built-in-dice-enabled="channelFeatures.builtInDiceEnabled"
+                    :bot-feature-enabled="channelFeatures.botFeatureEnabled"
+                    :dice-feature-updating="diceFeatureUpdating"
+                    :channel-bot-selection="channelBotSelection"
+                    :bot-select-options="botSelectOptions"
+                    :bot-options-loading="botOptionsLoading"
+                    :channel-bots-loading="channelBotsLoading"
+                    :syncing-channel-bot="syncingChannelBot"
+                    :has-bot-options="hasBotOptions"
+                    @update:visible="diceSettingsVisible = $event"
+                    @toggle-built-in="handleDiceFeatureToggle"
+                    @toggle-bot="handleBotFeatureToggle"
+                    @select-bot="handleBotSelectionChange"
+                    @open-channel-member-settings="openChannelMemberSettings"
+                  />
+                </template>
+              </DiceTray>
             </n-popover>
           </div>
         </div>
@@ -16036,151 +16062,29 @@ onBeforeUnmount(() => {
                       @update-default="handleDiceDefaultUpdate"
                       @close="diceTrayMobileVisible = false"
                     >
-                      <template v-if="showDiceModeStatus" #header-actions>
-                        <template v-if="isMobileUa">
-                          <n-tooltip trigger="hover">
-                            <template #trigger>
-                              <div class="dice-mode-status">
-                                <span class="dice-mode-status__label">{{ diceModeLabel }}</span>
-                                <n-button
-                                  v-if="showDiceModeSettings"
-                                  quaternary
-                                  size="tiny"
-                                  circle
-                                  class="dice-tray-settings-trigger"
-                                  :class="{ 'dice-tray-settings-trigger--active': diceSettingsVisible }"
-                                  @click.stop="diceSettingsVisible = true"
-                                >
-                                  <n-icon :component="Settings" size="14" />
-                                </n-button>
-                              </div>
-                            </template>
-                            {{ diceModeTooltip }}
-                          </n-tooltip>
-                          <n-modal
-                            v-if="showDiceModeSettings"
-                            v-model:show="diceSettingsVisible"
-                            preset="card"
-                            class="dice-settings-modal-mobile"
-                            :bordered="false"
-                            title="掷骰设置"
-                          >
-                            <div class="dice-settings-panel dice-settings-panel--modal">
-                              <div class="dice-settings-panel__section">
-                                <div class="dice-settings-panel__row">
-                                  <div>
-                                    <p class="dice-settings-panel__title">内置骰点</p>
-                                    <p class="dice-settings-panel__desc">自动解析输入并生成骰点结果。</p>
-                                  </div>
-                                  <n-switch size="small" :value="channelFeatures.builtInDiceEnabled" :disabled="diceFeatureUpdating" @update:value="handleDiceFeatureToggle" />
-                                </div>
-                              </div>
-                              <div class="dice-settings-panel__section">
-                                <div class="dice-settings-panel__row">
-                                  <div>
-                                    <p class="dice-settings-panel__title">机器人骰点</p>
-                                    <p class="dice-settings-panel__desc">交由机器人处理掷骰，避免与内置功能冲突。</p>
-                                  </div>
-                                  <n-switch size="small" :value="channelFeatures.botFeatureEnabled" :disabled="diceFeatureUpdating" @update:value="handleBotFeatureToggle" />
-                                </div>
-                                <div class="dice-settings-panel__body" v-if="channelFeatures.botFeatureEnabled">
-                                  <n-select
-                                    :value="channelBotSelection"
-                                    class="dice-settings-panel__select"
-                                    :options="botSelectOptions"
-                                    :loading="botOptionsLoading || channelBotsLoading || syncingChannelBot"
-                                    :disabled="syncingChannelBot || !hasBotOptions"
-                                    placeholder="选择主控 BOT（不会移除其他已绑定 BOT）"
-                                    clearable
-                                    @update:value="handleBotSelectionChange"
-                                  />
-                                  <div class="dice-settings-panel__hint" v-if="!botOptionsLoading && !hasBotOptions">
-                                    暂无可用机器人，请先在后台创建令牌。
-                                  </div>
-                                  <div class="dice-settings-panel__hint" v-else>
-                                    这里只切换主控 BOT；如需绑定多个 BOT，请前往频道设置。
-                                  </div>
-                                </div>
-                                <div class="dice-settings-panel__footer">
-                                  <n-button text size="tiny" @click="openChannelMemberSettings">前往成员管理</n-button>
-                                </div>
-                              </div>
-                            </div>
-                          </n-modal>
-                        </template>
-                        <template v-else>
-                          <n-popover v-if="showDiceModeSettings" trigger="manual" placement="bottom-end" :show="diceSettingsVisible" @clickoutside="diceSettingsVisible = false">
-                            <template #trigger>
-                              <n-tooltip trigger="hover">
-                                <template #trigger>
-                                  <div class="dice-mode-status">
-                                    <span class="dice-mode-status__label">{{ diceModeLabel }}</span>
-                                    <n-button
-                                      quaternary
-                                      size="tiny"
-                                      circle
-                                      class="dice-tray-settings-trigger"
-                                      :class="{ 'dice-tray-settings-trigger--active': diceSettingsVisible }"
-                                      @click.stop="diceSettingsVisible = !diceSettingsVisible"
-                                    >
-                                      <n-icon :component="Settings" size="14" />
-                                    </n-button>
-                                  </div>
-                                </template>
-                                {{ diceModeTooltip }}
-                              </n-tooltip>
-                            </template>
-                            <div class="dice-settings-panel">
-                              <div class="dice-settings-panel__section">
-                                <div class="dice-settings-panel__row">
-                                  <div>
-                                    <p class="dice-settings-panel__title">内置骰点</p>
-                                    <p class="dice-settings-panel__desc">自动解析输入并生成骰点结果。</p>
-                                  </div>
-                                  <n-switch size="small" :value="channelFeatures.builtInDiceEnabled" :disabled="diceFeatureUpdating" @update:value="handleDiceFeatureToggle" />
-                                </div>
-                              </div>
-                              <div class="dice-settings-panel__section">
-                                <div class="dice-settings-panel__row">
-                                  <div>
-                                    <p class="dice-settings-panel__title">机器人骰点</p>
-                                    <p class="dice-settings-panel__desc">交由机器人处理掷骰，避免与内置功能冲突。</p>
-                                  </div>
-                                  <n-switch size="small" :value="channelFeatures.botFeatureEnabled" :disabled="diceFeatureUpdating" @update:value="handleBotFeatureToggle" />
-                                </div>
-                                <div class="dice-settings-panel__body" v-if="channelFeatures.botFeatureEnabled">
-                                  <n-select
-                                    :value="channelBotSelection"
-                                    class="dice-settings-panel__select"
-                                    :options="botSelectOptions"
-                                    :loading="botOptionsLoading || channelBotsLoading || syncingChannelBot"
-                                    :disabled="syncingChannelBot || !hasBotOptions"
-                                    placeholder="选择主控 BOT（不会移除其他已绑定 BOT）"
-                                    clearable
-                                    @update:value="handleBotSelectionChange"
-                                  />
-                                  <div class="dice-settings-panel__hint" v-if="!botOptionsLoading && !hasBotOptions">
-                                    暂无可用机器人，请先在后台创建令牌。
-                                  </div>
-                                  <div class="dice-settings-panel__hint" v-else>
-                                    这里只切换主控 BOT；如需绑定多个 BOT，请前往频道设置。
-                                  </div>
-                                </div>
-                                <div class="dice-settings-panel__footer">
-                                  <n-button text size="tiny" @click="openChannelMemberSettings">前往成员管理</n-button>
-                                </div>
-                              </div>
-                            </div>
-                          </n-popover>
-                          <n-tooltip v-else trigger="hover">
-                            <template #trigger>
-                              <div class="dice-mode-status">
-                                <span class="dice-mode-status__label">{{ diceModeLabel }}</span>
-                              </div>
-                            </template>
-                            {{ diceModeTooltip }}
-                          </n-tooltip>
-                        </template>
+                      <template #header-actions>
+                        <ChatDiceModeControl
+                          :visible="diceSettingsVisible"
+                          :show-status="showDiceModeStatus"
+                          :show-settings="showDiceModeSettings"
+                          :is-mobile="isMobileUa"
+                          :mode-label="diceModeLabel"
+                          :mode-tooltip="diceModeTooltip"
+                          :built-in-dice-enabled="channelFeatures.builtInDiceEnabled"
+                          :bot-feature-enabled="channelFeatures.botFeatureEnabled"
+                          :dice-feature-updating="diceFeatureUpdating"
+                          :channel-bot-selection="channelBotSelection"
+                          :bot-select-options="botSelectOptions"
+                          :bot-options-loading="botOptionsLoading"
+                          :channel-bots-loading="channelBotsLoading"
+                          :syncing-channel-bot="syncingChannelBot"
+                          :has-bot-options="hasBotOptions"
+                          @update:visible="diceSettingsVisible = $event"
+                          @toggle-built-in="handleDiceFeatureToggle"
+                          @toggle-bot="handleBotFeatureToggle"
+                          @select-bot="handleBotSelectionChange"
+                          @open-channel-member-settings="openChannelMemberSettings"
+                        />
                       </template>
                     </DiceTray>
                   </n-popover>
@@ -16212,153 +16116,29 @@ onBeforeUnmount(() => {
                       @update-default="handleDiceDefaultUpdate"
                       @close="diceTrayDesktopVisible = false"
                     >
-                      <template v-if="showDiceModeStatus" #header-actions>
-                        <template v-if="isMobileUa">
-                          <n-tooltip trigger="hover">
-                            <template #trigger>
-                              <div class="dice-mode-status">
-                                <span class="dice-mode-status__label">{{ diceModeLabel }}</span>
-                                <n-button
-                                  v-if="showDiceModeSettings"
-                                  quaternary
-                                  size="tiny"
-                                  circle
-                                  class="dice-tray-settings-trigger"
-                                  :class="{ 'dice-tray-settings-trigger--active': diceSettingsVisible }"
-                                  @click.stop="diceSettingsVisible = true"
-                                >
-                                  <n-icon :component="Settings" size="14" />
-                                </n-button>
-                              </div>
-                            </template>
-                            {{ diceModeTooltip }}
-                          </n-tooltip>
-                          <n-modal
-                            v-if="showDiceModeSettings"
-                            v-model:show="diceSettingsVisible"
-                            preset="card"
-                            class="dice-settings-modal-mobile"
-                            :mask-closable="true"
-                            :closable="false"
-                            :bordered="false"
-                            title="掷骰设置"
-                          >
-                            <div class="dice-settings-panel dice-settings-panel--modal">
-                              <div class="dice-settings-panel__section">
-                                <div class="dice-settings-panel__row">
-                                  <div>
-                                    <p class="dice-settings-panel__title">内置骰点</p>
-                                    <p class="dice-settings-panel__desc">自动解析输入并生成骰点结果。</p>
-                                  </div>
-                                  <n-switch size="small" :value="channelFeatures.builtInDiceEnabled" :disabled="diceFeatureUpdating" @update:value="handleDiceFeatureToggle" />
-                                </div>
-                              </div>
-                              <div class="dice-settings-panel__section">
-                                <div class="dice-settings-panel__row">
-                                  <div>
-                                    <p class="dice-settings-panel__title">机器人骰点</p>
-                                    <p class="dice-settings-panel__desc">交由机器人处理掷骰，避免与内置功能冲突。</p>
-                                  </div>
-                                  <n-switch size="small" :value="channelFeatures.botFeatureEnabled" :disabled="diceFeatureUpdating" @update:value="handleBotFeatureToggle" />
-                                </div>
-                                <div class="dice-settings-panel__body" v-if="channelFeatures.botFeatureEnabled">
-                                  <n-select
-                                    :value="channelBotSelection"
-                                    class="dice-settings-panel__select"
-                                    :options="botSelectOptions"
-                                    :loading="botOptionsLoading || channelBotsLoading || syncingChannelBot"
-                                    :disabled="syncingChannelBot || !hasBotOptions"
-                                    placeholder="选择主控 BOT（不会移除其他已绑定 BOT）"
-                                    clearable
-                                    @update:value="handleBotSelectionChange"
-                                  />
-                                  <div class="dice-settings-panel__hint" v-if="!botOptionsLoading && !hasBotOptions">
-                                    暂无可用机器人，请先在后台创建令牌。
-                                  </div>
-                                  <div class="dice-settings-panel__hint" v-else>
-                                    这里只切换主控 BOT；如需绑定多个 BOT，请前往频道设置。
-                                  </div>
-                                </div>
-                                <div class="dice-settings-panel__footer">
-                                  <n-button text size="tiny" @click="openChannelMemberSettings">前往成员管理</n-button>
-                                </div>
-                              </div>
-                            </div>
-                          </n-modal>
-                        </template>
-                        <template v-else>
-                          <n-popover v-if="showDiceModeSettings" trigger="manual" placement="bottom-end" :show="diceSettingsVisible" @clickoutside="diceSettingsVisible = false">
-                            <template #trigger>
-                              <n-tooltip trigger="hover">
-                                <template #trigger>
-                                  <div class="dice-mode-status">
-                                    <span class="dice-mode-status__label">{{ diceModeLabel }}</span>
-                                    <n-button
-                                      quaternary
-                                      size="tiny"
-                                      circle
-                                      class="dice-tray-settings-trigger"
-                                      :class="{ 'dice-tray-settings-trigger--active': diceSettingsVisible }"
-                                      @click.stop="diceSettingsVisible = !diceSettingsVisible"
-                                    >
-                                      <n-icon :component="Settings" size="14" />
-                                    </n-button>
-                                  </div>
-                                </template>
-                                {{ diceModeTooltip }}
-                              </n-tooltip>
-                            </template>
-                            <div class="dice-settings-panel">
-                              <div class="dice-settings-panel__section">
-                                <div class="dice-settings-panel__row">
-                                  <div>
-                                    <p class="dice-settings-panel__title">内置骰点</p>
-                                    <p class="dice-settings-panel__desc">自动解析输入并生成骰点结果。</p>
-                                  </div>
-                                  <n-switch size="small" :value="channelFeatures.builtInDiceEnabled" :disabled="diceFeatureUpdating" @update:value="handleDiceFeatureToggle" />
-                                </div>
-                              </div>
-                              <div class="dice-settings-panel__section">
-                                <div class="dice-settings-panel__row">
-                                  <div>
-                                    <p class="dice-settings-panel__title">机器人骰点</p>
-                                    <p class="dice-settings-panel__desc">交由机器人处理掷骰，避免与内置功能冲突。</p>
-                                  </div>
-                                  <n-switch size="small" :value="channelFeatures.botFeatureEnabled" :disabled="diceFeatureUpdating" @update:value="handleBotFeatureToggle" />
-                                </div>
-                                <div class="dice-settings-panel__body" v-if="channelFeatures.botFeatureEnabled">
-                                  <n-select
-                                    :value="channelBotSelection"
-                                    class="dice-settings-panel__select"
-                                    :options="botSelectOptions"
-                                    :loading="botOptionsLoading || channelBotsLoading || syncingChannelBot"
-                                    :disabled="syncingChannelBot || !hasBotOptions"
-                                    placeholder="选择主控 BOT（不会移除其他已绑定 BOT）"
-                                    clearable
-                                    @update:value="handleBotSelectionChange"
-                                  />
-                                  <div class="dice-settings-panel__hint" v-if="!botOptionsLoading && !hasBotOptions">
-                                    暂无可用机器人，请先在后台创建令牌。
-                                  </div>
-                                  <div class="dice-settings-panel__hint" v-else>
-                                    这里只切换主控 BOT；如需绑定多个 BOT，请前往频道设置。
-                                  </div>
-                                </div>
-                                <div class="dice-settings-panel__footer">
-                                  <n-button text size="tiny" @click="openChannelMemberSettings">前往成员管理</n-button>
-                                </div>
-                              </div>
-                            </div>
-                          </n-popover>
-                          <n-tooltip v-else trigger="hover">
-                            <template #trigger>
-                              <div class="dice-mode-status">
-                                <span class="dice-mode-status__label">{{ diceModeLabel }}</span>
-                              </div>
-                            </template>
-                            {{ diceModeTooltip }}
-                          </n-tooltip>
-                        </template>
+                      <template #header-actions>
+                        <ChatDiceModeControl
+                          :visible="diceSettingsVisible"
+                          :show-status="showDiceModeStatus"
+                          :show-settings="showDiceModeSettings"
+                          :is-mobile="isMobileUa"
+                          :mode-label="diceModeLabel"
+                          :mode-tooltip="diceModeTooltip"
+                          :built-in-dice-enabled="channelFeatures.builtInDiceEnabled"
+                          :bot-feature-enabled="channelFeatures.botFeatureEnabled"
+                          :dice-feature-updating="diceFeatureUpdating"
+                          :channel-bot-selection="channelBotSelection"
+                          :bot-select-options="botSelectOptions"
+                          :bot-options-loading="botOptionsLoading"
+                          :channel-bots-loading="channelBotsLoading"
+                          :syncing-channel-bot="syncingChannelBot"
+                          :has-bot-options="hasBotOptions"
+                          @update:visible="diceSettingsVisible = $event"
+                          @toggle-built-in="handleDiceFeatureToggle"
+                          @toggle-bot="handleBotFeatureToggle"
+                          @select-bot="handleBotSelectionChange"
+                          @open-channel-member-settings="openChannelMemberSettings"
+                        />
                       </template>
                     </DiceTray>
                   </n-popover>
@@ -20015,135 +19795,6 @@ onBeforeUnmount(() => {
 :root[data-display-palette='night'] .chat-dice-button {
   color: rgba(226, 232, 240, 0.95);
 }
-
-.dice-mode-status {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.25rem;
-  cursor: pointer;
-}
-
-.dice-mode-status__label {
-  font-size: 11px;
-  color: var(--sc-text-tertiary, #94a3b8);
-  white-space: nowrap;
-}
-
-:root[data-display-palette='night'] .dice-mode-status__label {
-  color: rgba(148, 163, 184, 0.85);
-}
-
-.dice-tray-settings-trigger {
-  width: 1.5rem;
-  height: 1.5rem;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 999px;
-  color: var(--sc-text-secondary);
-  border: 1px solid transparent;
-  transition: color 0.15s ease, border-color 0.15s ease, background-color 0.15s ease;
-}
-
-:root[data-display-palette='night'] .dice-tray-settings-trigger {
-  color: rgba(226, 232, 240, 0.8);
-}
-
-.dice-tray-settings-trigger--active {
-  color: var(--sc-primary-color, #2563eb);
-  border-color: rgba(37, 99, 235, 0.4);
-  background-color: rgba(37, 99, 235, 0.08);
-}
-
-:root[data-display-palette='night'] .dice-tray-settings-trigger--active {
-  color: rgba(147, 197, 253, 0.95);
-  border-color: rgba(147, 197, 253, 0.35);
-  background-color: rgba(59, 130, 246, 0.18);
-}
-
-.dice-settings-panel {
-  min-width: 260px;
-  max-width: 320px;
-  padding: 0.75rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-}
-
-.dice-settings-panel--modal {
-  min-width: 0;
-  width: 100%;
-  max-width: 100%;
-  padding-right: 0;
-}
-
-.dice-settings-panel--modal .dice-settings-panel__section {
-  padding-right: 0;
-}
-
-.dice-settings-panel--modal .dice-settings-panel__footer {
-  padding-right: 0;
-}
-
-.dice-settings-modal-mobile :deep(.n-card) {
-  width: min(360px, 92vw);
-}
-
-.dice-settings-modal-mobile :deep(.n-card__content) {
-  padding-top: 0;
-  max-height: min(70vh, 520px);
-  overflow-y: auto;
-}
-
-.dice-settings-panel__section {
-  border: 1px solid var(--sc-border-strong);
-  border-radius: 0.75rem;
-  padding: 0.65rem 0.75rem;
-  background-color: var(--sc-bg-elevated);
-}
-
-.dice-settings-panel__row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-}
-
-.dice-settings-panel__title {
-  font-size: 0.9rem;
-  font-weight: 600;
-  color: var(--sc-text-primary);
-  margin: 0;
-}
-
-.dice-settings-panel__desc {
-  font-size: 0.75rem;
-  color: var(--sc-text-secondary);
-  margin: 0.1rem 0 0;
-}
-
-.dice-settings-panel__body {
-  margin-top: 0.65rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.dice-settings-panel__select {
-  width: 100%;
-}
-
-.dice-settings-panel__hint {
-  font-size: 0.75rem;
-  color: var(--sc-text-secondary);
-}
-
-.dice-settings-panel__footer {
-  margin-top: 0.35rem;
-  display: flex;
-  justify-content: flex-end;
-}
-
 
 :deep(.history-popover .n-popover__content) {
   padding: 0;
