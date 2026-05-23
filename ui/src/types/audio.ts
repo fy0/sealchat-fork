@@ -115,6 +115,16 @@ export interface AudioDeleteImpact {
   playbackScopeLabels?: string[];
 }
 
+export interface AudioDeleteResult {
+  message?: string;
+  impact?: AudioDeleteImpact | null;
+}
+
+export interface AudioDeleteConflictPayload {
+  message?: string;
+  usage?: AudioAssetUsageSummary;
+}
+
 export interface AudioBulkDeleteFailure {
   assetId: string;
   reason: string;
@@ -130,6 +140,12 @@ export interface AudioBulkDeleteResult {
   detachedPlaybackStateCount?: number;
   detachedReferencedAssetCount?: number;
   playbackScopeLabels?: string[];
+}
+
+export interface AudioAssetBatchDeleteSummary {
+  success: number;
+  failed: number;
+  failures: AudioBulkDeleteFailure[];
 }
 
 export interface AudioAssetMutationPayload {

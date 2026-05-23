@@ -475,6 +475,18 @@ func AudioAssetDelete(c *fiber.Ctx) error {
 		}
 	}
 	hard := c.QueryBool("hard")
+	forceDetach := c.QueryBool("forceDetach")
+	if forceDetach {
+		impact, err := service.AdminAudioDeleteAsset(id, hard)
+		if err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return wrapErrorStatus(c, fiber.StatusNotFound, err, "素材不存在")
+			}
+			return wrapErrorStatus(c, fiber.StatusInternalServerError, err, "删除素材失败")
+		}
+		broadcastAdminAudioDetachedScopes(getCurUser(c), impact)
+		return c.JSON(fiber.Map{"message": "已删除", "impact": impact})
+	}
 	if err := service.AudioSafeDeleteAsset(id, hard); err != nil {
 		var referencedErr *service.AudioAssetReferencedError
 		if errors.As(err, &referencedErr) {

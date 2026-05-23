@@ -509,7 +509,17 @@ import {
   type TreeOption,
 } from 'naive-ui';
 import { useWindowSize } from '@vueuse/core';
-import type { AudioAsset, AudioAssetMutationPayload, AudioAssetScope, AudioFolder, AudioFolderPayload } from '@/types/audio';
+import type {
+  AudioAsset,
+  AudioAssetMutationPayload,
+  AudioAssetScope,
+  AudioBulkDeleteFailure,
+  AudioDeleteConflictPayload,
+  AudioDeleteImpact,
+  AudioAssetUsageSummary,
+  AudioFolder,
+  AudioFolderPayload,
+} from '@/types/audio';
 import { api } from '@/stores/_config';
 import { useAudioStudioStore } from '@/stores/audioStudio';
 import { useChatStore } from '@/stores/chat';
@@ -1049,6 +1059,75 @@ function formatFileSize(value: number) {
   return `${(value / 1024 / 1024 / 1024).toFixed(2)} GB`;
 }
 
+function resolveUsageSummaryText(usage?: AudioAssetUsageSummary | null) {
+  if (!usage) return '引用信息未知';
+  const parts: string[] = [];
+  if (usage.sceneRefCount) {
+    const names = usage.sceneNames?.length ? `：${usage.sceneNames.join('、')}` : '';
+    parts.push(`${usage.sceneRefCount} 个场景引用${names}`);
+  }
+  if (usage.playbackStateRefCount) {
+    parts.push(`${usage.playbackStateRefCount} 个播放状态正在使用`);
+  }
+  return parts.length ? parts.join('；') : '当前无引用';
+}
+
+function describeDeleteImpact(impact?: AudioDeleteImpact | null) {
+  if (!impact) return '';
+  const parts: string[] = [];
+  if (impact.detachedSceneCount) {
+    parts.push(`已解除 ${impact.detachedSceneCount} 个场景引用`);
+  }
+  if (impact.detachedPlaybackStateCount) {
+    parts.push(`已停止并解除 ${impact.detachedPlaybackStateCount} 个播放状态`);
+  }
+  return parts.join('，');
+}
+
+function extractDeleteConflict(error: any): AudioDeleteConflictPayload | null {
+  const status = error?.response?.status;
+  const data = error?.response?.data as AudioDeleteConflictPayload | undefined;
+  if (status !== 409 || !data) {
+    return null;
+  }
+  return data;
+}
+
+function extractErrorMessage(error: any, fallback: string) {
+  return error?.response?.data?.message || error?.response?.data?.error || error?.message || fallback;
+}
+
+function summarizeBatchDeleteFailures(failures: AudioBulkDeleteFailure[]) {
+  const grouped = new Map<string, number>();
+  failures.forEach((item) => {
+    const key = item.reason || '删除失败';
+    grouped.set(key, (grouped.get(key) || 0) + 1);
+  });
+  return Array.from(grouped.entries())
+    .map(([reason, count]) => `${count} 条因为${reason}不能删除`)
+    .join('；');
+}
+
+function openBatchDeleteFailureDialog(failures: AudioBulkDeleteFailure[]) {
+  dialog.warning({
+    title: '批量删除失败详情',
+    positiveText: '知道了',
+    showIcon: false,
+    content: () =>
+      h(
+        'div',
+        { style: 'display:flex;flex-direction:column;gap:8px;max-width:520px;' },
+        failures.map((item) =>
+          h(
+            'div',
+            { key: item.assetId, style: 'font-size:13px;line-height:1.5;' },
+            `${item.assetId}：${item.reason}${item.usageSummary ? `（${resolveUsageSummaryText(item.usageSummary)}）` : ''}`
+          )
+        )
+      ),
+  });
+}
+
 function handleSearch() {
   const durationFilter = getDurationFilter();
   audio.applyFilters({
@@ -1308,11 +1387,32 @@ function confirmDeleteAsset(asset: AudioAsset) {
     negativeText: '取消',
     onPositiveClick: async () => {
       try {
-        await audio.deleteAsset(asset.id);
-        message.success('素材已删除');
-      } catch (err) {
-        console.warn(err);
-        message.error('删除失败，请稍后重试');
+        const result = await audio.deleteAsset(asset.id);
+        const impactText = describeDeleteImpact(result?.impact);
+        message.success(impactText ? `素材已删除，${impactText}` : '素材已删除');
+      } catch (error) {
+        const conflict = extractDeleteConflict(error);
+        if (conflict?.usage) {
+          dialog.warning({
+            title: '素材仍被引用',
+            content: `当前无法直接删除“${asset.name}”。原因：${resolveUsageSummaryText(conflict.usage)}。若继续，系统会停止相关播放、解除引用并删除素材。`,
+            positiveText: '解除引用并删除',
+            negativeText: '取消',
+            onPositiveClick: async () => {
+              try {
+                const result = await audio.deleteAsset(asset.id, { forceDetach: true });
+                const impactText = describeDeleteImpact(result?.impact);
+                message.success(impactText ? `素材已删除，${impactText}` : '素材已删除');
+              } catch (forceError) {
+                console.warn(forceError);
+                message.error(extractErrorMessage(forceError, '删除失败，请稍后重试'));
+              }
+            },
+          });
+          return;
+        }
+        console.warn(error);
+        message.error(extractErrorMessage(error, '删除失败，请稍后重试'));
       }
     },
   });
@@ -1484,7 +1584,8 @@ function confirmBatchDelete() {
           message.success(`已删除 ${summary.success} 条素材`);
         }
         if (summary.failed) {
-          message.warning(`${summary.failed} 条素材未能删除`);
+          message.warning(summarizeBatchDeleteFailures(summary.failures));
+          openBatchDeleteFailureDialog(summary.failures);
         }
         clearSelection();
       } catch (err) {

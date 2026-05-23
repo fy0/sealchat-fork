@@ -12,6 +12,10 @@ import { hasAnyActivePlayback, isTrackPlaybackActive, normalizeTrackStatus } fro
 import { upsertAudioAssetCollections } from './audioStudioAssetCollections';
 import type {
   AudioAsset,
+  AudioAssetBatchDeleteSummary,
+  AudioBulkDeleteFailure,
+  AudioDeleteConflictPayload,
+  AudioDeleteResult,
   AudioAssetListResult,
   AudioAssetMutationPayload,
   AudioQuotaSummary,
@@ -2540,17 +2544,20 @@ export const useAudioStudioStore = defineStore('audioStudio', {
       }
     },
 
-    async deleteAsset(assetId: string) {
+    async deleteAsset(assetId: string, options?: { forceDetach?: boolean }) {
       if (!assetId) return;
       this.assetMutationLoading = true;
       try {
-        await api.delete(`/api/v1/audio/assets/${assetId}`);
+        const resp = await api.delete<AudioDeleteResult>(`/api/v1/audio/assets/${assetId}`, {
+          params: options?.forceDetach ? { forceDetach: true } : undefined,
+        });
         this.removeAssetLocally(assetId);
         this.assetPagination.total = Math.max(0, this.assetPagination.total - 1);
         const nextPage = this.filteredAssets.length
           ? this.assetPagination.page
           : Math.max(1, this.assetPagination.page - 1);
         await this.fetchAssets({ pagination: { page: nextPage }, silent: false });
+        return resp.data;
       } catch (err) {
         console.error('deleteAsset failed', err);
         throw err;
@@ -2595,26 +2602,34 @@ export const useAudioStudioStore = defineStore('audioStudio', {
       }
     },
 
-    async batchDeleteAssets(assetIds: string[]) {
+    async batchDeleteAssets(assetIds: string[]): Promise<AudioAssetBatchDeleteSummary> {
       if (!assetIds?.length) {
-        return { success: 0, failed: 0 };
+        return { success: 0, failed: 0, failures: [] };
       }
       this.assetBulkLoading = true;
       try {
         const tasks = assetIds.map((id) => api.delete(`/api/v1/audio/assets/${id}`));
         const results = await Promise.allSettled(tasks);
         let success = 0;
+        const failures: AudioBulkDeleteFailure[] = [];
         results.forEach((result, index) => {
           if (result.status === 'fulfilled') {
             success += 1;
             this.removeAssetLocally(assetIds[index]);
+            return;
           }
+          const payload = result.reason?.response?.data as AudioDeleteConflictPayload | undefined;
+          failures.push({
+            assetId: assetIds[index],
+            reason: payload?.message || result.reason?.response?.data?.error || result.reason?.message || '删除失败',
+            usageSummary: payload?.usage,
+          });
         });
         if (success) {
           this.assetPagination.total = Math.max(0, this.assetPagination.total - success);
         }
         await this.fetchAssets({ pagination: { page: this.assetPagination.page }, silent: false });
-        return { success, failed: assetIds.length - success };
+        return { success, failed: failures.length, failures };
       } finally {
         this.assetBulkLoading = false;
       }
