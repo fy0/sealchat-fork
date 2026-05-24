@@ -7,6 +7,7 @@ import (
 	"io"
 	"mime/multipart"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"time"
@@ -81,6 +82,97 @@ type PlatformFontSubsetPackageInput struct {
 	ActorID  string
 	Manifest PlatformFontSubsetManifestData
 	Files    []PlatformFontSubsetUploadFile
+}
+
+func NormalizePlatformFontSubsetManifestURLs(
+	fontID string,
+	webURL string,
+	manifest *PlatformFontSubsetManifestData,
+) *PlatformFontSubsetManifestData {
+	if manifest == nil {
+		return nil
+	}
+	normalized := *manifest
+	if relative := firstNonEmptyPlatformFontValue(normalized.CssName, normalized.Entry, normalized.CssUrl); relative != "" {
+		normalized.CssUrl = normalizePlatformFontSubsetManifestURL(fontID, webURL, relative)
+	}
+	if len(normalized.FontUrls) > 0 {
+		fontURLs := make([]string, 0, len(normalized.FontUrls))
+		for idx, rawURL := range normalized.FontUrls {
+			fallback := ""
+			if idx < len(normalized.FontFiles) {
+				fallback = normalized.FontFiles[idx]
+			}
+			fontURLs = append(fontURLs, normalizePlatformFontSubsetManifestURL(fontID, webURL, firstNonEmptyPlatformFontValue(rawURL, fallback)))
+		}
+		normalized.FontUrls = fontURLs
+	}
+	if len(normalized.Chunks) > 0 {
+		chunks := make([]PlatformFontSubsetManifestChunk, len(normalized.Chunks))
+		for idx, chunk := range normalized.Chunks {
+			updated := chunk
+			updated.Url = normalizePlatformFontSubsetManifestURL(fontID, webURL, firstNonEmptyPlatformFontValue(chunk.Url, chunk.Name))
+			chunks[idx] = updated
+		}
+		normalized.Chunks = chunks
+	}
+	return &normalized
+}
+
+func normalizePlatformFontSubsetManifestURL(fontID string, webURL string, raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return ""
+	}
+	if isAbsolutePlatformFontSubsetURL(trimmed) {
+		return trimmed
+	}
+	relative := normalizePlatformFontSubsetPath(trimmed)
+	if relative == "" {
+		return trimmed
+	}
+	webRoot := normalizePlatformFontWebRoot(webURL)
+	subPath := path.Join(webRoot, "api/v1/platform-fonts", fontID, "subset", relative)
+	if !strings.HasPrefix(subPath, "/") {
+		return "/" + subPath
+	}
+	return subPath
+}
+
+func isAbsolutePlatformFontSubsetURL(value string) bool {
+	lower := strings.ToLower(strings.TrimSpace(value))
+	return strings.HasPrefix(lower, "http://") ||
+		strings.HasPrefix(lower, "https://") ||
+		strings.HasPrefix(lower, "//") ||
+		strings.HasPrefix(lower, "data:") ||
+		strings.HasPrefix(lower, "blob:")
+}
+
+func normalizePlatformFontWebRoot(webURL string) string {
+	webRoot := strings.TrimSpace(webURL)
+	if webRoot == "" || webRoot == "/" {
+		return "/"
+	}
+	if !strings.HasPrefix(webRoot, "/") {
+		webRoot = "/" + webRoot
+	}
+	for strings.HasPrefix(webRoot, "//") {
+		webRoot = webRoot[1:]
+	}
+	webRoot = strings.TrimRight(webRoot, "/")
+	if webRoot == "" {
+		return "/"
+	}
+	return webRoot
+}
+
+func firstNonEmptyPlatformFontValue(values ...string) string {
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
 }
 
 func ensurePlatformFontAdmin(actorID string) error {
