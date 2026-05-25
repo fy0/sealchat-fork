@@ -54,6 +54,7 @@ type EmbedStateMessage = {
   worldOptions?: Array<{ value: string; label: string }>;
   channelId?: string;
   channelName?: string;
+  channelPermType?: string;
   connectState?: ConnectState;
   onlineMembersCount?: number;
   members?: PresenceMember[];
@@ -114,6 +115,7 @@ interface PaneState {
   worldOptions: Array<{ value: string; label: string }>;
   channelId: string;
   channelName: string;
+  channelPermType: string;
   connectState: ConnectState;
   onlineMembersCount: number;
   members: PresenceMember[];
@@ -243,6 +245,7 @@ const paneA = reactive<PaneState>({
   worldOptions: [],
   channelId: typeof route.query.a === 'string' ? route.query.a : '',
   channelName: '',
+  channelPermType: '',
   connectState: 'connecting',
   onlineMembersCount: 0,
   members: [],
@@ -275,6 +278,7 @@ const paneB = reactive<PaneState>({
   worldOptions: [],
   channelId: typeof route.query.b === 'string' ? route.query.b : '',
   channelName: '',
+  channelPermType: '',
   connectState: 'connecting',
   onlineMembersCount: 0,
   members: [],
@@ -538,6 +542,7 @@ const handleEmbedMessage = (event: MessageEvent) => {
     if (Array.isArray(msg.worldOptions)) target.worldOptions = msg.worldOptions;
     if (typeof msg.channelId === 'string') target.channelId = msg.channelId;
     if (typeof msg.channelName === 'string') target.channelName = msg.channelName;
+    if (typeof msg.channelPermType === 'string') target.channelPermType = msg.channelPermType;
     if (typeof msg.connectState === 'string') target.connectState = msg.connectState;
     if (typeof msg.onlineMembersCount === 'number') target.onlineMembersCount = msg.onlineMembersCount;
     if (Array.isArray(msg.members)) target.members = msg.members;
@@ -989,8 +994,8 @@ watch(
         <SplitChannelSidebar
           :active-pane-id="activePaneId"
           :panes="[
-            { id: 'A', channelName: paneA.channelName, unread: paneA.currentChannelUnread, worldName: paneA.worldName },
-            { id: 'B', channelName: paneB.channelName, unread: paneB.currentChannelUnread, worldName: paneB.worldName },
+            { id: 'A', channelName: paneA.channelName, channelPermType: paneA.channelPermType, unread: paneA.currentChannelUnread, worldName: paneA.worldName },
+            { id: 'B', channelName: paneB.channelName, channelPermType: paneB.channelPermType, unread: paneB.currentChannelUnread, worldName: paneB.worldName },
           ]"
           :world-id="operationPane.worldId"
           :world-options="operationPane.worldOptions"
@@ -1117,8 +1122,8 @@ watch(
             <SplitChannelSidebar
               :active-pane-id="activePaneId"
               :panes="[
-                { id: 'A', channelName: paneA.channelName, unread: paneA.currentChannelUnread, worldName: paneA.worldName },
-                { id: 'B', channelName: paneB.channelName, unread: paneB.currentChannelUnread, worldName: paneB.worldName },
+                { id: 'A', channelName: paneA.channelName, channelPermType: paneA.channelPermType, unread: paneA.currentChannelUnread, worldName: paneA.worldName },
+                { id: 'B', channelName: paneB.channelName, channelPermType: paneB.channelPermType, unread: paneB.currentChannelUnread, worldName: paneB.worldName },
               ]"
               :world-id="operationPane.worldId"
               :world-options="operationPane.worldOptions"
