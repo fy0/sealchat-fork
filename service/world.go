@@ -8,6 +8,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/samber/lo"
 	"golang.org/x/text/width"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -55,6 +56,8 @@ type WorldCreateParams struct {
 	Avatar                 string
 	ChannelDefaultDiceMode string
 	ChannelDefaultBotID    string
+	ChannelDefaultBotIDs   []string
+	ChannelDefaultEventBotIDs []string
 }
 
 type WorldUpdateParams struct {
@@ -69,7 +72,16 @@ type WorldUpdateParams struct {
 	StrictWhisperPrivacy                  *bool
 	ChannelDefaultDiceMode                *string
 	ChannelDefaultBotID                   *string
+	ChannelDefaultBotIDs                  *[]string
+	ChannelDefaultEventBotIDs             *[]string
 	CharacterCardBadgeTemplate            *string
+}
+
+type WorldChannelDefaultDiceConfig struct {
+	Mode         string
+	PrimaryBotID string
+	BoundBotIDs  []string
+	EventBotIDs  []string
 }
 
 func normalizeWorldDescription(desc string) (string, error) {
@@ -107,7 +119,7 @@ func normalizeWorldChannelDefaultDiceMode(mode string) (string, error) {
 		return model.WorldChannelDefaultDiceModeBuiltin, nil
 	}
 	switch normalized {
-	case model.WorldChannelDefaultDiceModeBuiltin, model.WorldChannelDefaultDiceModeBot:
+	case model.WorldChannelDefaultDiceModeBuiltin, model.WorldChannelDefaultDiceModeBot, model.WorldChannelDefaultDiceModeDisabled:
 		return normalized, nil
 	default:
 		return "", ErrWorldDefaultDiceMode
@@ -126,45 +138,126 @@ func validateWorldDefaultBotID(botID string) (string, error) {
 	return trimmed, nil
 }
 
-func ResolveWorldChannelDefaultDiceConfig(worldID string) (string, string, error) {
-	world, err := GetWorldByID(worldID)
-	if err != nil {
-		return "", "", err
+func validateWorldDefaultBotIDs(botIDs []string) ([]string, error) {
+	normalized := NormalizeBotIDList(botIDs)
+	out := make([]string, 0, len(normalized))
+	for _, botID := range normalized {
+		valid, err := validateWorldDefaultBotID(botID)
+		if err != nil {
+			return nil, err
+		}
+		if valid != "" {
+			out = append(out, valid)
+		}
 	}
-	mode, err := normalizeWorldChannelDefaultDiceMode(world.ChannelDefaultDiceMode)
-	if err != nil {
-		return "", "", err
-	}
-	botID, err := validateWorldDefaultBotID(world.ChannelDefaultBotID)
-	if err != nil {
-		return "", "", err
-	}
-	if mode == model.WorldChannelDefaultDiceModeBot && botID == "" {
-		return "", "", ErrWorldDefaultDiceBotEmpty
-	}
-	return mode, botID, nil
+	return out, nil
 }
 
-func ApplyWorldChannelDefaultDiceConfig(channelID, mode, botID string) error {
+func normalizeWorldChannelDefaultDiceConfig(mode string, primaryBotID string, boundBotIDs []string, eventBotIDs []string) (WorldChannelDefaultDiceConfig, error) {
+	normalizedMode, err := normalizeWorldChannelDefaultDiceMode(mode)
+	if err != nil {
+		return WorldChannelDefaultDiceConfig{}, err
+	}
+	normalizedPrimary, err := validateWorldDefaultBotID(primaryBotID)
+	if err != nil {
+		return WorldChannelDefaultDiceConfig{}, err
+	}
+	normalizedBound, err := validateWorldDefaultBotIDs(boundBotIDs)
+	if err != nil {
+		return WorldChannelDefaultDiceConfig{}, err
+	}
+	normalizedEvent, err := validateWorldDefaultBotIDs(eventBotIDs)
+	if err != nil {
+		return WorldChannelDefaultDiceConfig{}, err
+	}
+	if normalizedMode != model.WorldChannelDefaultDiceModeBot {
+		return WorldChannelDefaultDiceConfig{Mode: normalizedMode}, nil
+	}
+	if normalizedPrimary == "" {
+		return WorldChannelDefaultDiceConfig{}, ErrWorldDefaultDiceBotEmpty
+	}
+	if len(normalizedBound) == 0 {
+		normalizedBound = []string{normalizedPrimary}
+	} else if !lo.Contains(normalizedBound, normalizedPrimary) {
+		normalizedBound = append(normalizedBound, normalizedPrimary)
+	}
+	boundSet := map[string]struct{}{}
+	for _, id := range normalizedBound {
+		boundSet[id] = struct{}{}
+	}
+	filteredEvent := make([]string, 0, len(normalizedEvent))
+	for _, id := range normalizedEvent {
+		if _, ok := boundSet[id]; ok {
+			filteredEvent = append(filteredEvent, id)
+		}
+	}
+	if len(filteredEvent) == 0 {
+		filteredEvent = append(filteredEvent, normalizedBound...)
+	} else if !lo.Contains(filteredEvent, normalizedPrimary) {
+		filteredEvent = append(filteredEvent, normalizedPrimary)
+	}
+	return WorldChannelDefaultDiceConfig{
+		Mode:         normalizedMode,
+		PrimaryBotID: normalizedPrimary,
+		BoundBotIDs:  normalizedBound,
+		EventBotIDs:  filteredEvent,
+	}, nil
+}
+
+func ResolveWorldChannelDefaultDiceConfig(worldID string) (WorldChannelDefaultDiceConfig, error) {
+	world, err := GetWorldByID(worldID)
+	if err != nil {
+		return WorldChannelDefaultDiceConfig{}, err
+	}
+	return normalizeWorldChannelDefaultDiceConfig(
+		world.ChannelDefaultDiceMode,
+		world.ChannelDefaultBotID,
+		world.GetChannelDefaultBotIDs(),
+		world.GetChannelDefaultEventBotIDs(),
+	)
+}
+
+func ApplyWorldChannelDefaultDiceConfig(channelID string, config WorldChannelDefaultDiceConfig) error {
 	channelID = strings.TrimSpace(channelID)
 	if channelID == "" {
 		return errors.New("频道ID不能为空")
 	}
-	normalizedMode, err := normalizeWorldChannelDefaultDiceMode(mode)
+	normalizedConfig, err := normalizeWorldChannelDefaultDiceConfig(
+		config.Mode,
+		config.PrimaryBotID,
+		config.BoundBotIDs,
+		config.EventBotIDs,
+	)
 	if err != nil {
 		return err
 	}
-	validBotID, err := validateWorldDefaultBotID(botID)
-	if err != nil {
-		return err
-	}
-	if normalizedMode != model.WorldChannelDefaultDiceModeBot {
-		return nil
-	}
-	if validBotID == "" {
-		return ErrWorldDefaultDiceBotEmpty
+	if normalizedConfig.Mode != model.WorldChannelDefaultDiceModeBot {
+		if normalizedConfig.Mode == model.WorldChannelDefaultDiceModeDisabled {
+			return model.GetDB().Model(&model.ChannelModel{}).
+				Where("id = ?", channelID).
+				Updates(map[string]any{
+					"built_in_dice_enabled": false,
+					"bot_feature_enabled":   false,
+					"primary_bot_id":        "",
+					"event_bot_ids_json":    "",
+					"updated_at":            time.Now(),
+				}).Error
+		}
+		return model.GetDB().Model(&model.ChannelModel{}).
+			Where("id = ?", channelID).
+			Updates(map[string]any{
+				"built_in_dice_enabled": true,
+				"bot_feature_enabled":   false,
+				"primary_bot_id":        "",
+				"event_bot_ids_json":    "",
+					"updated_at":            time.Now(),
+			}).Error
 	}
 	roleID := fmt.Sprintf("ch-%s-bot", channelID)
+	encodedEventBotIDs, err := EncodeBotIDListJSON(normalizedConfig.EventBotIDs)
+	if err != nil {
+		return err
+	}
 	tx := model.GetDB().Begin()
 	if tx.Error != nil {
 		return tx.Error
@@ -179,26 +272,32 @@ func ApplyWorldChannelDefaultDiceConfig(channelID, mode, botID string) error {
 		Updates(map[string]any{
 			"built_in_dice_enabled": false,
 			"bot_feature_enabled":   true,
+			"primary_bot_id":        normalizedConfig.PrimaryBotID,
+			"event_bot_ids_json":    encodedEventBotIDs,
 			"updated_at":            time.Now(),
 		}).Error; err != nil {
 		tx.Rollback()
 		return err
 	}
-	mapping := &model.UserRoleMappingModel{
-		UserID:   validBotID,
-		RoleID:   roleID,
-		RoleType: "channel",
-	}
-	mapping.Init()
-	if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(mapping).Error; err != nil {
-		tx.Rollback()
-		return err
+	for _, botID := range normalizedConfig.BoundBotIDs {
+		mapping := &model.UserRoleMappingModel{
+			UserID:   botID,
+			RoleID:   roleID,
+			RoleType: "channel",
+		}
+		mapping.Init()
+		if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(mapping).Error; err != nil {
+			tx.Rollback()
+			return err
+		}
 	}
 	if err := tx.Commit().Error; err != nil {
 		return err
 	}
-	if err := EnsureBotChannelIdentity(validBotID, channelID); err != nil {
-		return err
+	for _, botID := range normalizedConfig.BoundBotIDs {
+		if err := EnsureBotChannelIdentity(botID, channelID); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -486,16 +585,14 @@ func WorldCreate(ownerID string, params WorldCreateParams) (*model.WorldModel, *
 	if visibility == "" {
 		visibility = model.WorldVisibilityPublic
 	}
-	defaultDiceMode, err := normalizeWorldChannelDefaultDiceMode(params.ChannelDefaultDiceMode)
+	normalizedDefaultDiceConfig, err := normalizeWorldChannelDefaultDiceConfig(
+		params.ChannelDefaultDiceMode,
+		params.ChannelDefaultBotID,
+		params.ChannelDefaultBotIDs,
+		params.ChannelDefaultEventBotIDs,
+	)
 	if err != nil {
 		return nil, nil, err
-	}
-	defaultBotID, err := validateWorldDefaultBotID(params.ChannelDefaultBotID)
-	if err != nil {
-		return nil, nil, err
-	}
-	if defaultDiceMode == model.WorldChannelDefaultDiceModeBot && defaultBotID == "" {
-		return nil, nil, ErrWorldDefaultDiceBotEmpty
 	}
 	world := &model.WorldModel{
 		Name:                    name,
@@ -506,10 +603,12 @@ func WorldCreate(ownerID string, params WorldCreateParams) (*model.WorldModel, *
 		EnforceMembership:       false,
 		AllowMemberEditKeywords: false,
 		StrictWhisperPrivacy:    true,
-		ChannelDefaultDiceMode:  defaultDiceMode,
-		ChannelDefaultBotID:     defaultBotID,
+		ChannelDefaultDiceMode:  normalizedDefaultDiceConfig.Mode,
+		ChannelDefaultBotID:     normalizedDefaultDiceConfig.PrimaryBotID,
 		Status:                  "active",
 	}
+	world.ChannelDefaultBotIDsJSON, _ = EncodeBotIDListJSON(normalizedDefaultDiceConfig.BoundBotIDs)
+	world.ChannelDefaultEventBotIDsJSON, _ = EncodeBotIDListJSON(normalizedDefaultDiceConfig.EventBotIDs)
 	db := model.GetDB()
 	err = db.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Create(world).Error; err != nil {
@@ -532,10 +631,12 @@ func WorldCreate(ownerID string, params WorldCreateParams) (*model.WorldModel, *
 	channelName := fmt.Sprintf("%s大厅", name)
 	defaultChannel := ChannelNew(utils.NewID(), "public", channelName, world.ID, ownerID, "")
 	if defaultChannel != nil {
-		if defaultDiceMode == model.WorldChannelDefaultDiceModeBot {
-			if err := ApplyWorldChannelDefaultDiceConfig(defaultChannel.ID, defaultDiceMode, defaultBotID); err == nil {
-				defaultChannel.BuiltInDiceEnabled = false
-				defaultChannel.BotFeatureEnabled = true
+		if normalizedDefaultDiceConfig.Mode != model.WorldChannelDefaultDiceModeBuiltin {
+			if err := ApplyWorldChannelDefaultDiceConfig(defaultChannel.ID, normalizedDefaultDiceConfig); err == nil {
+				defaultChannel.BuiltInDiceEnabled = normalizedDefaultDiceConfig.Mode == model.WorldChannelDefaultDiceModeBuiltin
+				defaultChannel.BotFeatureEnabled = normalizedDefaultDiceConfig.Mode == model.WorldChannelDefaultDiceModeBot
+				defaultChannel.PrimaryBotID = normalizedDefaultDiceConfig.PrimaryBotID
+				defaultChannel.EventBotIDsJSON, _ = EncodeBotIDListJSON(normalizedDefaultDiceConfig.EventBotIDs)
 			}
 		}
 		_ = db.Model(&model.WorldModel{}).
@@ -589,28 +690,39 @@ func WorldUpdate(worldID, actorID string, params WorldUpdateParams) (*model.Worl
 	if params.StrictWhisperPrivacy != nil {
 		updates["strict_whisper_privacy"] = *params.StrictWhisperPrivacy
 	}
-	if params.ChannelDefaultDiceMode != nil || params.ChannelDefaultBotID != nil {
+	if params.ChannelDefaultDiceMode != nil || params.ChannelDefaultBotID != nil || params.ChannelDefaultBotIDs != nil || params.ChannelDefaultEventBotIDs != nil {
 		nextMode := world.ChannelDefaultDiceMode
 		if params.ChannelDefaultDiceMode != nil {
 			nextMode = *params.ChannelDefaultDiceMode
 		}
-		normalizedMode, err := normalizeWorldChannelDefaultDiceMode(nextMode)
-		if err != nil {
-			return nil, err
-		}
-		nextBotID := world.ChannelDefaultBotID
+		nextPrimaryBotID := world.ChannelDefaultBotID
 		if params.ChannelDefaultBotID != nil {
-			nextBotID = *params.ChannelDefaultBotID
+			nextPrimaryBotID = *params.ChannelDefaultBotID
 		}
-		normalizedBotID, err := validateWorldDefaultBotID(nextBotID)
+		nextBoundBotIDs := world.GetChannelDefaultBotIDs()
+		if params.ChannelDefaultBotIDs != nil {
+			nextBoundBotIDs = *params.ChannelDefaultBotIDs
+		}
+		nextEventBotIDs := world.GetChannelDefaultEventBotIDs()
+		if params.ChannelDefaultEventBotIDs != nil {
+			nextEventBotIDs = *params.ChannelDefaultEventBotIDs
+		}
+		nextConfig, err := normalizeWorldChannelDefaultDiceConfig(nextMode, nextPrimaryBotID, nextBoundBotIDs, nextEventBotIDs)
 		if err != nil {
 			return nil, err
 		}
-		if normalizedMode == model.WorldChannelDefaultDiceModeBot && normalizedBotID == "" {
-			return nil, ErrWorldDefaultDiceBotEmpty
+		encodedBoundBotIDs, err := EncodeBotIDListJSON(nextConfig.BoundBotIDs)
+		if err != nil {
+			return nil, err
 		}
-		updates["channel_default_dice_mode"] = normalizedMode
-		updates["channel_default_bot_id"] = normalizedBotID
+		encodedEventBotIDs, err := EncodeBotIDListJSON(nextConfig.EventBotIDs)
+		if err != nil {
+			return nil, err
+		}
+		updates["channel_default_dice_mode"] = nextConfig.Mode
+		updates["channel_default_bot_id"] = nextConfig.PrimaryBotID
+		updates["channel_default_bot_ids_json"] = encodedBoundBotIDs
+		updates["channel_default_event_bot_ids_json"] = encodedEventBotIDs
 	}
 	if params.CharacterCardBadgeTemplate != nil {
 		template, err := normalizeWorldBadgeTemplate(*params.CharacterCardBadgeTemplate)

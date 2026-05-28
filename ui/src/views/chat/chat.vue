@@ -29,6 +29,7 @@ import ChatImportProgress from './components/ChatImportProgress.vue'
 import ChannelImageViewerDrawer from './components/ChannelImageViewerDrawer.vue'
 import DiceTray from './components/DiceTray.vue'
 import ChatDiceModeControl from './components/ChatDiceModeControl.vue'
+import { getDiceModeLabel, shouldShowDiceTrayTrigger } from './diceMode'
 import IFormPanelHost from '@/components/iform/IFormPanelHost.vue';
 import IFormFloatingWindows from '@/components/iform/IFormFloatingWindows.vue';
 import IFormDrawer from '@/components/iform/IFormDrawer.vue';
@@ -610,13 +611,20 @@ const botSelectOptions = computed(() => botOptions.value.map((bot) => ({
   value: bot.id,
 })));
 const hasBotOptions = computed(() => botOptions.value.length > 0);
-const diceModeLabel = computed(() => effectiveBotFeatureEnabled.value ? 'BOT掷骰' : '内置掷骰');
+const diceModeLabel = computed(() => getDiceModeLabel({
+  builtInDiceEnabled: channelFeatures.builtInDiceEnabled,
+  botFeatureEnabled: channelFeatures.botFeatureEnabled,
+  isBotPrivateChatChannel: isCurrentBotPrivateChatChannel.value,
+}));
 const diceModeTooltip = computed(() => {
   if (isCurrentBotPrivateChatChannel.value) {
     return '当前为机器人私聊，已固定使用 BOT 掷骰模式';
   }
   if (effectiveBotFeatureEnabled.value) {
     return '当前使用机器人处理掷骰指令，点击齿轮可切换内置掷骰模式';
+  }
+  if (!effectiveBuiltInDiceEnabled.value) {
+    return '当前频道已关闭掷骰，可在设置中重新启用。';
   }
   return '当前使用内置掷骰功能，点击齿轮可切换机器人掷骰模式';
 });
@@ -656,6 +664,11 @@ const effectiveBotFeatureEnabled = computed(() => (
   isCurrentBotPrivateChatChannel.value ? true : channelFeatures.botFeatureEnabled
 ));
 const canUseBuiltInDice = computed(() => effectiveBuiltInDiceEnabled.value);
+const showDiceTrayTrigger = computed(() => shouldShowDiceTrayTrigger({
+  builtInDiceEnabled: channelFeatures.builtInDiceEnabled,
+  botFeatureEnabled: channelFeatures.botFeatureEnabled,
+  isBotPrivateChatChannel: isCurrentBotPrivateChatChannel.value,
+}));
 const showDiceModeStatus = computed(() => canManageChannelFeatures.value || isCurrentBotPrivateChatChannel.value);
 const showDiceModeSettings = computed(() => canManageChannelFeatures.value && !isCurrentBotPrivateChatChannel.value);
 watch(
@@ -14566,7 +14579,7 @@ onBeforeUnmount(() => {
         :class="{ 'chat-input-actions__teleport-content--compact-toolbar': isMinimalInputActive }"
       >
         <div class="chat-input-actions__group chat-input-actions__group--leading chat-input-actions__group--leading-extras">
-          <div class="chat-input-actions__cell">
+          <div v-if="showDiceTrayTrigger" class="chat-input-actions__cell">
             <div class="emoji-trigger">
               <n-tooltip trigger="hover">
                 <template #trigger>
@@ -16083,7 +16096,7 @@ onBeforeUnmount(() => {
                     </div>
                   </n-popover>
                 </div>
-                <div class="chat-input-actions__cell" v-if="isDiceTrayEdgeAnchored">
+                <div class="chat-input-actions__cell" v-if="showDiceTrayTrigger && isDiceTrayEdgeAnchored">
                   <n-popover
                     trigger="manual"
                     placement="top-end"
@@ -16143,7 +16156,7 @@ onBeforeUnmount(() => {
                     </DiceTray>
                   </n-popover>
                 </div>
-                <div class="chat-input-actions__cell" v-else>
+                <div class="chat-input-actions__cell" v-else-if="showDiceTrayTrigger">
                   <n-popover trigger="manual" placement="top" :show="diceTrayDesktopVisible">
                     <template #trigger>
                       <n-tooltip trigger="hover">

@@ -150,6 +150,8 @@ func WorldCreateHandler(c *fiber.Ctx) error {
 		Avatar                 string `json:"avatar"`
 		ChannelDefaultDiceMode string `json:"channelDefaultDiceMode"`
 		ChannelDefaultBotID    string `json:"channelDefaultBotId"`
+		ChannelDefaultBotIDs   []string `json:"channelDefaultBotIds"`
+		ChannelDefaultEventBotIDs []string `json:"channelDefaultEventBotIds"`
 	}
 	if err := c.BodyParser(&body); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": "参数错误"})
@@ -161,6 +163,8 @@ func WorldCreateHandler(c *fiber.Ctx) error {
 		Avatar:                 body.Avatar,
 		ChannelDefaultDiceMode: body.ChannelDefaultDiceMode,
 		ChannelDefaultBotID:    body.ChannelDefaultBotID,
+		ChannelDefaultBotIDs:   body.ChannelDefaultBotIDs,
+		ChannelDefaultEventBotIDs: body.ChannelDefaultEventBotIDs,
 	})
 	if err != nil {
 		switch {

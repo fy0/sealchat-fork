@@ -1962,8 +1962,10 @@ export const useChatStore = defineStore({
       description?: string;
       visibility?: string;
       avatar?: string;
-      channelDefaultDiceMode?: 'builtin' | 'bot';
+      channelDefaultDiceMode?: 'builtin' | 'bot' | 'disabled';
+      channelDefaultBotIds?: string[];
       channelDefaultBotId?: string;
+      channelDefaultEventBotIds?: string[];
     }) {
       const resp = await api.post('/api/v1/worlds', payload);
       const worldId = resp.data.world?.id;
@@ -2084,8 +2086,10 @@ export const useChatStore = defineStore({
       allowManageOtherUserChannelIdentities?: boolean;
       allowMemberEditKeywords?: boolean;
       strictWhisperPrivacy?: boolean;
-      channelDefaultDiceMode?: 'builtin' | 'bot';
+      channelDefaultDiceMode?: 'builtin' | 'bot' | 'disabled';
+      channelDefaultBotIds?: string[];
       channelDefaultBotId?: string;
+      channelDefaultEventBotIds?: string[];
       characterCardBadgeTemplate?: string;
     }) {
       const resp = await api.patch(`/api/v1/worlds/${worldId}`, payload);

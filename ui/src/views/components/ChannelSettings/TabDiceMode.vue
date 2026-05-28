@@ -5,6 +5,7 @@ import type { SChannel, UserInfo, UserRoleModel } from '@/types';
 import { chatEvent, useChatStore } from '@/stores/chat';
 import { useUserStore } from '@/stores/user';
 import { useCharacterCardStore } from '@/stores/characterCard';
+import WorldDiceDefaultsFields from '@/views/world/WorldDiceDefaultsFields.vue';
 
 const props = defineProps({
   channel: {
@@ -24,14 +25,17 @@ const message = useMessage();
 const diceModeOptions = [
   { label: '内置掷骰', value: 'builtin' },
   { label: 'BOT掷骰', value: 'bot' },
+  { label: '关闭掷骰', value: 'disabled' },
 ];
 
-const currentMode = ref<'builtin' | 'bot'>('builtin');
+const currentMode = ref<'builtin' | 'bot' | 'disabled'>('builtin');
 const currentBotIds = ref<string[]>([]);
 const currentPrimaryBotId = ref('');
 const currentEventBotIds = ref<string[]>([]);
-const worldMode = ref<'builtin' | 'bot'>('builtin');
+const worldMode = ref<'builtin' | 'bot' | 'disabled'>('builtin');
+const worldBotIds = ref<string[]>([]);
 const worldBotId = ref('');
+const worldEventBotIds = ref<string[]>([]);
 
 const botList = ref<UserInfo[]>([]);
 const botOptionsLoading = ref(false);
@@ -90,14 +94,33 @@ const worldSectionVisible = computed(() => !!worldId.value && canManageWorldDefa
 const resetCurrentModeFromChannel = () => {
   const channel = props.channel;
   const botEnabled = channel?.botFeatureEnabled === true;
-  currentMode.value = botEnabled ? 'bot' : 'builtin';
+  const builtInEnabled = channel?.builtInDiceEnabled !== false;
+  if (botEnabled) {
+    currentMode.value = 'bot';
+    return;
+  }
+  currentMode.value = builtInEnabled ? 'builtin' : 'disabled';
 };
 
 const resetWorldModeFromDetail = () => {
   const detail = worldDetail.value;
-  const mode = detail?.world?.channelDefaultDiceMode === 'bot' ? 'bot' : 'builtin';
+  const mode = detail?.world?.channelDefaultDiceMode === 'bot'
+    ? 'bot'
+    : detail?.world?.channelDefaultDiceMode === 'disabled'
+      ? 'disabled'
+      : 'builtin';
   worldMode.value = mode;
+  const configuredWorldBotIds = Array.isArray((detail?.world as any)?.channelDefaultBotIds)
+    ? Array.from(new Set(((detail?.world as any)?.channelDefaultBotIds || []).map((id: unknown) => String(id || '').trim()).filter(Boolean)))
+    : [];
   worldBotId.value = String(detail?.world?.channelDefaultBotId || '').trim();
+  worldBotIds.value = configuredWorldBotIds.length > 0
+    ? configuredWorldBotIds
+    : (worldBotId.value ? [worldBotId.value] : []);
+  const configuredWorldEventBotIds = Array.isArray((detail?.world as any)?.channelDefaultEventBotIds)
+    ? Array.from(new Set(((detail?.world as any)?.channelDefaultEventBotIds || []).map((id: unknown) => String(id || '').trim()).filter((id) => worldBotIds.value.includes(id))))
+    : [];
+  worldEventBotIds.value = configuredWorldEventBotIds;
 };
 
 const loadBotOptions = async (force = false) => {
@@ -248,11 +271,21 @@ const saveChannelMode = async () => {
       }
       currentPrimaryBotId.value = primary;
       currentEventBotIds.value = eventBotIds;
-    } else {
+    } else if (currentMode.value === 'builtin') {
       await syncChannelBotBindings([]);
       await chat.updateChannelFeatures(channelId.value, {
         botFeatureEnabled: false,
         builtInDiceEnabled: true,
+        primaryBotId: '',
+        eventBotIds: [],
+      });
+      currentPrimaryBotId.value = '';
+      currentEventBotIds.value = [];
+    } else {
+      await syncChannelBotBindings([]);
+      await chat.updateChannelFeatures(channelId.value, {
+        botFeatureEnabled: false,
+        builtInDiceEnabled: false,
         primaryBotId: '',
         eventBotIds: [],
       });
@@ -276,11 +309,17 @@ const saveWorldDefaults = async () => {
     message.error('选择 BOT 掷骰时必须指定默认 BOT');
     return;
   }
+  if (worldMode.value === 'bot' && worldBotIds.value.length === 0) {
+    message.error('请至少绑定一个 BOT');
+    return;
+  }
   worldSaving.value = true;
   try {
     await chat.worldUpdate(worldId.value, {
       channelDefaultDiceMode: worldMode.value,
       channelDefaultBotId: worldBotId.value,
+      channelDefaultBotIds: worldBotIds.value,
+      channelDefaultEventBotIds: worldEventBotIds.value,
     });
     message.success('新频道默认掷骰方式已更新');
     await loadWorldDetail(true);
@@ -320,7 +359,9 @@ watch(
   async (id) => {
     if (!id) {
       worldMode.value = 'builtin';
+      worldBotIds.value = [];
       worldBotId.value = '';
+      worldEventBotIds.value = [];
       return;
     }
     await loadWorldDetail();
@@ -430,31 +471,18 @@ onUnmounted(() => {
 
       <n-card v-if="worldSectionVisible" size="small" title="新频道默认掷骰方式">
         <n-space vertical :size="12">
-          <n-radio-group
-            v-model:value="worldMode"
+          <WorldDiceDefaultsFields
+            v-model:mode="worldMode"
+            v-model:bot-ids="worldBotIds"
+            v-model:bot-id="worldBotId"
+            v-model:event-bot-ids="worldEventBotIds"
+            :bot-select-options="botSelectOptions"
+            :bot-options-loading="botOptionsLoading"
             :disabled="worldSaving || worldDetailLoading"
-          >
-            <n-space>
-              <n-radio
-                v-for="item in diceModeOptions"
-                :key="`world-${item.value}`"
-                :value="item.value"
-              >
-                {{ item.label }}
-              </n-radio>
-            </n-space>
-          </n-radio-group>
-          <n-select
-            v-if="worldMode === 'bot'"
-            v-model:value="worldBotId"
-            :options="botSelectOptions"
-            :loading="botOptionsLoading"
-            :disabled="worldSaving || !hasBotOptions"
-            placeholder="选择新频道默认使用的 BOT"
-            clearable
+            hint="仅影响后续新建频道，不修改现有频道。"
           />
-          <div class="tab-dice-mode__hint">
-            仅影响后续新建频道，不修改现有频道。
+          <div v-if="worldMode === 'bot' && !botOptionsLoading && !hasBotOptions" class="tab-dice-mode__hint">
+            暂无可用机器人令牌，请先在后台创建。
           </div>
           <n-button
             type="primary"

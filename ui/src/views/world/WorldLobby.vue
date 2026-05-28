@@ -122,8 +122,10 @@ const createInitialWorldForm = () => ({
   name: '',
   description: '',
   visibility: 'public',
-  channelDefaultDiceMode: 'builtin' as 'builtin' | 'bot',
+  channelDefaultDiceMode: 'builtin' as 'builtin' | 'bot' | 'disabled',
+  channelDefaultBotIds: [] as string[],
   channelDefaultBotId: '',
+  channelDefaultEventBotIds: [] as string[],
 });
 
 const createForm = ref(createInitialWorldForm());
@@ -741,6 +743,10 @@ const handleCreateWorld = async () => {
     message.error('选择 BOT 掷骰时必须指定默认 BOT');
     return;
   }
+  if (createForm.value.channelDefaultDiceMode === 'bot' && createForm.value.channelDefaultBotIds.length === 0) {
+    message.error('请至少绑定一个 BOT');
+    return;
+  }
   creating.value = true;
   try {
     await chat.createWorld({
@@ -748,7 +754,9 @@ const handleCreateWorld = async () => {
       description: createForm.value.description,
       visibility: createForm.value.visibility,
       channelDefaultDiceMode: createForm.value.channelDefaultDiceMode,
+      channelDefaultBotIds: createForm.value.channelDefaultBotIds,
       channelDefaultBotId: createForm.value.channelDefaultBotId,
+      channelDefaultEventBotIds: createForm.value.channelDefaultEventBotIds,
     });
     message.success('创建世界成功');
     createVisible.value = false;
@@ -1145,7 +1153,9 @@ const handleExplorePageSizeChange = (pageSize: number) => {
         <n-form-item label="掷骰默认">
           <WorldDiceDefaultsFields
             v-model:mode="createForm.channelDefaultDiceMode"
+            v-model:bot-ids="createForm.channelDefaultBotIds"
             v-model:bot-id="createForm.channelDefaultBotId"
+            v-model:event-bot-ids="createForm.channelDefaultEventBotIds"
             :bot-select-options="botSelectOptions"
             :bot-options-loading="botOptionsLoading"
           />
