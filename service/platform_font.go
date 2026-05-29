@@ -32,7 +32,6 @@ type PlatformFontCreateInput struct {
 	Family      string
 	Weight      string
 	Style       string
-	PreviewText string
 	CreatedBy   string
 }
 
@@ -41,7 +40,6 @@ type PlatformFontUpdateInput struct {
 	Family       *string
 	Weight       *string
 	Style        *string
-	PreviewText  *string
 	Status       *model.PlatformFontStatus
 	DeliveryMode *model.PlatformFontDeliveryMode
 	LastError    *string
@@ -350,7 +348,6 @@ func PlatformFontCreateFromUpload(fileHeader *multipart.FileHeader, input Platfo
 		Style:             normalizePlatformFontStyle(input.Style),
 		Status:            model.PlatformFontStatusProcessing,
 		DeliveryMode:      model.PlatformFontDeliverySingle,
-		PreviewText:       normalizePlatformFontName(input.PreviewText, "永字八法", 120),
 		SourceFileName:    fileName,
 		SourceMimeType:    mimeType,
 		SourceSize:        fileHeader.Size,
@@ -434,9 +431,6 @@ func PlatformFontUpdate(id string, input PlatformFontUpdateInput) (*model.Platfo
 	}
 	if input.Style != nil {
 		updates["style"] = normalizePlatformFontStyle(*input.Style)
-	}
-	if input.PreviewText != nil {
-		updates["preview_text"] = normalizePlatformFontName(*input.PreviewText, item.PreviewText, 120)
 	}
 	if input.Status != nil {
 		updates["status"] = *input.Status
