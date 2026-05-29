@@ -5,7 +5,7 @@ const file = path.resolve(__dirname, '../src/views/admin/components/AdminPlatfor
 const source = fs.readFileSync(file, 'utf8')
 
 const required = [
-  'ensurePlatformFontLoaded',
+  'ensurePlatformFontAssetLoaded',
   'copyTextWithResult',
   'platform-font-manager__font-id',
   'platform-font-manager__preview-block',

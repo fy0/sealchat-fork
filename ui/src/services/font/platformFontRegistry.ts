@@ -7,6 +7,7 @@ import {
   getPlatformFontManifest,
   getPlatformFontMeta,
 } from './platformFontApi'
+import type { PlatformFontAsset } from './platformFontTypes'
 
 const inflightLoads = new Map<string, Promise<string>>()
 const loadedFamilies = new Map<string, string>()
@@ -165,6 +166,50 @@ export const ensurePlatformFontLoaded = async (
 export const resolvePlatformFontFamily = async (fontId: string, preferredFamily?: string): Promise<string> => {
   const family = await ensurePlatformFontLoaded(fontId, preferredFamily)
   return buildGlobalFontFamilyStack(family)
+}
+
+export const ensurePlatformFontAssetLoaded = async (
+  asset: Pick<PlatformFontAsset, 'id' | 'family' | 'displayName' | 'deliveryMode'>,
+  preferredFamily?: string,
+): Promise<string> => {
+  const normalizedId = String(asset?.id || '').trim()
+  if (!normalizedId) {
+    throw new Error('缺少平台字体 ID')
+  }
+  const cached = loadedFamilies.get(normalizedId)
+  if (cached) {
+    return cached
+  }
+  const inflight = inflightLoads.get(normalizedId)
+  if (inflight) {
+    return inflight
+  }
+  const task = (async () => {
+    const family = sanitizeFontFamilyName(preferredFamily || asset.family || asset.displayName)
+    if (!family) {
+      throw new Error('平台字体缺少可用字体名')
+    }
+    if (asset.deliveryMode === 'subset') {
+      const subsetLoaded = await tryLoadSubsetPlatformFont(normalizedId, family)
+      if (!subsetLoaded) {
+        await loadSinglePlatformFont(normalizedId, family)
+      }
+    } else {
+      await loadSinglePlatformFont(normalizedId, family)
+    }
+    loadedFamilies.set(normalizedId, family)
+    failedLoads.delete(normalizedId)
+    return family
+  })()
+  inflightLoads.set(normalizedId, task)
+  try {
+    return await task
+  } catch (error) {
+    failedLoads.add(normalizedId)
+    throw error
+  } finally {
+    inflightLoads.delete(normalizedId)
+  }
 }
 
 export const preloadPlatformFontsFromDom = async (root?: ParentNode | null): Promise<void> => {
