@@ -36,6 +36,8 @@ type PlatformFontAsset struct {
 	SourceFileName      string                   `json:"sourceFileName"`
 	SourceMimeType      string                   `json:"sourceMimeType"`
 	SourceSize          int64                    `json:"sourceSize"`
+	StorageFileCount    int64                    `json:"storageFileCount"`
+	StorageTotalBytes   int64                    `json:"storageTotalBytes"`
 	SubsetCount         int                      `json:"subsetCount"`
 	LastError           string                   `json:"lastError"`
 	CreatedBy           string                   `json:"createdBy" gorm:"index"`
@@ -44,4 +46,3 @@ type PlatformFontAsset struct {
 }
 
 func (*PlatformFontAsset) TableName() string { return "platform_font_assets" }
-

@@ -144,7 +144,7 @@ func (c *Collector) buildSample() (*model.ServiceMetricSample, error) {
 	if err != nil {
 		return nil, err
 	}
-	attachmentStats, err := model.CountAttachmentStatusStats()
+	attachmentStats, err := LoadAttachmentStatusStats(now)
 	if err != nil {
 		return nil, err
 	}

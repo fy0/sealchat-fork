@@ -137,7 +137,10 @@ func CountAttachmentStatusStats() (*AttachmentStatusStats, error) {
 	var font fontResult
 	if err := db.Model(&PlatformFontAsset{}).
 		Where("status = ?", PlatformFontStatusReady).
-		Select("COUNT(*) AS font_count, COALESCE(SUM(source_size), 0) AS font_bytes").
+		Select(
+			"COALESCE(SUM(CASE WHEN storage_file_count > 0 THEN storage_file_count ELSE 1 END), 0) AS font_count, " +
+				"COALESCE(SUM(CASE WHEN storage_total_bytes > 0 THEN storage_total_bytes ELSE source_size END), 0) AS font_bytes",
+		).
 		Scan(&font).Error; err != nil {
 		return nil, err
 	}

@@ -74,7 +74,7 @@ type PlatformFontSubsetManifestData struct {
 
 type PlatformFontSubsetUploadFile struct {
 	Name        string
-	LocalPath    string
+	LocalPath   string
 	ContentType string
 }
 
@@ -344,18 +344,20 @@ func PlatformFontCreateFromUpload(fileHeader *multipart.FileHeader, input Platfo
 	}
 	fileName := strings.TrimSpace(fileHeader.Filename)
 	item := &model.PlatformFontAsset{
-		DisplayName:  normalizePlatformFontName(input.DisplayName, strings.TrimSuffix(fileName, filepath.Ext(fileName)), 120),
-		Family:       normalizePlatformFontName(input.Family, strings.TrimSuffix(fileName, filepath.Ext(fileName)), 120),
-		Weight:       normalizePlatformFontWeight(input.Weight),
-		Style:        normalizePlatformFontStyle(input.Style),
-		Status:       model.PlatformFontStatusProcessing,
-		DeliveryMode: model.PlatformFontDeliverySingle,
-		PreviewText:  normalizePlatformFontName(input.PreviewText, "永字八法", 120),
-		SourceFileName: fileName,
-		SourceMimeType: mimeType,
-		SourceSize:     fileHeader.Size,
-		CreatedBy:      input.CreatedBy,
-		UpdatedBy:      input.CreatedBy,
+		DisplayName:       normalizePlatformFontName(input.DisplayName, strings.TrimSuffix(fileName, filepath.Ext(fileName)), 120),
+		Family:            normalizePlatformFontName(input.Family, strings.TrimSuffix(fileName, filepath.Ext(fileName)), 120),
+		Weight:            normalizePlatformFontWeight(input.Weight),
+		Style:             normalizePlatformFontStyle(input.Style),
+		Status:            model.PlatformFontStatusProcessing,
+		DeliveryMode:      model.PlatformFontDeliverySingle,
+		PreviewText:       normalizePlatformFontName(input.PreviewText, "永字八法", 120),
+		SourceFileName:    fileName,
+		SourceMimeType:    mimeType,
+		SourceSize:        fileHeader.Size,
+		StorageFileCount:  1,
+		StorageTotalBytes: fileHeader.Size,
+		CreatedBy:         input.CreatedBy,
+		UpdatedBy:         input.CreatedBy,
 	}
 	item.Init()
 	if item.DisplayName == "" || item.Family == "" {
@@ -516,6 +518,10 @@ func PlatformFontSaveSubsetPackage(id string, input PlatformFontSubsetPackageInp
 	if _, ok := filesByName[normalizedEntry]; !ok {
 		return nil, fmt.Errorf("%w: 缺少入口样式文件 %s", ErrPlatformFontInvalid, normalizedEntry)
 	}
+	uniqueFiles := make([]PlatformFontSubsetUploadFile, 0, len(filesByName))
+	for _, file := range filesByName {
+		uniqueFiles = append(uniqueFiles, file)
+	}
 
 	normalizedChunks := make([]PlatformFontSubsetManifestChunk, 0, len(input.Manifest.Chunks))
 	fontFiles := make([]string, 0, len(input.Manifest.Chunks))
@@ -614,6 +620,12 @@ func PlatformFontSaveSubsetPackage(id string, input PlatformFontSubsetPackageInp
 		cleanupPersisted()
 		return nil, err
 	}
+	storageFileCount, storageTotalBytes, err := calcPlatformFontStorageStats(item, uniqueFiles, len(manifestBytes))
+	if err != nil {
+		_ = os.Remove(manifestTempPath)
+		cleanupPersisted()
+		return nil, err
+	}
 	manifestLocation, err := PersistPlatformFontFile(manifestTempPath, manifestObjectKey, "application/json")
 	if err != nil {
 		_ = os.Remove(manifestTempPath)
@@ -634,6 +646,8 @@ func PlatformFontSaveSubsetPackage(id string, input PlatformFontSubsetPackageInp
 		"manifest_storage_type": manifestLocation.StorageType,
 		"manifest_object_key":   manifestLocation.ObjectKey,
 		"subset_count":          len(normalizedChunks),
+		"storage_file_count":    storageFileCount,
+		"storage_total_bytes":   storageTotalBytes,
 		"last_error":            "",
 		"updated_by":            input.ActorID,
 		"last_published_at":     &now,
@@ -676,4 +690,28 @@ func detectPlatformFontSubsetContentType(name string, explicit ...string) string
 	default:
 		return "application/octet-stream"
 	}
+}
+
+func calcPlatformFontStorageStats(item *model.PlatformFontAsset, files []PlatformFontSubsetUploadFile, manifestBytes int) (int64, int64, error) {
+	var count int64 = 1
+	totalBytes := item.SourceSize
+	for _, file := range files {
+		if strings.TrimSpace(file.LocalPath) == "" {
+			continue
+		}
+		info, err := os.Stat(file.LocalPath)
+		if err != nil {
+			return 0, 0, err
+		}
+		if !info.Mode().IsRegular() {
+			continue
+		}
+		count++
+		totalBytes += info.Size()
+	}
+	if manifestBytes > 0 {
+		count++
+		totalBytes += int64(manifestBytes)
+	}
+	return count, totalBytes, nil
 }

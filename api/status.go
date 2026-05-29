@@ -179,6 +179,20 @@ func buildSummary(sample *model.ServiceMetricSample, collector *metrics.Collecto
 	if sample == nil {
 		sample = &model.ServiceMetricSample{TimestampMs: time.Now().UnixMilli()}
 	}
+	attachmentCount := sample.AttachmentCount
+	attachmentBytes := sample.AttachmentBytes
+	attachmentImageCount := sample.AttachmentImageCount
+	attachmentImageBytes := sample.AttachmentImageBytes
+	attachmentFontCount := sample.AttachmentFontCount
+	attachmentFontBytes := sample.AttachmentFontBytes
+	if attachmentStats, err := metrics.LoadAttachmentStatusStats(time.Now()); err == nil && attachmentStats != nil {
+		attachmentCount = attachmentStats.TotalCount
+		attachmentBytes = attachmentStats.TotalBytes
+		attachmentImageCount = attachmentStats.ImageCount
+		attachmentImageBytes = attachmentStats.ImageBytes
+		attachmentFontCount = attachmentStats.FontCount
+		attachmentFontBytes = attachmentStats.FontBytes
+	}
 	wsSnapshot := getWsConnectionSnapshot()
 	intervalSeconds := 120
 	retentionDays := 7
@@ -211,12 +225,12 @@ func buildSummary(sample *model.ServiceMetricSample, collector *metrics.Collecto
 		MessageCharCount:      sample.MessageCharCount,
 		MessageCharCountIC:    sample.MessageCharCountIC,
 		MessageCharCountOOC:   sample.MessageCharCountOOC,
-		AttachmentCount:       sample.AttachmentCount,
-		AttachmentBytes:       sample.AttachmentBytes,
-		AttachmentImageCount:  sample.AttachmentImageCount,
-		AttachmentImageBytes:  sample.AttachmentImageBytes,
-		AttachmentFontCount:   sample.AttachmentFontCount,
-		AttachmentFontBytes:   sample.AttachmentFontBytes,
+		AttachmentCount:       attachmentCount,
+		AttachmentBytes:       attachmentBytes,
+		AttachmentImageCount:  attachmentImageCount,
+		AttachmentImageBytes:  attachmentImageBytes,
+		AttachmentFontCount:   attachmentFontCount,
+		AttachmentFontBytes:   attachmentFontBytes,
 		IntervalSeconds:       intervalSeconds,
 		RetentionDays:         retentionDays,
 	}
