@@ -1123,7 +1123,8 @@ const handleArchivePageSizeChange = (pageSize: number) => {
         <n-button
           size="small"
           quaternary
-          class="world-lobby-tab world-lobby-tab--active"
+          class="world-lobby-tab"
+          :class="{ 'world-lobby-tab--active': lobbyMode !== 'archive' }"
           @click="switchLobbyMode"
         >
           <template #icon>
@@ -1139,6 +1140,7 @@ const handleArchivePageSizeChange = (pageSize: number) => {
               size="small"
               quaternary
               class="world-lobby-tab"
+              :class="{ 'world-lobby-tab--active': lobbyMode === 'archive' }"
               @click="openArchivedWorlds"
             >
               <template #icon>
@@ -1161,6 +1163,7 @@ const handleArchivePageSizeChange = (pageSize: number) => {
             size="small"
             tertiary
             class="world-lobby-mode-action world-lobby-desktop-action"
+            :class="{ 'world-lobby-nav-action--active': lobbyMode !== 'archive' }"
             @click="switchLobbyMode"
           >
             <template #icon>
@@ -1172,7 +1175,13 @@ const handleArchivePageSizeChange = (pageSize: number) => {
           </n-button>
           <n-tooltip trigger="hover">
             <template #trigger>
-              <n-button size="small" class="world-lobby-desktop-action" tertiary @click="openArchivedWorlds">
+              <n-button
+                size="small"
+                class="world-lobby-desktop-action world-lobby-archive-action"
+                :class="{ 'world-lobby-nav-action--active': lobbyMode === 'archive' }"
+                tertiary
+                @click="openArchivedWorlds"
+              >
                 <template #icon>
                   <n-icon>
                     <Archive />
@@ -1738,6 +1747,25 @@ const handleArchivePageSizeChange = (pageSize: number) => {
 
 .world-lobby-tab--active {
   color: var(--sc-text-primary);
+  filter: drop-shadow(0 8px 18px color-mix(in srgb, var(--sc-accent, #3388de) 34%, transparent));
+}
+
+.world-lobby-tab--active :deep(.n-button__border),
+.world-lobby-tab--active :deep(.n-button__state-border) {
+  border-color: color-mix(in srgb, var(--sc-accent, #3388de) 54%, transparent);
+}
+
+.world-lobby-nav-action--active {
+  color: var(--sc-text-primary);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--sc-accent, #3388de) 42%, transparent),
+    0 10px 24px color-mix(in srgb, var(--sc-accent, #3388de) 24%, transparent);
+}
+
+.world-lobby-archive-action.world-lobby-nav-action--active {
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, #f87171 48%, transparent),
+    0 10px 24px color-mix(in srgb, #f87171 28%, transparent);
 }
 
 .world-lobby-header-buttons {
