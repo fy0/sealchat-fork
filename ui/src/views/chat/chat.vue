@@ -466,7 +466,7 @@ const inputIcMode = computed<'ic' | 'ooc'>({
       if (channelId && nextIdentityId && nextIdentityId !== previousIdentityId) {
         void (async () => {
           const syncResult = await characterCardStore.syncCardForIdentity(channelId, nextIdentityId, {
-            preserveWhenUnbound: false,
+            preserveWhenUnbound: true,
           });
           if (syncResult.ok) {
             emitTypingPreview();
@@ -1383,7 +1383,7 @@ const simulateCurrentIdentitySelection = async (channelId?: string) => {
       return false;
     }
     const syncResult = await characterCardStore.syncCardForIdentity(channelId, identityId, {
-      preserveWhenUnbound: false,
+      preserveWhenUnbound: true,
     });
     if (!syncResult.ok) {
       return false;
@@ -11880,7 +11880,7 @@ const send = throttle(async () => {
     if (shortcutResult?.matched) {
       chat.setActiveIdentity(chat.curChannel.id, shortcutResult.matched.id);
       await characterCardStore.syncCardForIdentity(chat.curChannel.id, shortcutResult.matched.id, {
-        preserveWhenUnbound: false,
+        preserveWhenUnbound: true,
       });
       draft = shortcutResult.restContent;
       textToSend.value = shortcutResult.restContent;
