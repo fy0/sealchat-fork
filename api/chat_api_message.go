@@ -3941,24 +3941,7 @@ func shouldSuppressBotNicknameSyncMessageCreate(ctx *ChatContext, channelId, con
 	if ctx == nil || ctx.User == nil || !ctx.User.IsBot {
 		return false
 	}
-	if ctx.ConnInfo == nil {
-		return false
-	}
-	if ctx.ConnInfo.BotNicknameSyncPending == nil {
-		return false
-	}
-	pending, ok := ctx.ConnInfo.BotNicknameSyncPending.Load(channelId)
-	if !ok || pending == nil {
-		return false
-	}
-	ageMs := time.Now().UnixMilli() - pending.CreatedAt
-	if ageMs > 3_000 {
-		ctx.ConnInfo.BotNicknameSyncPending.Delete(channelId)
-		return false
-	}
-	matched := strings.Contains(content, strings.TrimSpace(pending.TargetName))
-	ctx.ConnInfo.BotNicknameSyncPending.Delete(channelId)
-	return matched
+	return shouldSuppressBotNicknameSyncContent(ctx.User.ID, channelId, content)
 }
 
 func builtinSealBotSolve(ctx *ChatContext, data *struct {
