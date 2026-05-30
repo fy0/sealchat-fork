@@ -40,6 +40,7 @@ const props = withDefaults(defineProps<{
   inputClass?: string | Record<string, boolean> | Array<string | Record<string, boolean>>
   inlineImages?: Record<string, { status: 'uploading' | 'uploaded' | 'failed'; previewUrl?: string; error?: string }>
   defaultIFormEmbedLink?: string
+  surfaceVariant?: 'default' | 'sticky-note'
 }>(), {
   modelValue: '',
   placeholder: '',
@@ -53,6 +54,7 @@ const props = withDefaults(defineProps<{
   inputClass: () => [],
   inlineImages: () => ({}),
   defaultIFormEmbedLink: '',
+  surfaceVariant: 'default',
 });
 
 type SmartLinkUploadSource = 'smart-link-text-image' | 'smart-link-url-image';
@@ -88,6 +90,24 @@ const isComposing = ref(false);
 const isMobile = ref(false);
 const fontSelectorExpanded = ref(false);
 const desktopFontSelectorExpanded = ref(false);
+const isStickyNoteSurface = computed(() => props.surfaceVariant === 'sticky-note');
+const toolbarPopoverContentClass = computed(() => (
+  isStickyNoteSurface.value
+    ? 'tiptap-toolbar-popover tiptap-toolbar-popover--sticky-note'
+    : 'tiptap-toolbar-popover'
+));
+const toolbarPickerClass = computed(() => [
+  'tiptap-toolbar-picker',
+  { 'tiptap-toolbar-picker--sticky-note': isStickyNoteSurface.value },
+]);
+const platformFontSelectMenuClass = computed(() => (
+  isStickyNoteSurface.value
+    ? 'tiptap-platform-font-select__menu tiptap-platform-font-select__menu--sticky-note'
+    : 'tiptap-platform-font-select__menu'
+));
+const platformFontSelectMenuProps = computed(() => ({
+  class: platformFontSelectMenuClass.value,
+}));
 const savedEditorSelectionRange = ref<{ start: number; end: number } | null>(null);
 const MOBILE_BREAKPOINT = 768;
 const RICH_CONTENT_PARSE_OPTIONS = { preserveWhitespace: 'full' as const };
@@ -944,6 +964,9 @@ const classList = computed(() => {
   }
   if (isFocused.value) {
     base.push('is-focused');
+  }
+  if (isStickyNoteSurface.value) {
+    base.push('tiptap-editor--sticky-note-surface');
   }
   const append = (item: any) => {
     if (!item) return;
@@ -1849,6 +1872,7 @@ defineExpose({
             trigger="click"
             placement="bottom-start"
             :show="blockTypePopoverShow"
+            :content-class="toolbarPopoverContentClass"
             @update:show="triggerBlockTypePopover"
           >
             <template #trigger>
@@ -1865,7 +1889,7 @@ defineExpose({
                 </n-button>
               </div>
             </template>
-            <div class="tiptap-toolbar-picker" @pointerdown.stop="markOverlayInteraction">
+            <div :class="toolbarPickerClass" @pointerdown.stop="markOverlayInteraction">
               <button
                 v-for="option in blockTypeOptions"
                 :key="option.value"
@@ -1885,6 +1909,7 @@ defineExpose({
             trigger="click"
             placement="bottom-start"
             :show="fontSizePopoverShow"
+            :content-class="toolbarPopoverContentClass"
             @update:show="triggerFontSizePopover"
           >
             <template #trigger>
@@ -1901,7 +1926,7 @@ defineExpose({
                 </n-button>
               </div>
             </template>
-            <div class="tiptap-toolbar-picker" @pointerdown.stop="markOverlayInteraction">
+            <div :class="toolbarPickerClass" @pointerdown.stop="markOverlayInteraction">
               <button
                 v-for="option in fontSizeOptions"
                 :key="option.label"
@@ -1991,6 +2016,7 @@ defineExpose({
             trigger="click"
             placement="bottom"
             v-model:show="highlightColorPopoverShow"
+            :content-class="toolbarPopoverContentClass"
           >
             <template #trigger>
               <n-button
@@ -2033,6 +2059,7 @@ defineExpose({
             trigger="click"
             placement="bottom"
             v-model:show="textColorPopoverShow"
+            :content-class="toolbarPopoverContentClass"
           >
             <template #trigger>
               <n-button
@@ -2095,7 +2122,7 @@ defineExpose({
             :placeholder="isMobile ? '字体' : '平台字体'"
             :render-label="renderPlatformFontLabel"
             :render-option="renderPlatformFontOption"
-            content-class="tiptap-platform-font-select__menu"
+            :menu-props="platformFontSelectMenuProps"
             @update:value="applyPlatformFont"
             @update:show="handlePlatformFontSelectShowUpdate"
             @focus="desktopFontSelectorExpanded = true"
@@ -2562,6 +2589,29 @@ defineExpose({
   max-height: max(6rem, calc(100% - 2.5rem));
 }
 
+.tiptap-editor--sticky-note-surface :deep(.tiptap-platform-font-select .n-base-selection),
+.tiptap-editor--sticky-note-surface :deep(.tiptap-platform-font-select .n-base-selection-label) {
+  --n-color: rgba(255, 255, 255, 0.82) !important;
+  --n-color-active: #ffffff !important;
+  --n-color-focus: #ffffff !important;
+  --n-text-color: #0f172a !important;
+  --n-placeholder-color: #64748b !important;
+  background-color: rgba(255, 255, 255, 0.82) !important;
+  color: #0f172a !important;
+}
+
+.tiptap-editor--sticky-note-surface :deep(.tiptap-platform-font-select .n-base-selection:hover),
+.tiptap-editor--sticky-note-surface :deep(.tiptap-platform-font-select .n-base-selection--active) {
+  background-color: #ffffff !important;
+}
+
+.tiptap-editor--sticky-note-surface :deep(.tiptap-platform-font-select .n-base-selection-input),
+.tiptap-editor--sticky-note-surface :deep(.tiptap-platform-font-select .n-base-selection-input__content),
+.tiptap-editor--sticky-note-surface :deep(.tiptap-platform-font-select .n-base-selection-placeholder),
+.tiptap-editor--sticky-note-surface :deep(.tiptap-platform-font-select .n-base-selection__state-border) {
+  color: #0f172a !important;
+}
+
 .tiptap-editor.chat-input--custom-height .tiptap-editor-wrapper {
   min-height: var(--custom-input-height, 3rem);
   max-height: var(--custom-input-height, 12rem);
@@ -2987,6 +3037,123 @@ defineExpose({
 .tiptap-platform-font-select__menu {
   border-radius: 14px;
   box-shadow: 0 18px 42px rgba(15, 23, 42, 0.16), 0 6px 16px rgba(15, 23, 42, 0.08);
+}
+
+.tiptap-platform-font-select__menu--sticky-note {
+  --n-color: #ffffff !important;
+  --n-option-text-color: #0f172a !important;
+  --n-option-color-pending: rgba(37, 99, 235, 0.08) !important;
+  --n-option-color-active: rgba(37, 99, 235, 0.12) !important;
+  --n-option-color-active-pending: rgba(37, 99, 235, 0.16) !important;
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+  box-shadow: 0 18px 42px rgba(15, 23, 42, 0.16), 0 6px 16px rgba(15, 23, 42, 0.08);
+}
+
+.tiptap-platform-font-select__menu--sticky-note .n-base-select-option,
+.tiptap-platform-font-select__menu--sticky-note .n-base-select-option__content {
+  color: #0f172a !important;
+}
+
+:root[data-display-palette='night'] .n-popover-shared:has(.tiptap-toolbar-popover--sticky-note),
+:root[data-display-palette='night'] .n-popover-shared:has(.tiptap-toolbar-popover--sticky-note) .n-popover-arrow,
+:root[data-display-palette='night'] .n-popover-shared:has(.tiptap-toolbar-popover--sticky-note) .n-popover-arrow-wrapper,
+:root[data-custom-theme='true'] .n-popover-shared:has(.tiptap-toolbar-popover--sticky-note),
+:root[data-custom-theme='true'] .n-popover-shared:has(.tiptap-toolbar-popover--sticky-note) .n-popover-arrow,
+:root[data-custom-theme='true'] .n-popover-shared:has(.tiptap-toolbar-popover--sticky-note) .n-popover-arrow-wrapper,
+.n-popover-shared:has(.tiptap-toolbar-popover--sticky-note),
+.n-popover-shared:has(.tiptap-toolbar-popover--sticky-note) .n-popover-arrow,
+.n-popover-shared:has(.tiptap-toolbar-popover--sticky-note) .n-popover-arrow-wrapper,
+:root[data-display-palette='night'] .n-popover.tiptap-toolbar-popover--sticky-note,
+:root[data-display-palette='night'] .n-popover-shared.tiptap-toolbar-popover--sticky-note,
+:root[data-display-palette='night'] .n-popover-shared.tiptap-toolbar-popover--sticky-note .n-popover-arrow,
+:root[data-display-palette='night'] .n-popover-shared.tiptap-toolbar-popover--sticky-note .n-popover-arrow-wrapper,
+:root[data-custom-theme='true'] .n-popover.tiptap-toolbar-popover--sticky-note,
+:root[data-custom-theme='true'] .n-popover-shared.tiptap-toolbar-popover--sticky-note,
+:root[data-custom-theme='true'] .n-popover-shared.tiptap-toolbar-popover--sticky-note .n-popover-arrow,
+:root[data-custom-theme='true'] .n-popover-shared.tiptap-toolbar-popover--sticky-note .n-popover-arrow-wrapper,
+.n-popover.tiptap-toolbar-popover--sticky-note,
+.n-popover-shared.tiptap-toolbar-popover--sticky-note,
+.n-popover-shared.tiptap-toolbar-popover--sticky-note .n-popover-arrow,
+.n-popover-shared.tiptap-toolbar-popover--sticky-note .n-popover-arrow-wrapper {
+  --n-color: #ffffff !important;
+  --n-text-color: #0f172a !important;
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+}
+
+:root[data-display-palette='night'] .tiptap-toolbar-popover--sticky-note,
+:root[data-custom-theme='true'] .tiptap-toolbar-popover--sticky-note,
+.tiptap-toolbar-popover--sticky-note {
+  --n-color: #ffffff !important;
+  --n-text-color: #0f172a !important;
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+}
+
+:root[data-display-palette='night'] .tiptap-toolbar-picker--sticky-note,
+:root[data-custom-theme='true'] .tiptap-toolbar-picker--sticky-note,
+.tiptap-toolbar-picker--sticky-note {
+  background: #ffffff !important;
+  color: #0f172a !important;
+}
+
+:root[data-display-palette='night'] .tiptap-toolbar-picker--sticky-note .tiptap-toolbar-picker__item,
+:root[data-custom-theme='true'] .tiptap-toolbar-picker--sticky-note .tiptap-toolbar-picker__item,
+.tiptap-toolbar-picker--sticky-note .tiptap-toolbar-picker__item {
+  color: #0f172a !important;
+}
+
+:root[data-display-palette='night'] .tiptap-toolbar-picker--sticky-note .tiptap-toolbar-picker__item:hover,
+:root[data-display-palette='night'] .tiptap-toolbar-picker--sticky-note .tiptap-toolbar-picker__item.is-active,
+:root[data-custom-theme='true'] .tiptap-toolbar-picker--sticky-note .tiptap-toolbar-picker__item:hover,
+:root[data-custom-theme='true'] .tiptap-toolbar-picker--sticky-note .tiptap-toolbar-picker__item.is-active,
+.tiptap-toolbar-picker--sticky-note .tiptap-toolbar-picker__item:hover,
+.tiptap-toolbar-picker--sticky-note .tiptap-toolbar-picker__item.is-active {
+  background: rgba(37, 99, 235, 0.1) !important;
+}
+
+:root[data-display-palette='night'] .tiptap-toolbar-picker--sticky-note .tiptap-toolbar-picker__item.is-active,
+:root[data-custom-theme='true'] .tiptap-toolbar-picker--sticky-note .tiptap-toolbar-picker__item.is-active,
+.tiptap-toolbar-picker--sticky-note .tiptap-toolbar-picker__item.is-active {
+  color: #2563eb !important;
+}
+
+:root[data-display-palette='night'] .tiptap-toolbar-picker--sticky-note .tiptap-toolbar-picker__custom,
+:root[data-custom-theme='true'] .tiptap-toolbar-picker--sticky-note .tiptap-toolbar-picker__custom,
+.tiptap-toolbar-picker--sticky-note .tiptap-toolbar-picker__custom {
+  border-top-color: #e5e7eb !important;
+}
+
+:root[data-display-palette='night'] .tiptap-toolbar-picker--sticky-note .n-input,
+:root[data-display-palette='night'] .tiptap-toolbar-picker--sticky-note .n-input-wrapper,
+:root[data-custom-theme='true'] .tiptap-toolbar-picker--sticky-note .n-input,
+:root[data-custom-theme='true'] .tiptap-toolbar-picker--sticky-note .n-input-wrapper,
+.tiptap-toolbar-picker--sticky-note .n-input,
+.tiptap-toolbar-picker--sticky-note .n-input-wrapper {
+  --n-color: #ffffff !important;
+  --n-text-color: #0f172a !important;
+  --n-placeholder-color: #94a3b8 !important;
+  --n-border: 1px solid #d1d5db !important;
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+}
+
+:root[data-display-palette='night'] .tiptap-toolbar-picker--sticky-note .n-button,
+:root[data-custom-theme='true'] .tiptap-toolbar-picker--sticky-note .n-button,
+.tiptap-toolbar-picker--sticky-note .n-button {
+  --n-text-color: #0f172a !important;
+  --n-color: #f8fafc !important;
+  --n-color-hover: #eef2ff !important;
+  --n-border: 1px solid #d1d5db !important;
+}
+
+:root[data-display-palette='night'] .tiptap-platform-font-select__menu--sticky-note,
+:root[data-custom-theme='true'] .tiptap-platform-font-select__menu--sticky-note {
+  --n-color: #ffffff !important;
+  --n-option-text-color: #0f172a !important;
+  background-color: #ffffff !important;
+  color: #0f172a !important;
 }
 
 .tiptap-platform-font-option {

@@ -177,6 +177,7 @@ defineExpose({
       ref="richEditorRef"
       :model-value="props.modelValue"
       :placeholder="props.placeholder"
+      :surface-variant="props.variant === 'sticky-note' ? 'sticky-note' : 'default'"
       :mention-options="props.mentionOptions"
       :mention-loading="props.mentionLoading"
       :mention-prefix="props.mentionPrefix"
