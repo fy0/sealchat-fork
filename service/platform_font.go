@@ -557,6 +557,10 @@ func PlatformFontSaveSubsetPackage(id string, input PlatformFontSubsetPackageInp
 	if err != nil {
 		return nil, err
 	}
+	storageFileCount, storageTotalBytes, err := calcPlatformFontStorageStats(item, uniqueFiles, len(manifestBytes))
+	if err != nil {
+		return nil, err
+	}
 
 	subsetRoot := storage.BuildPlatformFontSubsetObjectKey(item.ID, "")
 	manifestObjectKey := storage.BuildPlatformFontSubsetObjectKey(item.ID, "manifest.json")
@@ -610,12 +614,6 @@ func PlatformFontSaveSubsetPackage(id string, input PlatformFontSubsetPackageInp
 		return nil, err
 	}
 	if err := manifestFile.Close(); err != nil {
-		_ = os.Remove(manifestTempPath)
-		cleanupPersisted()
-		return nil, err
-	}
-	storageFileCount, storageTotalBytes, err := calcPlatformFontStorageStats(item, uniqueFiles, len(manifestBytes))
-	if err != nil {
 		_ = os.Remove(manifestTempPath)
 		cleanupPersisted()
 		return nil, err
