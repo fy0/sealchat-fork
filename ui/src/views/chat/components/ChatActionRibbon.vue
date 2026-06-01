@@ -6,6 +6,7 @@ import {
   Archive as ArchiveIcon,
   Download as DownloadIcon,
   DotsVertical as MoreIcon,
+  Heartbeat as BridgeStatusIcon,
   Link as LinkIcon,
   LayoutBoardSplit as SplitIcon,
   MoodSmile as EmojiIcon,
@@ -52,6 +53,7 @@ interface Props {
   stickyNoteActive?: boolean
   webhookEnabled?: boolean
   webhookActive?: boolean
+  bridgeStatusActive?: boolean
   emailNotificationEnabled?: boolean
   emailNotificationActive?: boolean
   characterCardEnabled?: boolean
@@ -73,6 +75,7 @@ interface Emits {
   (e: 'open-ic-ooc-split', side: 'left' | 'right'): void
   (e: 'toggle-sticky-note'): void
   (e: 'open-webhook'): void
+  (e: 'open-bridge-status'): void
   (e: 'open-email-notification'): void
   (e: 'open-character-card'): void
   (e: 'open-character-remark'): void
@@ -158,6 +161,8 @@ const allActionButtons = computed<ActionButton[]>(() => {
   if (props.webhookEnabled) {
     buttons.push({ key: 'webhook', label: 'Webhook', icon: LinkIcon, emitEvent: 'open-webhook', activeKey: 'webhookActive' })
   }
+
+  buttons.push({ key: 'bridge-status', label: '桥接状态', icon: BridgeStatusIcon, emitEvent: 'open-bridge-status', activeKey: 'bridgeStatusActive' })
 
   // 未读提醒入口（复用原邮件提醒位置）
   if (props.emailNotificationEnabled !== false) {

@@ -7,6 +7,14 @@ import type {
   SealChatBridgeRequest,
   SealChatBridgeRolesSnapshot,
 } from './sealchatBridgeProtocol'
+import {
+  markBridgeDisconnected,
+  markBridgeError,
+  markBridgeHandshake,
+  markBridgeInbound,
+  markBridgeMessagePublished,
+  markBridgeRolesSnapshot,
+} from './sealchatBridgeStatus'
 
 type BridgeContext = {
   worldId: string
@@ -61,6 +69,7 @@ export const createSealChatBridgeRuntime = (deps: RuntimeDeps) => {
     active = false
     targetOrigin = ''
     targetSource = null
+    markBridgeDisconnected()
   }
 
   const getCurrentContext = () => deps.getCurrentContext()
@@ -70,24 +79,43 @@ export const createSealChatBridgeRuntime = (deps: RuntimeDeps) => {
       return
     }
     const context = getCurrentContext()
-    const roles = await deps.loadRoles()
-    deps.postMessage({
-      type: 'sealchat.bridge.roles.snapshot',
-      worldId: context.worldId,
-      channelId: context.channelId,
-      generatedAt: Date.now(),
-      roles,
-    }, targetOrigin)
+    try {
+      const roles = await deps.loadRoles()
+      deps.postMessage({
+        type: 'sealchat.bridge.roles.snapshot',
+        worldId: context.worldId,
+        channelId: context.channelId,
+        generatedAt: Date.now(),
+        roles,
+      }, targetOrigin)
+      markBridgeRolesSnapshot({
+        worldId: context.worldId,
+        channelId: context.channelId,
+      })
+    } catch (error) {
+      markBridgeError(error)
+      throw error
+    }
   }
 
   const publishMessage = (payload: Omit<SealChatBridgeMessagePayload, 'type'>) => {
     if (!active || !targetOrigin) {
       return
     }
-    deps.postMessage({
-      type: 'sealchat.bridge.message',
-      ...payload,
-    }, targetOrigin)
+    try {
+      deps.postMessage({
+        type: 'sealchat.bridge.message',
+        ...payload,
+      }, targetOrigin)
+      markBridgeMessagePublished({
+        type: 'sealchat.bridge.message',
+        worldId: payload.worldId,
+        channelId: payload.channelId,
+      })
+    } catch (error) {
+      markBridgeError(error)
+      throw error
+    }
   }
 
   const handleWindowMessage = async (event: BridgeMessageEventLike) => {
@@ -96,6 +124,7 @@ export const createSealChatBridgeRuntime = (deps: RuntimeDeps) => {
     }
 
     if (isUnsubscribeRequest(event.data)) {
+      markBridgeInbound('sealchat.bridge.unsubscribe')
       reset()
       return
     }
@@ -107,18 +136,28 @@ export const createSealChatBridgeRuntime = (deps: RuntimeDeps) => {
     active = true
     targetOrigin = normalizeTargetOrigin(event.origin)
     targetSource = event.source ?? null
+    markBridgeInbound('sealchat.bridge.handshake')
 
     const context = getCurrentContext()
-    deps.postMessage({
-      type: 'sealchat.bridge.handshake.ack',
-      version: 1,
-      nonce: event.data.nonce,
-      ok: true,
-      worldId: context.worldId,
-      channelId: context.channelId,
-    }, targetOrigin)
-
-    await publishRolesSnapshot()
+    try {
+      deps.postMessage({
+        type: 'sealchat.bridge.handshake.ack',
+        version: 1,
+        nonce: event.data.nonce,
+        ok: true,
+        worldId: context.worldId,
+        channelId: context.channelId,
+      }, targetOrigin)
+      markBridgeHandshake({
+        origin: targetOrigin,
+        worldId: context.worldId,
+        channelId: context.channelId,
+      })
+      await publishRolesSnapshot()
+    } catch (error) {
+      markBridgeError(error)
+      throw error
+    }
   }
 
   return {

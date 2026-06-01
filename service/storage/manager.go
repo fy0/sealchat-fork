@@ -211,6 +211,18 @@ func (m *Manager) DeletePrefix(ctx context.Context, backend BackendType, objectK
 	}
 }
 
+func (m *Manager) DownloadToPath(ctx context.Context, backend BackendType, objectKey string, targetPath string) error {
+	switch backend {
+	case BackendS3:
+		if m.remote == nil {
+			return fmt.Errorf("未启用 S3 存储")
+		}
+		return m.remote.downloadToPath(ctx, objectKey, targetPath)
+	default:
+		return m.local.downloadToPath(objectKey, targetPath)
+	}
+}
+
 func (m *Manager) PublicURL(backend BackendType, objectKey string) string {
 	switch backend {
 	case BackendS3:

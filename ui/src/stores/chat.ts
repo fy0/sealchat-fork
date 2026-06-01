@@ -73,6 +73,24 @@ type ChannelUnreadStatePayload = {
   mentions: Record<string, boolean>;
 };
 
+type ChannelIdentityAvatarReissueResult = {
+  channelId: string;
+  processedUserCount: number;
+  processedIdentityCount: number;
+  processedVariantCount: number;
+  refreshedIdentityCount: number;
+  refreshedVariantCount: number;
+  createdAttachmentCount: number;
+  failedCount: number;
+  failed: Array<{
+    scope: string;
+    referenceId: string;
+    targetUserId: string;
+    sourceToken?: string;
+    reason: string;
+  }>;
+};
+
 const normalizeChannelUnreadStatePayload = (data: unknown): ChannelUnreadStatePayload => {
   if (!data || typeof data !== 'object' || Array.isArray(data)) {
     return { counts: {}, mentions: {} };
@@ -3367,6 +3385,11 @@ export const useChatStore = defineStore({
       await api.delete('api/v1/channel-identities/' + identityId, { params });
       this.removeChannelIdentity(channelId, identityId, targetUserId);
       chatEvent.emit('channel-identity-updated', { channelId, removedId: identityId });
+    },
+
+    async reissueChannelIdentityAvatars(channelId: string) {
+      const resp = await api.post<ChannelIdentityAvatarReissueResult>(`api/v1/channels/${channelId}/channel-identity-avatar-reissue`, {});
+      return resp.data;
     },
 
     async createChannelIdentityFolder(channelId: string, name: string, sortOrder?: number, targetUserId?: string | null) {

@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 )
 
@@ -15,11 +16,24 @@ var moveFileRename = os.Rename
 func MoveFile(src, dst string) error {
 	if err := moveFileRename(src, dst); err == nil {
 		return nil
-	} else if !errors.Is(err, syscall.EXDEV) {
+	} else if !isCrossDeviceRenameError(err) {
 		return err
 	}
 
 	return moveFileAcrossDevices(src, dst)
+}
+
+func isCrossDeviceRenameError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, syscall.EXDEV) {
+		return true
+	}
+	message := strings.ToLower(strings.TrimSpace(err.Error()))
+	return strings.Contains(message, "different disk drive") ||
+		strings.Contains(message, "not same device") ||
+		strings.Contains(message, "cross-device")
 }
 
 func moveFileAcrossDevices(src, dst string) error {
@@ -27,7 +41,11 @@ func moveFileAcrossDevices(src, dst string) error {
 	if err != nil {
 		return err
 	}
-	defer srcFile.Close()
+	defer func() {
+		if srcFile != nil {
+			_ = srcFile.Close()
+		}
+	}()
 
 	info, err := srcFile.Stat()
 	if err != nil {
@@ -66,6 +84,11 @@ func moveFileAcrossDevices(src, dst string) error {
 		return fmt.Errorf("跨设备移动写入目标文件失败: %w", err)
 	}
 	cleanup = false
+
+	if err := srcFile.Close(); err != nil {
+		return err
+	}
+	srcFile = nil
 
 	if err := os.Remove(src); err != nil {
 		return err

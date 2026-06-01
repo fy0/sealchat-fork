@@ -121,6 +121,7 @@ import { isHotkeyMatchingEvent } from '@/utils/hotkey';
 import { useRoute, useRouter } from 'vue-router';
 import WebhookIntegrationManager from '@/views/split/components/WebhookIntegrationManager.vue';
 import EmailNotificationManager from '@/views/split/components/EmailNotificationManager.vue';
+import BridgeStatusPanel from './components/BridgeStatusPanel.vue';
 import CharacterCardPanel from './components/CharacterCardPanel.vue';
 import { characterApiUnsupportedText, useCharacterCardStore } from '@/stores/characterCard';
 import { useCharacterSheetStore } from '@/stores/characterSheet';
@@ -723,6 +724,9 @@ watch(
 const spectatorInputDisabled = computed(() => !channelSendAllowed.value);
 const webhookDrawerVisible = ref(false);
 const webhookManageAllowed = ref(false);
+const bridgeStatusDrawerVisible = ref(false);
+const avatarReissueLoading = ref(false);
+const avatarReissueResultText = ref('');
 const emailNotificationDrawerVisible = ref(false);
 const characterCardPanelVisible = ref(false);
 const characterCardAvailable = computed(() => {
@@ -741,6 +745,52 @@ const openCharacterCardPanel = () => {
   if (!characterCardAvailable.value) {
     const tip = characterCardStore.getCharacterApiDisabledReason(channelId) || characterApiUnsupportedText;
     message.warning(tip);
+  }
+};
+
+const handleBridgeAvatarReissue = async () => {
+  const channelId = chat.curChannel?.id || '';
+  if (!channelId) {
+    message.warning('请先选择频道');
+    return;
+  }
+  const confirmed = await dialogAskConfirm(dialog, {
+    title: '刷新当前频道角色头像？',
+    content: '会为当前频道内你可管理用户的频道角色头像与差分头像重新签发附件 ID 和存储文件名，文件内容不会变化。',
+    positiveText: '开始刷新',
+    negativeText: '取消',
+  });
+  if (!confirmed) {
+    return;
+  }
+  avatarReissueLoading.value = true;
+  avatarReissueResultText.value = '';
+  try {
+    const result = await chat.reissueChannelIdentityAvatars(channelId);
+    const summaryParts = [
+      `已刷新 ${result.refreshedIdentityCount} 个角色头像`,
+      `${result.refreshedVariantCount} 个差分头像`,
+      `生成 ${result.createdAttachmentCount} 个新附件`,
+    ];
+    let summary = summaryParts.join('，');
+    if (result.failedCount > 0) {
+      const failurePreview = result.failed
+        .slice(0, 3)
+        .map((item) => `${item.scope}:${item.referenceId} - ${item.reason}`)
+        .join('；');
+      summary = `部分成功：${summary}；失败 ${result.failedCount} 项${failurePreview ? `。${failurePreview}` : ''}`;
+      avatarReissueResultText.value = summary;
+      message.warning(summary);
+      return;
+    }
+    avatarReissueResultText.value = summary;
+    message.success(summary);
+  } catch (error: any) {
+    const errMsg = error?.response?.data?.error || error?.response?.data?.message || error?.message || '刷新失败';
+    avatarReissueResultText.value = `刷新失败：${errMsg}`;
+    message.error(errMsg);
+  } finally {
+    avatarReissueLoading.value = false;
   }
 };
 let webhookPermissionSeq = 0;
@@ -14571,6 +14621,7 @@ onBeforeUnmount(() => {
           :sticky-note-active="stickyNoteStore.uiVisible"
           :webhook-enabled="webhookManageAllowed"
           :webhook-active="webhookDrawerVisible"
+          :bridge-status-active="bridgeStatusDrawerVisible"
           :email-notification-enabled="webhookManageAllowed"
           :email-notification-active="emailNotificationDrawerVisible"
           :character-card-enabled="!!chat.curChannel?.id"
@@ -14589,6 +14640,7 @@ onBeforeUnmount(() => {
           @open-ic-ooc-split="openIcOocSplitView"
           @toggle-sticky-note="toggleStickyNotes"
           @open-webhook="webhookDrawerVisible = true"
+          @open-bridge-status="bridgeStatusDrawerVisible = true"
           @open-email-notification="emailNotificationDrawerVisible = true"
           @open-character-card="openCharacterCardPanel"
           @clear-filters="chat.setFilterState({ icFilter: 'all', showArchived: false, roleIds: [] })"
@@ -15099,6 +15151,18 @@ onBeforeUnmount(() => {
       <n-drawer-content closable>
         <template #header>Webhook 授权</template>
         <WebhookIntegrationManager :channel-id="chat.curChannel?.id || ''" />
+      </n-drawer-content>
+    </n-drawer>
+
+    <n-drawer v-model:show="bridgeStatusDrawerVisible" placement="right" :width="560">
+      <n-drawer-content closable>
+        <template #header>桥接状态</template>
+        <BridgeStatusPanel
+          :channel-id="chat.curChannel?.id || ''"
+          :refreshing="avatarReissueLoading"
+          :result-text="avatarReissueResultText"
+          @refresh-avatars="handleBridgeAvatarReissue"
+        />
       </n-drawer-content>
     </n-drawer>
 

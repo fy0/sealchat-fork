@@ -475,6 +475,7 @@ func Init(config *utils.AppConfig, uiStatic fs.FS) error {
 	v1Auth.Put("/channel-identities/:id", ChannelIdentityUpdate)
 	v1Auth.Post("/channel-identities/:id/replace-temporary", ChannelIdentityReplaceTemporary)
 	v1Auth.Delete("/channel-identities/:id", ChannelIdentityDelete)
+	v1Auth.Post("/channels/:channelId/channel-identity-avatar-reissue", ChannelIdentityAvatarReissue)
 	v1Auth.Get("/channel-identity-variants", ChannelIdentityVariantList)
 	v1Auth.Post("/channel-identity-variants", ChannelIdentityVariantCreate)
 	v1Auth.Put("/channel-identity-variants/:id", ChannelIdentityVariantUpdate)
