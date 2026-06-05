@@ -282,20 +282,30 @@ function applyRubyMark(text: string, mark: { type: string; attrs?: Record<string
   const rubyAttrs = mark.attrs || {};
   const variables: string[] = [];
   const dataAttrs: string[] = [`data-ruby-text="${rubyText}"`];
-  const pushRubyAttr = (key: string, cssVar: string) => {
+  const pushRubyAttr = (key: string, cssVar?: string, dataKeyOverride?: string) => {
     const value = String(rubyAttrs[key] || '').trim();
     if (!value) {
       return;
     }
     const escaped = escapeHtml(value);
-    dataAttrs.push(`data-${key.replace(/[A-Z]/g, (char) => `-${char.toLowerCase()}`)}="${escaped}"`);
-    variables.push(`${cssVar}: ${escaped}`);
+    const dataKey = dataKeyOverride || `data-${key.replace(/[A-Z]/g, (char) => `-${char.toLowerCase()}`)}`;
+    dataAttrs.push(`${dataKey}="${escaped}"`);
+    if (cssVar) {
+      variables.push(`${cssVar}: ${escaped}`);
+    }
   };
   pushRubyAttr('rubyFontFamily', '--ruby-font-family');
   pushRubyAttr('rubyFontSize', '--ruby-font-size');
+  pushRubyAttr('rubyRtFontSize', '--ruby-rt-font-size');
   pushRubyAttr('rubyColor', '--ruby-color');
   pushRubyAttr('rubyFontWeight', '--ruby-font-weight');
   pushRubyAttr('rubyFontStyle', '--ruby-font-style');
+  pushRubyAttr('rubyRtScale', '--ruby-rt-scale');
+  pushRubyAttr('rubyTextDecoration', '--ruby-text-decoration');
+  pushRubyAttr('rubyBackgroundColor', '--ruby-background-color');
+  pushRubyAttr('rubyFontAssetId', undefined, 'data-platform-font-id');
+  pushRubyAttr('rubyPlatformFontFamily', undefined, 'data-platform-font-family');
+  pushRubyAttr('rubySpoiler');
   const styleAttr = variables.length ? ` style="${variables.join('; ')}"` : '';
   return `<ruby class="tiptap-ruby" ${dataAttrs.join(' ')}${styleAttr}>${text}<rt>${rubyText}</rt></ruby>`;
 }

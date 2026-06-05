@@ -1485,8 +1485,20 @@ const toggleItalic = () => {
   return result;
 };
 const toggleUnderline = () => editor.value?.chain().focus().toggleUnderline().run();
-const toggleStrike = () => editor.value?.chain().focus().toggleStrike().run();
-const toggleSpoiler = () => editor.value?.chain().focus().toggleSpoiler().run();
+const toggleStrike = () => {
+  const result = editor.value?.chain().focus().toggleStrike().run();
+  if (result) {
+    syncActiveRubyVisualAttrs();
+  }
+  return result;
+};
+const toggleSpoiler = () => {
+  const result = editor.value?.chain().focus().toggleSpoiler().run();
+  if (result) {
+    syncActiveRubyVisualAttrs();
+  }
+  return result;
+};
 const toggleCode = () => editor.value?.chain().focus().toggleCode().run();
 const toggleCodeBlock = () => editor.value?.chain().focus().toggleCodeBlock().run();
 const toggleBulletList = () => editor.value?.chain().focus().toggleBulletList().run();
@@ -1507,7 +1519,13 @@ const applyBlockType = (value: 'paragraph' | 'heading-1' | 'heading-2' | 'headin
 const setHeading = (level: 1 | 2 | 3) => applyBlockType(`heading-${level}` as 'heading-1' | 'heading-2' | 'heading-3');
 const setParagraph = () => applyBlockType('paragraph');
 const setTextAlign = (align: 'left' | 'center' | 'right' | 'justify') => editor.value?.chain().focus().setTextAlign(align).run();
-const toggleHighlight = () => editor.value?.chain().focus().toggleHighlight().run();
+const toggleHighlight = () => {
+  const result = editor.value?.chain().focus().toggleHighlight().run();
+  if (result) {
+    syncActiveRubyVisualAttrs();
+  }
+  return result;
+};
 const insertHorizontalRule = () => editor.value?.chain().focus().setHorizontalRule().run();
 const clearFormatting = () => editor.value?.chain().focus().clearNodes().unsetAllMarks().run();
 const insertStateWidgetTemplate = () => {
@@ -1525,16 +1543,48 @@ const insertIFormEmbedLink = () => {
   openQuickIFormCreateModal();
 };
 
+const DEFAULT_RUBY_RT_SCALE = '0.92em';
+
+const resolveRubyRtScale = (fontSize: string | null) => {
+  const value = String(fontSize || '').trim().toLowerCase();
+  if (!value.endsWith('px')) {
+    return DEFAULT_RUBY_RT_SCALE;
+  }
+  const size = Number.parseFloat(value);
+  if (!Number.isFinite(size) || size <= 0) {
+    return DEFAULT_RUBY_RT_SCALE;
+  }
+  if (size <= 16) {
+    return '1em';
+  }
+  if (size <= 24) {
+    return '0.96em';
+  }
+  if (size <= 36) {
+    return '0.94em';
+  }
+  return DEFAULT_RUBY_RT_SCALE;
+};
+
 const buildRubyMarkAttrs = (rubyText: string) => {
   const ed = editor.value;
   const textStyleAttrs = (ed?.getAttributes('textStyle') || {}) as Record<string, any>;
+  const highlightAttrs = (ed?.getAttributes('highlight') || {}) as Record<string, any>;
+  const rubyFontSize = typeof textStyleAttrs.fontSize === 'string' ? textStyleAttrs.fontSize : null;
   return {
     rubyText: rubyText.trim(),
+    rubyFontAssetId: typeof textStyleAttrs.fontAssetId === 'string' ? textStyleAttrs.fontAssetId : null,
+    rubyPlatformFontFamily: typeof textStyleAttrs.platformFontFamily === 'string' ? textStyleAttrs.platformFontFamily : null,
     rubyFontFamily: typeof textStyleAttrs.fontFamily === 'string' ? textStyleAttrs.fontFamily : null,
-    rubyFontSize: typeof textStyleAttrs.fontSize === 'string' ? textStyleAttrs.fontSize : null,
+    rubyFontSize,
+    rubyRtFontSize: rubyFontSize,
     rubyColor: typeof textStyleAttrs.color === 'string' ? textStyleAttrs.color : null,
     rubyFontWeight: ed?.isActive('bold') ? '700' : null,
     rubyFontStyle: ed?.isActive('italic') ? 'italic' : null,
+    rubyRtScale: resolveRubyRtScale(rubyFontSize),
+    rubyTextDecoration: ed?.isActive('strike') ? 'line-through' : null,
+    rubyBackgroundColor: typeof highlightAttrs.color === 'string' ? highlightAttrs.color : null,
+    rubySpoiler: ed?.isActive('spoiler') ? 'true' : null,
   };
 };
 
@@ -1554,12 +1604,18 @@ const syncActiveRubyVisualAttrs = () => {
 
 // 高亮颜色操作
 const setHighlightColor = (color: string) => {
-  editor.value?.chain().focus().setHighlight({ color }).run();
+  const result = editor.value?.chain().focus().setHighlight({ color }).run();
+  if (result) {
+    syncActiveRubyVisualAttrs();
+  }
   highlightColorPopoverShow.value = false;
 };
 
 const removeHighlight = () => {
-  editor.value?.chain().focus().unsetHighlight().run();
+  const result = editor.value?.chain().focus().unsetHighlight().run();
+  if (result) {
+    syncActiveRubyVisualAttrs();
+  }
   highlightColorPopoverShow.value = false;
 };
 
@@ -3634,6 +3690,12 @@ defineExpose({
     color: var(--ruby-color, inherit);
     font-weight: var(--ruby-font-weight, inherit);
     font-style: var(--ruby-font-style, inherit);
+    text-decoration: var(--ruby-text-decoration, inherit);
+    background-color: var(--ruby-background-color, transparent);
+  }
+
+  .tiptap-ruby[data-ruby-spoiler='true'] {
+    background-color: var(--spoiler-reveal-bg);
   }
 
   .tiptap-ruby::before {
@@ -3646,10 +3708,16 @@ defineExpose({
     font-size: calc(var(--ruby-font-size, 1em) * 0.58);
     font-weight: var(--ruby-font-weight, inherit);
     font-style: var(--ruby-font-style, inherit);
+    text-decoration: var(--ruby-text-decoration, inherit);
+    background-color: var(--ruby-background-color, transparent);
     line-height: 0.82;
     white-space: nowrap;
     color: var(--ruby-color, inherit);
     pointer-events: none;
+  }
+
+  .tiptap-ruby[data-ruby-spoiler='true']::before {
+    background-color: var(--spoiler-reveal-bg);
   }
 
   /* 对齐样式 */

@@ -1310,22 +1310,34 @@ func applyTipTapMarks(content string, marks []*tiptapMark) string {
 			if rubyText == "" {
 				continue
 			}
-			variables := make([]string, 0, 5)
+			variables := make([]string, 0, 9)
 			dataAttrs := []string{`data-ruby-text="` + rubyText + `"`}
-			pushRubyAttr := func(key string, cssVar string) {
+			pushRubyAttr := func(key string, cssVar string, dataKeyOverride string) {
 				value := htmlEscape(strings.TrimSpace(mark.attrString(key)))
 				if value == "" {
 					return
 				}
-				dataKey := camelToDataAttr(key)
+				dataKey := dataKeyOverride
+				if dataKey == "" {
+					dataKey = camelToDataAttr(key)
+				}
 				dataAttrs = append(dataAttrs, dataKey+`="`+value+`"`)
-				variables = append(variables, cssVar+`: `+value)
+				if cssVar != "" {
+					variables = append(variables, cssVar+`: `+value)
+				}
 			}
-			pushRubyAttr("rubyFontFamily", "--ruby-font-family")
-			pushRubyAttr("rubyFontSize", "--ruby-font-size")
-			pushRubyAttr("rubyColor", "--ruby-color")
-			pushRubyAttr("rubyFontWeight", "--ruby-font-weight")
-			pushRubyAttr("rubyFontStyle", "--ruby-font-style")
+			pushRubyAttr("rubyFontFamily", "--ruby-font-family", "")
+			pushRubyAttr("rubyFontSize", "--ruby-font-size", "")
+			pushRubyAttr("rubyRtFontSize", "--ruby-rt-font-size", "")
+			pushRubyAttr("rubyColor", "--ruby-color", "")
+			pushRubyAttr("rubyFontWeight", "--ruby-font-weight", "")
+			pushRubyAttr("rubyFontStyle", "--ruby-font-style", "")
+			pushRubyAttr("rubyRtScale", "--ruby-rt-scale", "")
+			pushRubyAttr("rubyTextDecoration", "--ruby-text-decoration", "")
+			pushRubyAttr("rubyBackgroundColor", "--ruby-background-color", "")
+			pushRubyAttr("rubyFontAssetId", "", "data-platform-font-id")
+			pushRubyAttr("rubyPlatformFontFamily", "", "data-platform-font-family")
+			pushRubyAttr("rubySpoiler", "", "")
 			styleAttr := ""
 			if len(variables) > 0 {
 				styleAttr = ` style="` + strings.Join(variables, "; ") + `"`
@@ -1343,6 +1355,8 @@ func applyTipTapMarks(content string, marks []*tiptapMark) string {
 			result = "<code>" + result + "</code>"
 		case "highlight":
 			continue
+		case "spoiler":
+			result = `<span class="tiptap-spoiler" data-spoiler="true">` + result + `</span>`
 		case "link":
 			href := htmlEscape(mark.attrString("href"))
 			if href == "" {
@@ -3345,8 +3359,11 @@ var exportHTMLTemplate = htmltemplate.Must(htmltemplate.New("export_html").Funcs
     .content mark { background-color: #fef08a; }
     .content a { color: #3b82f6; text-decoration: underline; }
     .content img { max-width: 100%; height: auto; border-radius: 4px; }
-    .content .tiptap-ruby { ruby-align: center; ruby-position: over; font-family: var(--ruby-font-family, inherit); color: var(--ruby-color, inherit); font-weight: var(--ruby-font-weight, inherit); font-style: var(--ruby-font-style, inherit); }
-    .content .tiptap-ruby rt { font-family: var(--ruby-font-family, inherit); color: var(--ruby-color, inherit); font-weight: var(--ruby-font-weight, inherit); font-style: var(--ruby-font-style, inherit); font-size: calc(var(--ruby-font-size, 1em) * 0.72); line-height: 1.05; letter-spacing: 0; }
+    .content .tiptap-spoiler { display: inline-block; position: relative; isolation: isolate; overflow: hidden; padding: 0 0.2em; border-radius: 0.2em; border: 1px solid rgba(15, 23, 42, 0.18); color: transparent; background-color: #cbd5e1; background-image: repeating-linear-gradient(-45deg, rgba(100, 116, 139, 0.55) 0, rgba(100, 116, 139, 0.55) 6px, transparent 6px, transparent 12px); }
+    .content .tiptap-spoiler::after { content: ''; position: absolute; inset: 0; border-radius: inherit; background-color: #cbd5e1; background-image: repeating-linear-gradient(-45deg, rgba(100, 116, 139, 0.55) 0, rgba(100, 116, 139, 0.55) 6px, transparent 6px, transparent 12px); pointer-events: none; z-index: 2; }
+    .content .tiptap-ruby { ruby-align: center; ruby-position: over; font-size: var(--ruby-font-size, inherit); line-height: inherit; font-family: var(--ruby-font-family, inherit); color: var(--ruby-color, inherit); font-weight: var(--ruby-font-weight, inherit); font-style: var(--ruby-font-style, inherit); text-decoration: var(--ruby-text-decoration, inherit); background-color: var(--ruby-background-color, transparent); }
+    .content .tiptap-ruby[data-ruby-spoiler='true'] { background-color: rgba(226, 232, 240, 0.85); border-radius: 0.2em; }
+    .content .tiptap-ruby rt { font-family: var(--ruby-font-family, inherit); color: var(--ruby-color, inherit); font-weight: var(--ruby-font-weight, inherit); font-style: var(--ruby-font-style, inherit); text-decoration: var(--ruby-text-decoration, inherit); background-color: var(--ruby-background-color, transparent); font-size: var(--ruby-rt-font-size, var(--ruby-font-size, var(--ruby-rt-scale, 0.92em))); line-height: 1.05; letter-spacing: 0; }
     .mention-capsule { display: inline; background-color: rgba(59, 130, 246, 0.1); color: #3b82f6; padding: 0 0.35em; border-radius: 4px; font-weight: 500; }
     .mention-capsule--all { background-color: rgba(239, 68, 68, 0.1); color: #ef4444; }
     .export-sticky-note { margin: 0.6em 0; padding: 0.75em 0.9em; border: 1px solid rgba(15,23,42,0.12); border-left: 4px solid var(--export-sticky-note-accent,#64748b); border-radius: 6px; background: color-mix(in srgb, var(--export-sticky-note-accent,#64748b) 9%, #fff); white-space: normal; }

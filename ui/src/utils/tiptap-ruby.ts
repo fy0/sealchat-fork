@@ -24,9 +24,13 @@ const buildRubyStyleVariableString = (attributes: Record<string, any>) => {
   };
   pushVar('--ruby-font-family', attributes.rubyFontFamily);
   pushVar('--ruby-font-size', attributes.rubyFontSize);
+  pushVar('--ruby-rt-font-size', attributes.rubyRtFontSize);
   pushVar('--ruby-color', attributes.rubyColor);
   pushVar('--ruby-font-weight', attributes.rubyFontWeight);
   pushVar('--ruby-font-style', attributes.rubyFontStyle);
+  pushVar('--ruby-rt-scale', attributes.rubyRtScale);
+  pushVar('--ruby-text-decoration', attributes.rubyTextDecoration);
+  pushVar('--ruby-background-color', attributes.rubyBackgroundColor);
   const existingStyle = String(attributes.style || '').trim();
   return [existingStyle, variables.join('; ')].filter(Boolean).join('; ');
 };
@@ -77,6 +81,14 @@ export const createRubyExtension = ({
           return value ? { 'data-ruby-font-size': value } : {};
         },
       },
+      rubyRtFontSize: {
+        default: null,
+        parseHTML: (element: HTMLElement) => element.getAttribute('data-ruby-rt-font-size') || null,
+        renderHTML: (attributes: Record<string, any>) => {
+          const value = String(attributes.rubyRtFontSize || '').trim();
+          return value ? { 'data-ruby-rt-font-size': value } : {};
+        },
+      },
       rubyColor: {
         default: null,
         parseHTML: (element: HTMLElement) => element.getAttribute('data-ruby-color') || null,
@@ -99,6 +111,56 @@ export const createRubyExtension = ({
         renderHTML: (attributes: Record<string, any>) => {
           const value = String(attributes.rubyFontStyle || '').trim();
           return value ? { 'data-ruby-font-style': value } : {};
+        },
+      },
+      rubyRtScale: {
+        default: null,
+        parseHTML: (element: HTMLElement) => element.getAttribute('data-ruby-rt-scale') || null,
+        renderHTML: (attributes: Record<string, any>) => {
+          const value = String(attributes.rubyRtScale || '').trim();
+          return value ? { 'data-ruby-rt-scale': value } : {};
+        },
+      },
+      rubyFontAssetId: {
+        default: null,
+        parseHTML: (element: HTMLElement) => element.getAttribute('data-platform-font-id') || null,
+        renderHTML: (attributes: Record<string, any>) => {
+          const value = String(attributes.rubyFontAssetId || '').trim();
+          return value ? { 'data-platform-font-id': value } : {};
+        },
+      },
+      rubyPlatformFontFamily: {
+        default: null,
+        parseHTML: (element: HTMLElement) => element.getAttribute('data-platform-font-family') || null,
+        renderHTML: (attributes: Record<string, any>) => {
+          const value = String(attributes.rubyPlatformFontFamily || '').trim();
+          return value ? { 'data-platform-font-family': value } : {};
+        },
+      },
+      rubyTextDecoration: {
+        default: null,
+        parseHTML: (element: HTMLElement) => element.getAttribute('data-ruby-text-decoration') || null,
+        renderHTML: (attributes: Record<string, any>) => {
+          const value = String(attributes.rubyTextDecoration || '').trim();
+          return value ? { 'data-ruby-text-decoration': value } : {};
+        },
+      },
+      rubyBackgroundColor: {
+        default: null,
+        parseHTML: (element: HTMLElement) => element.getAttribute('data-ruby-background-color') || null,
+        renderHTML: (attributes: Record<string, any>) => {
+          const value = String(attributes.rubyBackgroundColor || '').trim();
+          return value ? { 'data-ruby-background-color': value } : {};
+        },
+      },
+      rubySpoiler: {
+        default: null,
+        parseHTML: (element: HTMLElement) => {
+          const value = element.getAttribute('data-ruby-spoiler');
+          return value === 'true' ? 'true' : null;
+        },
+        renderHTML: (attributes: Record<string, any>) => {
+          return attributes.rubySpoiler === 'true' ? { 'data-ruby-spoiler': 'true' } : {};
         },
       },
     };

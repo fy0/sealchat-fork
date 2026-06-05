@@ -22071,10 +22071,22 @@ onBeforeUnmount(() => {
 .sticky-note-editor__content .tiptap-ruby {
   ruby-align: center;
   ruby-position: over;
+  font-size: var(--ruby-font-size, inherit);
+  line-height: inherit;
   font-family: var(--ruby-font-family, inherit);
   color: var(--ruby-color, inherit);
   font-weight: var(--ruby-font-weight, inherit);
   font-style: var(--ruby-font-style, inherit);
+  text-decoration: var(--ruby-text-decoration, inherit);
+  background-color: var(--ruby-background-color, transparent);
+}
+
+.tiptap-ruby[data-ruby-spoiler='true'],
+.tiptap-editor .tiptap-ruby[data-ruby-spoiler='true'],
+.keyword-rich-content .tiptap-ruby[data-ruby-spoiler='true'],
+.sticky-note-editor__content .tiptap-ruby[data-ruby-spoiler='true'] {
+  background-color: var(--spoiler-reveal-bg);
+  border-radius: 0.2em;
 }
 
 .tiptap-ruby rt,
@@ -22085,7 +22097,9 @@ onBeforeUnmount(() => {
   color: var(--ruby-color, inherit);
   font-weight: var(--ruby-font-weight, inherit);
   font-style: var(--ruby-font-style, inherit);
-  font-size: calc(var(--ruby-font-size, 1em) * 0.72);
+  text-decoration: var(--ruby-text-decoration, inherit);
+  background-color: var(--ruby-background-color, transparent);
+  font-size: var(--ruby-rt-font-size, var(--ruby-font-size, var(--ruby-rt-scale, 0.92em)));
   line-height: 1.05;
   letter-spacing: 0;
 }
