@@ -93,6 +93,10 @@ const sendShortcutOptions: Array<{ label: string; value: DisplaySettings['sendSh
   { label: 'Enter 直接发送', value: 'enter' },
   { label: 'Ctrl / Cmd + Enter 发送', value: 'ctrlEnter' },
 ]
+const editingSelfActionsPlacementOptions: Array<{ label: string; value: DisplaySettings['editingSelfActionsPlacement'] }> = [
+  { label: '左置', value: 'left' },
+  { label: '右置', value: 'right' },
+]
 const themeSelectionModeOptions: Array<{ label: string; value: ThemeSelectionMode }> = [
   { label: '平台预设主题', value: 'inherit' },
   { label: '选择平台主题', value: 'platform' },
@@ -777,6 +781,30 @@ const handleThemeSelectionModeUpdate = (mode: ThemeSelectionMode) => {
           <template #checked>预览开启</template>
           <template #unchecked>预览关闭</template>
         </n-switch>
+      </section>
+
+      <section v-if="activeSettingsCategory === 'input'" class="display-settings__section">
+        <header>
+          <div>
+            <p class="section-title">编辑消息按钮位置</p>
+            <p class="section-desc">控制编辑自己消息时“保存 / 取消”按钮显示在预览下方左侧或右侧</p>
+          </div>
+        </header>
+        <div class="setting-mode-grid editing-actions-placement-grid">
+          <n-button
+            v-for="option in editingSelfActionsPlacementOptions"
+            :key="option.value"
+            size="small"
+            block
+            class="setting-mode-button"
+            :type="draft.editingSelfActionsPlacement === option.value ? 'primary' : 'default'"
+            :secondary="draft.editingSelfActionsPlacement !== option.value"
+            :aria-pressed="draft.editingSelfActionsPlacement === option.value"
+            @click="draft.editingSelfActionsPlacement = option.value"
+          >
+            <span class="setting-mode-button__label">{{ option.label }}</span>
+          </n-button>
+        </div>
       </section>
 
       <section v-if="activeSettingsCategory === 'reading'" class="display-settings__section">

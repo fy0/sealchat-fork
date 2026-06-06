@@ -28,6 +28,7 @@ import { DEFAULT_WORLD_KEYWORD_TOOLTIP_INTERACTION } from '@/utils/worldKeywordT
 export type DisplayLayout = 'bubble' | 'compact'
 export type DisplayPalette = 'day' | 'night'
 export type BotBadgeStyle = 'solidBlue' | 'solidTone' | 'outline' | 'dice'
+export type EditingSelfActionsPlacement = 'left' | 'right'
 export type { CustomTheme, CustomThemeColors, PlatformTheme, ThemeSelectionMode } from '@/services/theme/themeTypes'
 
 export interface FavoriteHotkey {
@@ -68,6 +69,7 @@ export interface DisplaySettings {
   avatarSize: number            // 头像大小 (px)
   avatarBorderRadius: number    // 头像圆角 (0-50, 50为圆形)
   showInputPreview: boolean
+  editingSelfActionsPlacement: EditingSelfActionsPlacement
   autoScrollTypingPreview: boolean
   mergeNeighbors: boolean
   showPinnedMessages: boolean
@@ -275,6 +277,7 @@ const normalizeFontAssetId = (value: unknown): string | null => {
 
 const coerceLayout = (value?: string): DisplayLayout => (value === 'compact' ? 'compact' : 'bubble')
 const coercePalette = (value?: string): DisplayPalette => (value === 'day' ? 'day' : 'night')
+const coerceEditingSelfActionsPlacement = (value: unknown): EditingSelfActionsPlacement => (value === 'left' ? 'left' : 'right')
 const BOT_BADGE_STYLE_VALUES: BotBadgeStyle[] = ['solidBlue', 'solidTone', 'outline', 'dice']
 const BOT_BADGE_STYLE_DEFAULT: BotBadgeStyle = 'solidBlue'
 const coerceBotBadgeStyle = (value: unknown): BotBadgeStyle => (
@@ -451,6 +454,7 @@ export const createDefaultDisplaySettings = (): DisplaySettings => ({
   avatarSize: AVATAR_SIZE_DEFAULT,
   avatarBorderRadius: AVATAR_BORDER_RADIUS_DEFAULT,
   showInputPreview: true,
+  editingSelfActionsPlacement: 'right',
   autoScrollTypingPreview: false,
   mergeNeighbors: true,
   showPinnedMessages: true,
@@ -680,6 +684,7 @@ const parseStoredSettings = (raw: string | null | undefined): DisplaySettings =>
         AVATAR_BORDER_RADIUS_MAX,
       ),
       showInputPreview: coerceBoolean(parsed.showInputPreview),
+      editingSelfActionsPlacement: coerceEditingSelfActionsPlacement((parsed as any)?.editingSelfActionsPlacement),
       autoScrollTypingPreview: coerceBoolean((parsed as any)?.autoScrollTypingPreview ?? false),
       mergeNeighbors: coerceBoolean(parsed.mergeNeighbors),
       showPinnedMessages: coerceBoolean((parsed as any)?.showPinnedMessages ?? true),
@@ -849,6 +854,10 @@ const normalizeWith = (base: DisplaySettings, patch?: Partial<DisplaySettings>):
     patch && Object.prototype.hasOwnProperty.call(patch, 'showInputPreview')
       ? coerceBoolean(patch.showInputPreview)
       : base.showInputPreview,
+  editingSelfActionsPlacement:
+    patch && Object.prototype.hasOwnProperty.call(patch, 'editingSelfActionsPlacement')
+      ? coerceEditingSelfActionsPlacement((patch as any).editingSelfActionsPlacement)
+      : base.editingSelfActionsPlacement,
   autoScrollTypingPreview:
     patch && Object.prototype.hasOwnProperty.call(patch, 'autoScrollTypingPreview')
       ? coerceBoolean((patch as any).autoScrollTypingPreview)

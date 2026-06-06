@@ -1208,6 +1208,11 @@ const props = defineProps({
 const emit = defineEmits(['avatar-longpress', 'avatar-click', 'edit', 'edit-save', 'edit-cancel', 'toggle-select', 'range-click', 'relocate-target-pick', 'image-layout-edit-state-change', 'retry-send', 'reedit-revoked', 'edit-inline-image']);
 
 const timestampTicker = ref(Date.now());
+const editingSelfActionsPlacementClass = computed(() => (
+  displayStore.settings.editingSelfActionsPlacement === 'left'
+    ? 'editing-self-actions--left'
+    : 'editing-self-actions--right'
+));
 const inlineTimestampText = computed(() => {
   timestampTicker.value;
   return formatTimestampByPreference(props.item?.createdAt, displayStore.settings.timestampFormat);
@@ -3722,7 +3727,7 @@ const handleRetrySend = () => {
               <span v-if="messageImageAttachmentIds.length > 1" class="image-resize-actions__tip">单击后拖动已选图片可调整</span>
             </div>
           </div>
-          <div v-if="selfEditingPreview" class="editing-self-actions">
+          <div v-if="selfEditingPreview" class="editing-self-actions" :class="editingSelfActionsPlacementClass">
             <n-button quaternary size="tiny" class="editing-self-actions__btn editing-self-actions__btn--save" :disabled="props.editSaving" @click.stop="handleEditSave">
               <n-icon :component="Check" size="14" class="editing-self-actions__btn-icon" />
               保存
@@ -4842,9 +4847,16 @@ const handleRetrySend = () => {
 .editing-self-actions {
   display: flex;
   gap: 0.5rem;
-  justify-content: flex-end;
   align-items: center;
   margin-top: 0.3rem;
+}
+
+.editing-self-actions--left {
+  justify-content: flex-start;
+}
+
+.editing-self-actions--right {
+  justify-content: flex-end;
 }
 
 .editing-self-actions__btn {
