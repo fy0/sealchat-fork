@@ -46,6 +46,25 @@ func BuildAttachmentObjectKey(hashHex string, size int64, now time.Time) string 
 	))
 }
 
+func BuildAttachmentReissueObjectKey(hashHex string, size int64, originalName string, now time.Time) string {
+	cleanHash := sanitizeName(hashHex)
+	if cleanHash == "" {
+		cleanHash = fmt.Sprintf("%d", now.UnixNano())
+	}
+	if size <= 0 {
+		size = 0
+	}
+	cleanName := sanitizeName(filepath.Base(originalName))
+	if cleanName == "" {
+		cleanName = "attachment.bin"
+	}
+	return path.Clean(path.Join("attachments",
+		now.UTC().Format("2006"),
+		now.UTC().Format("01"),
+		fmt.Sprintf("%s_%d_%d_%s", cleanHash, size, now.UTC().UnixNano(), cleanName),
+	))
+}
+
 func BuildAudioObjectKey(assetID string, originalName string) string {
 	name := sanitizeName(filepath.Base(originalName))
 	if name == "" {

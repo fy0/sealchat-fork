@@ -41,7 +41,8 @@ import { useAudioStudioStore } from '@/stores/audioStudio';
 import { usePushNotificationStore } from '@/stores/pushNotification';
 import {
   buildIcOocSplitScopeWorldId,
-  createIcOocSplitSessionSnapshot,
+  readSplitSessionSnapshot,
+  resolveIcOocSplitSessionSnapshot,
   writeSplitSessionSnapshot,
 } from '@/utils/splitSessionStorage';
 import { uploadImageAttachment } from './composables/useAttachmentUploader';
@@ -120,6 +121,7 @@ import { isHotkeyMatchingEvent } from '@/utils/hotkey';
 import { useRoute, useRouter } from 'vue-router';
 import WebhookIntegrationManager from '@/views/split/components/WebhookIntegrationManager.vue';
 import EmailNotificationManager from '@/views/split/components/EmailNotificationManager.vue';
+import BridgeStatusPanel from './components/BridgeStatusPanel.vue';
 import CharacterCardPanel from './components/CharacterCardPanel.vue';
 import { characterApiUnsupportedText, useCharacterCardStore } from '@/stores/characterCard';
 import { useCharacterSheetStore } from '@/stores/characterSheet';
@@ -231,17 +233,39 @@ const openIcOocSplitView = async (side: 'left' | 'right') => {
     return;
   }
   const scopeWorldId = buildIcOocSplitScopeWorldId(worldId);
-  const snapshot = createIcOocSplitSessionSnapshot(
+  const existingSnapshot = readSplitSessionSnapshot(scopeWorldId);
+  const activeIdentityId = chat.getActiveIdentityId(currentChannelId);
+  const activeIdentityVariantId = activeIdentityId
+    ? chat.getActiveIdentityVariantId(currentChannelId, activeIdentityId)
+    : '';
+  const snapshot = resolveIcOocSplitSessionSnapshot(
     scopeWorldId,
     worldId,
     currentChannelId,
     side === 'right' ? 'ooc-left' : 'ic-left',
+    existingSnapshot,
+    {
+      mode: chat.icMode === 'ooc' ? 'ooc' : 'ic',
+      identityId: activeIdentityId,
+      identityVariantId: activeIdentityVariantId,
+      filterState: {
+        icFilter: chat.filterState.icFilter,
+        showArchived: chat.filterState.showArchived,
+        roleIds: [...chat.filterState.roleIds],
+      },
+    },
   );
-  if (!writeSplitSessionSnapshot(scopeWorldId, snapshot)) {
+  const writeOk = writeSplitSessionSnapshot(scopeWorldId, snapshot);
+  if (!writeOk) {
     message.error('初始化场内外分屏失败');
     return;
   }
-  await openSplitRoute(scopeWorldId, worldId, currentChannelId, currentChannelId);
+  await openSplitRoute(
+    scopeWorldId,
+    worldId,
+    snapshot.panes.A.channelId || currentChannelId,
+    snapshot.panes.B.channelId || currentChannelId,
+  );
 };
 
 const toggleStickyNotes = () => {
@@ -700,6 +724,9 @@ watch(
 const spectatorInputDisabled = computed(() => !channelSendAllowed.value);
 const webhookDrawerVisible = ref(false);
 const webhookManageAllowed = ref(false);
+const bridgeStatusDrawerVisible = ref(false);
+const avatarReissueLoading = ref(false);
+const avatarReissueResultText = ref('');
 const emailNotificationDrawerVisible = ref(false);
 const characterCardPanelVisible = ref(false);
 const characterCardAvailable = computed(() => {
@@ -718,6 +745,52 @@ const openCharacterCardPanel = () => {
   if (!characterCardAvailable.value) {
     const tip = characterCardStore.getCharacterApiDisabledReason(channelId) || characterApiUnsupportedText;
     message.warning(tip);
+  }
+};
+
+const handleBridgeAvatarReissue = async () => {
+  const channelId = chat.curChannel?.id || '';
+  if (!channelId) {
+    message.warning('请先选择频道');
+    return;
+  }
+  const confirmed = await dialogAskConfirm(dialog, {
+    title: '刷新当前频道角色头像？',
+    content: '会为当前频道内你可管理用户的频道角色头像与差分头像重新签发附件 ID 和存储文件名，文件内容不会变化。',
+    positiveText: '开始刷新',
+    negativeText: '取消',
+  });
+  if (!confirmed) {
+    return;
+  }
+  avatarReissueLoading.value = true;
+  avatarReissueResultText.value = '';
+  try {
+    const result = await chat.reissueChannelIdentityAvatars(channelId);
+    const summaryParts = [
+      `已刷新 ${result.refreshedIdentityCount} 个角色头像`,
+      `${result.refreshedVariantCount} 个差分头像`,
+      `生成 ${result.createdAttachmentCount} 个新附件`,
+    ];
+    let summary = summaryParts.join('，');
+    if (result.failedCount > 0) {
+      const failurePreview = result.failed
+        .slice(0, 3)
+        .map((item) => `${item.scope}:${item.referenceId} - ${item.reason}`)
+        .join('；');
+      summary = `部分成功：${summary}；失败 ${result.failedCount} 项${failurePreview ? `。${failurePreview}` : ''}`;
+      avatarReissueResultText.value = summary;
+      message.warning(summary);
+      return;
+    }
+    avatarReissueResultText.value = summary;
+    message.success(summary);
+  } catch (error: any) {
+    const errMsg = error?.response?.data?.error || error?.response?.data?.message || error?.message || '刷新失败';
+    avatarReissueResultText.value = `刷新失败：${errMsg}`;
+    message.error(errMsg);
+  } finally {
+    avatarReissueLoading.value = false;
   }
 };
 let webhookPermissionSeq = 0;
@@ -12485,6 +12558,7 @@ const handleChannelSwitchEvent = (e: any) => {
   resetWindowState('live');
   pinnedRows.value = [];
   chat.clearMessageInsertTarget();
+  chat.cancelMultiSelectRelocate();
   resetDragState();
   localReorderOps.clear();
   showButton.value = false;
@@ -12513,6 +12587,7 @@ const handleChannelContextCleared = () => {
   resetWindowState('live');
   pinnedRows.value = [];
   chat.clearMessageInsertTarget();
+  chat.cancelMultiSelectRelocate();
   resetDragState();
   localReorderOps.clear();
   showButton.value = false;
@@ -12599,6 +12674,9 @@ chatEvent.on('message-removed', (e?: Event) => {
       }
   }
   rows.value = rows.value.filter((msg) => !(msg as any).is_deleted);
+  if (chat.multiSelect?.relocate.active && chat.isRelocateSourceMessage(targetId)) {
+    chat.cancelMultiSelectRelocate();
+  }
   if (chat.isMessageInsertTarget(removedChannelId, targetId)) {
     chat.clearMessageInsertTarget(removedChannelId);
   }
@@ -14132,6 +14210,14 @@ const getMultiSelectedMessages = () => {
   return rows.value.filter(row => selected.includes(row.id));
 };
 
+const getMultiSelectedMessageIdsInDisplayOrder = () => {
+  const selected = chat.multiSelect?.selectedIds;
+  if (!selected?.size) return [];
+  return rows.value
+    .map(row => row.id)
+    .filter((id): id is string => Boolean(id) && selected.has(id));
+};
+
 const handleMultiSelectCopy = async () => {
   const messages = getMultiSelectedMessages();
   if (!messages.length) {
@@ -14311,6 +14397,69 @@ const handleMultiSelectMoveToBottom = async () => {
   } catch (error) {
     message.error((error as Error)?.message || '置底失败');
   }
+};
+
+const handleMultiSelectRelocate = () => {
+  const messageIds = getMultiSelectedMessageIdsInDisplayOrder();
+  if (!messageIds.length) {
+    message.warning('请先选择消息');
+    return;
+  }
+  chat.startMultiSelectRelocate(messageIds);
+};
+
+const handleCancelMultiSelectRelocate = () => {
+  chat.cancelMultiSelectRelocate();
+};
+
+const handleRelocateTargetPick = (messageId: string) => {
+  const relocate = chat.multiSelect?.relocate;
+  if (!relocate?.active) {
+    return;
+  }
+  const targetId = String(messageId || '').trim();
+  if (!targetId) {
+    return;
+  }
+  if (relocate.sourceMessageIds.includes(targetId)) {
+    message.warning('不能定位到已选消息内部');
+    return;
+  }
+  const channelId = chat.curChannel?.id;
+  if (!channelId) {
+    message.error('当前频道不可用');
+    return;
+  }
+  chat.setMultiSelectRelocateTarget(targetId);
+  const targetMessage = rows.value.find(row => row.id === targetId);
+  const targetSummary = (() => {
+    const raw = typeof targetMessage?.content === 'string' ? targetMessage.content.replace(/<[^>]*>/g, '').trim() : '';
+    if (raw) {
+      return raw.length > 32 ? `${raw.slice(0, 32)}...` : raw;
+    }
+    return '该消息';
+  })();
+  const messageIds = relocate.sourceMessageIds.slice();
+  dialog.warning({
+    title: '批量重定位',
+    content: `确定将选中的 ${messageIds.length} 条消息移动到“${targetSummary}”下方吗？`,
+    positiveText: '移动',
+    negativeText: '取消',
+    onPositiveClick: async () => {
+      try {
+        await chat.messageRelocateBatch(channelId, {
+          messageIds,
+          targetMessageId: targetId,
+          placement: 'after',
+          clientOpId: nanoid(),
+        });
+        message.success(`已重定位 ${messageIds.length} 条消息`);
+        chat.exitMultiSelectMode();
+      } catch (error) {
+        message.error((error as Error)?.message || '重定位失败');
+      }
+    },
+  });
 };
 
 const handleMultiSelectAll = () => {
@@ -14548,6 +14697,7 @@ onBeforeUnmount(() => {
           :sticky-note-active="stickyNoteStore.uiVisible"
           :webhook-enabled="webhookManageAllowed"
           :webhook-active="webhookDrawerVisible"
+          :bridge-status-active="bridgeStatusDrawerVisible"
           :email-notification-enabled="webhookManageAllowed"
           :email-notification-active="emailNotificationDrawerVisible"
           :character-card-enabled="!!chat.curChannel?.id"
@@ -14566,6 +14716,7 @@ onBeforeUnmount(() => {
           @open-ic-ooc-split="openIcOocSplitView"
           @toggle-sticky-note="toggleStickyNotes"
           @open-webhook="webhookDrawerVisible = true"
+          @open-bridge-status="bridgeStatusDrawerVisible = true"
           @open-email-notification="emailNotificationDrawerVisible = true"
           @open-character-card="openCharacterCardPanel"
           @clear-filters="chat.setFilterState({ icFilter: 'all', showArchived: false, roleIds: [] })"
@@ -15079,6 +15230,18 @@ onBeforeUnmount(() => {
       </n-drawer-content>
     </n-drawer>
 
+    <n-drawer v-model:show="bridgeStatusDrawerVisible" placement="right" :width="560">
+      <n-drawer-content closable>
+        <template #header>桥接状态</template>
+        <BridgeStatusPanel
+          :channel-id="chat.curChannel?.id || ''"
+          :refreshing="avatarReissueLoading"
+          :result-text="avatarReissueResultText"
+          @refresh-avatars="handleBridgeAvatarReissue"
+        />
+      </n-drawer-content>
+    </n-drawer>
+
     <n-drawer v-model:show="emailNotificationDrawerVisible" placement="right" :width="480">
       <n-drawer-content closable>
         <template #header>未读提醒</template>
@@ -15158,6 +15321,7 @@ onBeforeUnmount(() => {
                 @retry-send="retrySendMessage"
                 @image-layout-edit-state-change="handleImageLayoutEditStateChange"
                 @edit-inline-image="handleMessageInlineImageEdit"
+                @relocate-target-pick="handleRelocateTargetPick"
               />
             </div>
           </div>
@@ -15255,6 +15419,7 @@ onBeforeUnmount(() => {
                     @retry-send="retrySendMessage"
                     @image-layout-edit-state-change="handleImageLayoutEditStateChange"
                     @edit-inline-image="handleMessageInlineImageEdit"
+                    @relocate-target-pick="handleRelocateTargetPick"
                   />
                 </div>
               </div>
@@ -15293,6 +15458,7 @@ onBeforeUnmount(() => {
                 @retry-send="retrySendMessage"
                 @image-layout-edit-state-change="handleImageLayoutEditStateChange"
                 @edit-inline-image="handleMessageInlineImageEdit"
+                @relocate-target-pick="handleRelocateTargetPick"
               />
             </template>
             <template v-else>
@@ -15329,6 +15495,7 @@ onBeforeUnmount(() => {
                 @retry-send="retrySendMessage"
                 @image-layout-edit-state-change="handleImageLayoutEditStateChange"
                 @edit-inline-image="handleMessageInlineImageEdit"
+                @relocate-target-pick="handleRelocateTargetPick"
               />
             </template>
           </div>
@@ -16522,7 +16689,9 @@ onBeforeUnmount(() => {
     @delete="handleMultiSelectDelete"
     @copy-image="handleMultiSelectCopyImage"
     @move-to-bottom="handleMultiSelectMoveToBottom"
+    @relocate="handleMultiSelectRelocate"
     @select-all="handleMultiSelectAll"
+    @cancel-relocate="handleCancelMultiSelectRelocate"
   />
   <GalleryPanel @insert="handleGalleryInsert" />
   <CharacterCardPanel v-model:visible="characterCardPanelVisible" :channel-id="chat.curChannel?.id" />
@@ -21894,6 +22063,45 @@ onBeforeUnmount(() => {
 .keyword-rich-content .tiptap-spoiler::after,
 .sticky-note-editor__content .tiptap-spoiler::after {
   content: none;
+}
+
+.tiptap-ruby,
+.tiptap-editor .tiptap-ruby,
+.keyword-rich-content .tiptap-ruby,
+.sticky-note-editor__content .tiptap-ruby {
+  ruby-align: center;
+  ruby-position: over;
+  font-size: var(--ruby-font-size, inherit);
+  line-height: inherit;
+  font-family: var(--ruby-font-family, inherit);
+  color: var(--ruby-color, inherit);
+  font-weight: var(--ruby-font-weight, inherit);
+  font-style: var(--ruby-font-style, inherit);
+  text-decoration: var(--ruby-text-decoration, inherit);
+  background-color: var(--ruby-background-color, transparent);
+}
+
+.tiptap-ruby[data-ruby-spoiler='true'],
+.tiptap-editor .tiptap-ruby[data-ruby-spoiler='true'],
+.keyword-rich-content .tiptap-ruby[data-ruby-spoiler='true'],
+.sticky-note-editor__content .tiptap-ruby[data-ruby-spoiler='true'] {
+  background-color: var(--spoiler-reveal-bg);
+  border-radius: 0.2em;
+}
+
+.tiptap-ruby rt,
+.tiptap-editor .tiptap-ruby rt,
+.keyword-rich-content .tiptap-ruby rt,
+.sticky-note-editor__content .tiptap-ruby rt {
+  font-family: var(--ruby-font-family, inherit);
+  color: var(--ruby-color, inherit);
+  font-weight: var(--ruby-font-weight, inherit);
+  font-style: var(--ruby-font-style, inherit);
+  text-decoration: var(--ruby-text-decoration, inherit);
+  background-color: var(--ruby-background-color, transparent);
+  font-size: var(--ruby-rt-font-size, var(--ruby-font-size, var(--ruby-rt-scale, 0.92em)));
+  line-height: 1.05;
+  letter-spacing: 0;
 }
 
 /* @ mention option styles */

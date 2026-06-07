@@ -11,6 +11,7 @@ import {
   getTextDisplayWidthUnits,
   truncateTextByDisplayWidth,
 } from '@/utils/displayWidth';
+import { resolveActionErrorMessage } from '@/utils/errorMessage';
 
 const props = defineProps<{ worldId: string, visible: boolean }>();
 const emit = defineEmits(['update:visible']);
@@ -82,7 +83,11 @@ const save = async () => {
     message.success('已保存');
     close();
   } catch (e: any) {
-    message.error(e?.response?.data?.message || '保存失败');
+    message.error(resolveActionErrorMessage(
+      e,
+      '保存失败',
+      '保存失败：权限不足，只有世界管理员可修改非成员编辑相关设置。',
+    ));
   } finally {
     loading.value = false;
   }

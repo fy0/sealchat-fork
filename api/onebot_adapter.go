@@ -6,7 +6,6 @@ import (
 	"net"
 	"strconv"
 	"strings"
-	"time"
 
 	"gorm.io/gorm"
 
@@ -489,23 +488,17 @@ func oneBotActionSendIntoChannel(session *oneBotSession, channel *model.ChannelM
 }
 
 func shouldSuppressBotNicknameSyncAck(session *oneBotSession, channelID, content string) bool {
-	if session == nil || session.ConnInfo == nil || channelID == "" {
+	if session == nil || channelID == "" {
 		return false
 	}
-	pendingMap := session.ConnInfo.BotNicknameSyncPending
-	if pendingMap == nil {
-		return false
+	botUserID := ""
+	if session.BotUser != nil {
+		botUserID = strings.TrimSpace(session.BotUser.ID)
 	}
-	pending, ok := pendingMap.Load(channelID)
-	if !ok || pending == nil {
-		return false
+	if botUserID == "" && session.ConnInfo != nil && session.ConnInfo.User != nil {
+		botUserID = strings.TrimSpace(session.ConnInfo.User.ID)
 	}
-	if time.Now().UnixMilli()-pending.CreatedAt > 3_000 {
-		pendingMap.Delete(channelID)
-		return false
-	}
-	pendingMap.Delete(channelID)
-	return isBotNicknameSyncAckContent(content, pending.TargetName)
+	return shouldSuppressBotNicknameSyncContent(botUserID, channelID, content)
 }
 
 func isBotNicknameSyncAckContent(content, targetName string) bool {

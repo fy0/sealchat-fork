@@ -17,6 +17,9 @@ var (
 )
 
 const botCommandDispatchMessageIDPrefix = "bot-command-dispatch:"
+const botNicknameSyncSuppressWindowMs int64 = 3_000
+
+var botNicknameSyncPendingByBotChannel utils.SyncMap[string, *BotNicknameSyncPending]
 
 type ChatContext struct {
 	Conn            *WsSyncConn
@@ -28,6 +31,64 @@ type ChatContext struct {
 
 	ChannelUsersMap *utils.SyncMap[string, *utils.SyncSet[string]]
 	UserId2ConnInfo *utils.SyncMap[string, *utils.SyncMap[*WsSyncConn, *ConnInfo]]
+}
+
+func botNicknameSyncPendingKey(botUserID, channelId string) string {
+	botUserID = strings.TrimSpace(botUserID)
+	channelId = strings.TrimSpace(channelId)
+	if botUserID == "" || channelId == "" {
+		return ""
+	}
+	return botUserID + "\x00" + channelId
+}
+
+func storeBotNicknameSyncPendingForBot(botUserID, channelId, targetName, senderUserID string, createdAt int64) {
+	key := botNicknameSyncPendingKey(botUserID, channelId)
+	targetName = strings.TrimSpace(targetName)
+	if key == "" || targetName == "" {
+		return
+	}
+	if createdAt <= 0 {
+		createdAt = time.Now().UnixMilli()
+	}
+	botNicknameSyncPendingByBotChannel.Store(key, &BotNicknameSyncPending{
+		TargetName:   targetName,
+		SenderUserID: strings.TrimSpace(senderUserID),
+		CreatedAt:    createdAt,
+	})
+}
+
+func loadBotNicknameSyncPendingForBot(botUserID, channelId string) (*BotNicknameSyncPending, bool) {
+	key := botNicknameSyncPendingKey(botUserID, channelId)
+	if key == "" {
+		return nil, false
+	}
+	return botNicknameSyncPendingByBotChannel.Load(key)
+}
+
+func deleteBotNicknameSyncPendingForBot(botUserID, channelId string) {
+	key := botNicknameSyncPendingKey(botUserID, channelId)
+	if key == "" {
+		return
+	}
+	botNicknameSyncPendingByBotChannel.Delete(key)
+}
+
+func shouldSuppressBotNicknameSyncContent(botUserID, channelId, content string) bool {
+	pending, ok := loadBotNicknameSyncPendingForBot(botUserID, channelId)
+	if !ok || pending == nil {
+		return false
+	}
+	ageMs := time.Now().UnixMilli() - pending.CreatedAt
+	if ageMs > botNicknameSyncSuppressWindowMs {
+		deleteBotNicknameSyncPendingForBot(botUserID, channelId)
+		return false
+	}
+	if !isBotNicknameSyncAckContent(content, pending.TargetName) {
+		return false
+	}
+	deleteBotNicknameSyncPendingForBot(botUserID, channelId)
+	return true
 }
 
 func (ctx *ChatContext) IsGuest() bool {
@@ -248,11 +309,15 @@ func storeBotNicknameSyncPending(info *ConnInfo, channelId string, data *protoco
 	if data.MessageContext != nil {
 		senderUserID = strings.TrimSpace(data.MessageContext.SenderUserID)
 	}
+	createdAt := time.Now().UnixMilli()
 	info.BotNicknameSyncPending.Store(channelId, &BotNicknameSyncPending{
 		TargetName:   targetName,
 		SenderUserID: senderUserID,
-		CreatedAt:    time.Now().UnixMilli(),
+		CreatedAt:    createdAt,
 	})
+	if info.User != nil && info.User.IsBot {
+		storeBotNicknameSyncPendingForBot(info.User.ID, channelId, targetName, senderUserID, createdAt)
+	}
 }
 
 func extractBotNicknameSyncTarget(content string) (string, bool) {

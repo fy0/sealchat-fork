@@ -11,6 +11,7 @@ import TabRoles from './TabRoles.vue'
 import TabAppearance from './TabAppearance.vue'
 import TabBotWhisperForward from './TabBotWhisperForward.vue'
 import TabDiceMode from './TabDiceMode.vue'
+import { resolveActionErrorMessage } from '@/utils/errorMessage';
 
 const message = useMessage();
 const dialog = useDialog();
@@ -82,7 +83,11 @@ const channelEdit = async (): Promise<void> => {
     await chat.channelList(chat.currentWorldId, true); // 强制刷新
     modelShow.value = false;
   } catch (err) {
-    message.error('更新失败');
+    message.error(resolveActionErrorMessage(
+      err,
+      '更新失败',
+      '更新失败：权限不足，需拥有频道管理信息权限或角色关联权限。',
+    ));
   }
 }
 

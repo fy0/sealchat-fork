@@ -40,6 +40,7 @@ const props = withDefaults(defineProps<{
   inputClass?: string | Record<string, boolean> | Array<string | Record<string, boolean>>
   inlineImages?: Record<string, { status: 'uploading' | 'uploaded' | 'failed'; previewUrl?: string; error?: string }>
   defaultIFormEmbedLink?: string
+  surfaceVariant?: 'default' | 'sticky-note'
 }>(), {
   modelValue: '',
   placeholder: '',
@@ -53,6 +54,7 @@ const props = withDefaults(defineProps<{
   inputClass: () => [],
   inlineImages: () => ({}),
   defaultIFormEmbedLink: '',
+  surfaceVariant: 'default',
 });
 
 type SmartLinkUploadSource = 'smart-link-text-image' | 'smart-link-url-image';
@@ -88,6 +90,24 @@ const isComposing = ref(false);
 const isMobile = ref(false);
 const fontSelectorExpanded = ref(false);
 const desktopFontSelectorExpanded = ref(false);
+const isStickyNoteSurface = computed(() => props.surfaceVariant === 'sticky-note');
+const toolbarPopoverContentClass = computed(() => (
+  isStickyNoteSurface.value
+    ? 'tiptap-toolbar-popover tiptap-toolbar-popover--sticky-note'
+    : 'tiptap-toolbar-popover'
+));
+const toolbarPickerClass = computed(() => [
+  'tiptap-toolbar-picker',
+  { 'tiptap-toolbar-picker--sticky-note': isStickyNoteSurface.value },
+]);
+const platformFontSelectMenuClass = computed(() => (
+  isStickyNoteSurface.value
+    ? 'tiptap-platform-font-select__menu tiptap-platform-font-select__menu--sticky-note'
+    : 'tiptap-platform-font-select__menu'
+));
+const platformFontSelectMenuProps = computed(() => ({
+  class: platformFontSelectMenuClass.value,
+}));
 const savedEditorSelectionRange = ref<{ start: number; end: number } | null>(null);
 const MOBILE_BREAKPOINT = 768;
 const RICH_CONTENT_PARSE_OPTIONS = { preserveWhitespace: 'full' as const };
@@ -621,10 +641,20 @@ const linkTextImage = ref('');
 const linkUrlImage = ref('');
 const linkTextImageLabel = ref('');
 const linkUrlImageLabel = ref('');
+const rubyModalShow = ref(false);
+const rubyBaseText = ref('');
+const rubyTextInput = ref('');
+const rubySelectionMode = ref<'insert' | 'apply' | 'edit'>('insert');
 
 watch(linkModalShow, (visible) => {
   if (!visible) {
     resetLinkModalState();
+  }
+});
+
+watch(rubyModalShow, (visible) => {
+  if (!visible) {
+    resetRubyModalState();
   }
 });
 
@@ -638,6 +668,12 @@ const resetLinkModalState = () => {
   linkUrlImage.value = '';
   linkTextImageLabel.value = '';
   linkUrlImageLabel.value = '';
+};
+
+const resetRubyModalState = () => {
+  rubyBaseText.value = '';
+  rubyTextInput.value = '';
+  rubySelectionMode.value = 'insert';
 };
 
 const applySmartLinkImage = (
@@ -945,6 +981,9 @@ const classList = computed(() => {
   if (isFocused.value) {
     base.push('is-focused');
   }
+  if (isStickyNoteSurface.value) {
+    base.push('tiptap-editor--sticky-note-surface');
+  }
   const append = (item: any) => {
     if (!item) return;
     if (typeof item === 'string') {
@@ -985,6 +1024,7 @@ const initEditor = async () => {
       Highlight,
       TextAlign,
       Spoiler,
+      Ruby,
     } = await loadTipTapBundle();
 
     EditorContent = EditorContentComp;
@@ -1201,6 +1241,7 @@ const initEditor = async () => {
           multicolor: true,
         }),
         Spoiler,
+        Ruby,
         TextAlign.configure({
           types: ['heading', 'paragraph'],
         }),
@@ -1429,11 +1470,35 @@ const insertImagePlaceholder = (markerId: string, previewUrl: string) => {
 };
 
 // Toolbar actions
-const toggleBold = () => editor.value?.chain().focus().toggleBold().run();
-const toggleItalic = () => editor.value?.chain().focus().toggleItalic().run();
+const toggleBold = () => {
+  const result = editor.value?.chain().focus().toggleBold().run();
+  if (result) {
+    syncActiveRubyVisualAttrs();
+  }
+  return result;
+};
+const toggleItalic = () => {
+  const result = editor.value?.chain().focus().toggleItalic().run();
+  if (result) {
+    syncActiveRubyVisualAttrs();
+  }
+  return result;
+};
 const toggleUnderline = () => editor.value?.chain().focus().toggleUnderline().run();
-const toggleStrike = () => editor.value?.chain().focus().toggleStrike().run();
-const toggleSpoiler = () => editor.value?.chain().focus().toggleSpoiler().run();
+const toggleStrike = () => {
+  const result = editor.value?.chain().focus().toggleStrike().run();
+  if (result) {
+    syncActiveRubyVisualAttrs();
+  }
+  return result;
+};
+const toggleSpoiler = () => {
+  const result = editor.value?.chain().focus().toggleSpoiler().run();
+  if (result) {
+    syncActiveRubyVisualAttrs();
+  }
+  return result;
+};
 const toggleCode = () => editor.value?.chain().focus().toggleCode().run();
 const toggleCodeBlock = () => editor.value?.chain().focus().toggleCodeBlock().run();
 const toggleBulletList = () => editor.value?.chain().focus().toggleBulletList().run();
@@ -1454,7 +1519,13 @@ const applyBlockType = (value: 'paragraph' | 'heading-1' | 'heading-2' | 'headin
 const setHeading = (level: 1 | 2 | 3) => applyBlockType(`heading-${level}` as 'heading-1' | 'heading-2' | 'heading-3');
 const setParagraph = () => applyBlockType('paragraph');
 const setTextAlign = (align: 'left' | 'center' | 'right' | 'justify') => editor.value?.chain().focus().setTextAlign(align).run();
-const toggleHighlight = () => editor.value?.chain().focus().toggleHighlight().run();
+const toggleHighlight = () => {
+  const result = editor.value?.chain().focus().toggleHighlight().run();
+  if (result) {
+    syncActiveRubyVisualAttrs();
+  }
+  return result;
+};
 const insertHorizontalRule = () => editor.value?.chain().focus().setHorizontalRule().run();
 const clearFormatting = () => editor.value?.chain().focus().clearNodes().unsetAllMarks().run();
 const insertStateWidgetTemplate = () => {
@@ -1472,14 +1543,79 @@ const insertIFormEmbedLink = () => {
   openQuickIFormCreateModal();
 };
 
+const DEFAULT_RUBY_RT_SCALE = '0.92em';
+
+const resolveRubyRtScale = (fontSize: string | null) => {
+  const value = String(fontSize || '').trim().toLowerCase();
+  if (!value.endsWith('px')) {
+    return DEFAULT_RUBY_RT_SCALE;
+  }
+  const size = Number.parseFloat(value);
+  if (!Number.isFinite(size) || size <= 0) {
+    return DEFAULT_RUBY_RT_SCALE;
+  }
+  if (size <= 16) {
+    return '1em';
+  }
+  if (size <= 24) {
+    return '0.96em';
+  }
+  if (size <= 36) {
+    return '0.94em';
+  }
+  return DEFAULT_RUBY_RT_SCALE;
+};
+
+const buildRubyMarkAttrs = (rubyText: string) => {
+  const ed = editor.value;
+  const textStyleAttrs = (ed?.getAttributes('textStyle') || {}) as Record<string, any>;
+  const highlightAttrs = (ed?.getAttributes('highlight') || {}) as Record<string, any>;
+  const rubyFontSize = typeof textStyleAttrs.fontSize === 'string' ? textStyleAttrs.fontSize : null;
+  return {
+    rubyText: rubyText.trim(),
+    rubyFontAssetId: typeof textStyleAttrs.fontAssetId === 'string' ? textStyleAttrs.fontAssetId : null,
+    rubyPlatformFontFamily: typeof textStyleAttrs.platformFontFamily === 'string' ? textStyleAttrs.platformFontFamily : null,
+    rubyFontFamily: typeof textStyleAttrs.fontFamily === 'string' ? textStyleAttrs.fontFamily : null,
+    rubyFontSize,
+    rubyRtFontSize: rubyFontSize,
+    rubyColor: typeof textStyleAttrs.color === 'string' ? textStyleAttrs.color : null,
+    rubyFontWeight: ed?.isActive('bold') ? '700' : null,
+    rubyFontStyle: ed?.isActive('italic') ? 'italic' : null,
+    rubyRtScale: resolveRubyRtScale(rubyFontSize),
+    rubyTextDecoration: ed?.isActive('strike') ? 'line-through' : null,
+    rubyBackgroundColor: typeof highlightAttrs.color === 'string' ? highlightAttrs.color : null,
+    rubySpoiler: ed?.isActive('spoiler') ? 'true' : null,
+  };
+};
+
+const syncActiveRubyVisualAttrs = () => {
+  const ed = editor.value;
+  if (!ed) {
+    return;
+  }
+  const rubyText = String(ed.getAttributes('ruby')?.rubyText || '').trim();
+  if (!rubyText) {
+    return;
+  }
+  ed.chain().focus().setMark('ruby', buildRubyMarkAttrs(rubyText)).run();
+  rememberEditorSelection();
+  bumpEditorStateVersion();
+};
+
 // 高亮颜色操作
 const setHighlightColor = (color: string) => {
-  editor.value?.chain().focus().setHighlight({ color }).run();
+  const result = editor.value?.chain().focus().setHighlight({ color }).run();
+  if (result) {
+    syncActiveRubyVisualAttrs();
+  }
   highlightColorPopoverShow.value = false;
 };
 
 const removeHighlight = () => {
-  editor.value?.chain().focus().unsetHighlight().run();
+  const result = editor.value?.chain().focus().unsetHighlight().run();
+  if (result) {
+    syncActiveRubyVisualAttrs();
+  }
   highlightColorPopoverShow.value = false;
 };
 
@@ -1491,7 +1627,10 @@ const getActiveHighlightColor = () => {
 
 // 文字颜色操作
 const setTextColor = (color: string) => {
-  editor.value?.chain().focus().setColor(color).run();
+  const result = editor.value?.chain().focus().setColor(color).run();
+  if (result) {
+    syncActiveRubyVisualAttrs();
+  }
   textColorPopoverShow.value = false;
 };
 
@@ -1509,6 +1648,7 @@ const refreshPlatformFonts = async () => {
 };
 
 const applyPlatformFont = async (fontId: string | null) => {
+  markOverlayInteraction();
   if (!fontId) {
     runEditorCommandWithSelection((chain) => {
       chain.setMark('textStyle', {
@@ -1518,6 +1658,7 @@ const applyPlatformFont = async (fontId: string | null) => {
       });
     });
     selectedPlatformFontId.value = null;
+    syncActiveRubyVisualAttrs();
     if (isMobile.value) {
       closeFontSelector();
     }
@@ -1537,6 +1678,7 @@ const applyPlatformFont = async (fontId: string | null) => {
     });
   });
   selectedPlatformFontId.value = target.id;
+  syncActiveRubyVisualAttrs();
   if (isMobile.value) {
     closeFontSelector();
   }
@@ -1549,6 +1691,7 @@ const applyFontSize = (size: string | null) => {
     });
   });
   selectedFontSize.value = size;
+  syncActiveRubyVisualAttrs();
   fontSizePopoverShow.value = false;
 };
 
@@ -1592,7 +1735,10 @@ const triggerFontSizePopover = (show: boolean) => {
 };
 
 const removeTextColor = () => {
-  editor.value?.chain().focus().unsetColor().run();
+  const result = editor.value?.chain().focus().unsetColor().run();
+  if (result) {
+    syncActiveRubyVisualAttrs();
+  }
   textColorPopoverShow.value = false;
 };
 
@@ -1752,6 +1898,132 @@ const unsetLink = () => {
   editor.value?.chain().focus().unsetLink().run();
 };
 
+const getSelectedPlainText = () => {
+  const ed = editor.value;
+  if (!ed) {
+    return '';
+  }
+  const { from, to } = ed.state.selection;
+  if (from === to) {
+    return '';
+  }
+  return ed.state.doc.textBetween(from, to, ' ').trim();
+};
+
+const getUniformRubyTextFromSelection = () => {
+  const ed = editor.value;
+  if (!ed) {
+    return '';
+  }
+  const { from, to } = ed.state.selection;
+  if (from === to) {
+    return '';
+  }
+
+  const rubyTexts = new Set<string>();
+  let hasTextNode = false;
+  ed.state.doc.nodesBetween(from, to, (node) => {
+    if (!node.isText) {
+      return;
+    }
+    hasTextNode = true;
+    const rubyMark = node.marks.find((mark) => mark.type.name === 'ruby');
+    if (!rubyMark) {
+      rubyTexts.add('');
+      return;
+    }
+    rubyTexts.add(String(rubyMark.attrs?.rubyText || '').trim());
+  });
+
+  if (!hasTextNode || rubyTexts.size !== 1) {
+    return '';
+  }
+
+  return Array.from(rubyTexts)[0] || '';
+};
+
+const openRubyModal = () => {
+  const ed = editor.value;
+  if (!ed) {
+    return;
+  }
+
+  rememberEditorSelection();
+  markOverlayInteraction();
+  const selectedText = getSelectedPlainText();
+  const selectedRubyText = getUniformRubyTextFromSelection();
+
+  if (!selectedText) {
+    rubySelectionMode.value = 'insert';
+    rubyBaseText.value = '';
+    rubyTextInput.value = '';
+  } else if (selectedRubyText) {
+    rubySelectionMode.value = 'edit';
+    rubyBaseText.value = selectedText;
+    rubyTextInput.value = selectedRubyText;
+  } else {
+    rubySelectionMode.value = 'apply';
+    rubyBaseText.value = selectedText;
+    rubyTextInput.value = '';
+  }
+
+  rubyModalShow.value = true;
+};
+
+const closeRubyModal = () => {
+  rubyModalShow.value = false;
+  resetRubyModalState();
+};
+
+const confirmRuby = () => {
+  const ed = editor.value;
+  if (!ed) {
+    closeRubyModal();
+    return;
+  }
+
+  const normalizedRubyText = rubyTextInput.value.trim();
+
+  if (rubySelectionMode.value === 'insert') {
+    const baseText = rubyBaseText.value.trim();
+    if (!baseText || !normalizedRubyText) {
+      message.warning('请输入正文与注音');
+      return;
+    }
+    restoreEditorSelection();
+    const insertFrom = ed.state.selection.from;
+    ed.chain().focus().insertContent(baseText).run();
+    ed.chain().focus().setTextSelection({
+      from: insertFrom,
+      to: insertFrom + baseText.length,
+    }).setMark('ruby', buildRubyMarkAttrs(normalizedRubyText)).run();
+    rememberEditorSelection();
+    bumpEditorStateVersion();
+    closeRubyModal();
+    return;
+  }
+
+  restoreEditorSelection();
+  const chain = ed.chain().focus();
+  const applied = normalizedRubyText
+    ? chain.setMark('ruby', buildRubyMarkAttrs(normalizedRubyText)).run()
+    : chain.unsetRuby().run();
+
+  if (!applied) {
+    message.warning('当前选区无法应用注音');
+    return;
+  }
+
+  rememberEditorSelection();
+  bumpEditorStateVersion();
+  closeRubyModal();
+};
+
+const clearRuby = () => {
+  rubyTextInput.value = '';
+  confirmRuby();
+};
+
 const isActive = (name: string, attrs?: Record<string, any>) => {
   return editor.value?.isActive(name, attrs) ?? false;
 };
@@ -1780,7 +2052,10 @@ const hasOpenOverlay = () => {
     || textColorPopoverShow.value
     || blockTypePopoverShow.value
     || fontSizePopoverShow.value
+    || fontSelectorExpanded.value
+    || desktopFontSelectorExpanded.value
     || linkModalShow.value
+    || rubyModalShow.value
     || quickIFormModalShow.value;
 };
 
@@ -1846,6 +2121,7 @@ defineExpose({
             trigger="click"
             placement="bottom-start"
             :show="blockTypePopoverShow"
+            :content-class="toolbarPopoverContentClass"
             @update:show="triggerBlockTypePopover"
           >
             <template #trigger>
@@ -1862,7 +2138,7 @@ defineExpose({
                 </n-button>
               </div>
             </template>
-            <div class="tiptap-toolbar-picker" @pointerdown.stop="markOverlayInteraction">
+            <div :class="toolbarPickerClass" @pointerdown.stop="markOverlayInteraction">
               <button
                 v-for="option in blockTypeOptions"
                 :key="option.value"
@@ -1882,6 +2158,7 @@ defineExpose({
             trigger="click"
             placement="bottom-start"
             :show="fontSizePopoverShow"
+            :content-class="toolbarPopoverContentClass"
             @update:show="triggerFontSizePopover"
           >
             <template #trigger>
@@ -1898,7 +2175,7 @@ defineExpose({
                 </n-button>
               </div>
             </template>
-            <div class="tiptap-toolbar-picker" @pointerdown.stop="markOverlayInteraction">
+            <div :class="toolbarPickerClass" @pointerdown.stop="markOverlayInteraction">
               <button
                 v-for="option in fontSizeOptions"
                 :key="option.label"
@@ -1983,11 +2260,21 @@ defineExpose({
           >
             <span class="font-mono text-xs">&lt;/&gt;</span>
           </n-button>
+          <n-button
+            size="small"
+            text
+            :type="isActive('ruby') ? 'primary' : 'default'"
+            @click="openRubyModal"
+            title="注音 / Ruby"
+          >
+            Rb
+          </n-button>
           <!-- 高亮颜色选择器 -->
           <n-popover
             trigger="click"
             placement="bottom"
             v-model:show="highlightColorPopoverShow"
+            :content-class="toolbarPopoverContentClass"
           >
             <template #trigger>
               <n-button
@@ -2030,6 +2317,7 @@ defineExpose({
             trigger="click"
             placement="bottom"
             v-model:show="textColorPopoverShow"
+            :content-class="toolbarPopoverContentClass"
           >
             <template #trigger>
               <n-button
@@ -2092,7 +2380,7 @@ defineExpose({
             :placeholder="isMobile ? '字体' : '平台字体'"
             :render-label="renderPlatformFontLabel"
             :render-option="renderPlatformFontOption"
-            content-class="tiptap-platform-font-select__menu"
+            :menu-props="platformFontSelectMenuProps"
             @update:value="applyPlatformFont"
             @update:show="handlePlatformFontSelectShowUpdate"
             @focus="desktopFontSelectorExpanded = true"
@@ -2363,10 +2651,65 @@ defineExpose({
             >
               <span class="font-mono text-xs">&lt;/&gt;</span>
             </n-button>
+            <n-button
+              size="tiny"
+              text
+              :type="isActive('ruby') ? 'primary' : 'default'"
+              @click="openRubyModal"
+              title="注音 / Ruby"
+            >
+              Rb
+            </n-button>
           </div>
         </component>
       </div>
     </div>
+
+    <n-modal
+      v-model:show="rubyModalShow"
+      preset="card"
+      :bordered="false"
+      title="插入注音"
+      style="width: 360px; max-width: 90vw;"
+      :mask-closable="true"
+      @pointerdown.stop="markOverlayInteraction"
+    >
+      <n-form label-placement="top">
+        <n-form-item label="正文">
+          <n-input
+            v-model:value="rubyBaseText"
+            :readonly="rubySelectionMode !== 'insert'"
+            :placeholder="rubySelectionMode === 'insert' ? '请输入正文' : '当前选区正文'"
+          />
+        </n-form-item>
+        <n-form-item label="注音">
+          <n-input
+            v-model:value="rubyTextInput"
+            placeholder="请输入注音文字"
+            @keydown.enter.prevent="confirmRuby"
+          />
+        </n-form-item>
+        <div class="ruby-modal__note">
+          <div v-if="rubySelectionMode === 'insert'">插入模式：输入正文与注音后插入到当前光标位置。</div>
+          <div v-else-if="rubySelectionMode === 'edit'">编辑模式：修改当前选区注音，或清除注音保留正文。</div>
+          <div v-else>应用模式：当前选区正文保持不变，仅应用注音。</div>
+        </div>
+      </n-form>
+      <template #footer>
+        <div style="display: flex; justify-content: flex-end; gap: 0.5rem;">
+          <n-button @click="closeRubyModal">取消</n-button>
+          <n-button
+            v-if="rubySelectionMode !== 'insert'"
+            @click="clearRuby"
+          >
+            清除注音
+          </n-button>
+          <n-button type="primary" @click="confirmRuby">
+            确定
+          </n-button>
+        </div>
+      </template>
+    </n-modal>
 
     <!-- 链接插入弹窗 -->
     <n-modal
@@ -2557,6 +2900,29 @@ defineExpose({
 .tiptap-editor.chat-input--fullscreen .tiptap-content {
   min-height: max(6rem, calc(100% - 2.5rem));
   max-height: max(6rem, calc(100% - 2.5rem));
+}
+
+.tiptap-editor--sticky-note-surface :deep(.tiptap-platform-font-select .n-base-selection),
+.tiptap-editor--sticky-note-surface :deep(.tiptap-platform-font-select .n-base-selection-label) {
+  --n-color: rgba(255, 255, 255, 0.82) !important;
+  --n-color-active: #ffffff !important;
+  --n-color-focus: #ffffff !important;
+  --n-text-color: #0f172a !important;
+  --n-placeholder-color: #64748b !important;
+  background-color: rgba(255, 255, 255, 0.82) !important;
+  color: #0f172a !important;
+}
+
+.tiptap-editor--sticky-note-surface :deep(.tiptap-platform-font-select .n-base-selection:hover),
+.tiptap-editor--sticky-note-surface :deep(.tiptap-platform-font-select .n-base-selection--active) {
+  background-color: #ffffff !important;
+}
+
+.tiptap-editor--sticky-note-surface :deep(.tiptap-platform-font-select .n-base-selection-input),
+.tiptap-editor--sticky-note-surface :deep(.tiptap-platform-font-select .n-base-selection-input__content),
+.tiptap-editor--sticky-note-surface :deep(.tiptap-platform-font-select .n-base-selection-placeholder),
+.tiptap-editor--sticky-note-surface :deep(.tiptap-platform-font-select .n-base-selection__state-border) {
+  color: #0f172a !important;
 }
 
 .tiptap-editor.chat-input--custom-height .tiptap-editor-wrapper {
@@ -2986,6 +3352,123 @@ defineExpose({
   box-shadow: 0 18px 42px rgba(15, 23, 42, 0.16), 0 6px 16px rgba(15, 23, 42, 0.08);
 }
 
+.tiptap-platform-font-select__menu--sticky-note {
+  --n-color: #ffffff !important;
+  --n-option-text-color: #0f172a !important;
+  --n-option-color-pending: rgba(37, 99, 235, 0.08) !important;
+  --n-option-color-active: rgba(37, 99, 235, 0.12) !important;
+  --n-option-color-active-pending: rgba(37, 99, 235, 0.16) !important;
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+  box-shadow: 0 18px 42px rgba(15, 23, 42, 0.16), 0 6px 16px rgba(15, 23, 42, 0.08);
+}
+
+.tiptap-platform-font-select__menu--sticky-note .n-base-select-option,
+.tiptap-platform-font-select__menu--sticky-note .n-base-select-option__content {
+  color: #0f172a !important;
+}
+
+:root[data-display-palette='night'] .n-popover-shared:has(.tiptap-toolbar-popover--sticky-note),
+:root[data-display-palette='night'] .n-popover-shared:has(.tiptap-toolbar-popover--sticky-note) .n-popover-arrow,
+:root[data-display-palette='night'] .n-popover-shared:has(.tiptap-toolbar-popover--sticky-note) .n-popover-arrow-wrapper,
+:root[data-custom-theme='true'] .n-popover-shared:has(.tiptap-toolbar-popover--sticky-note),
+:root[data-custom-theme='true'] .n-popover-shared:has(.tiptap-toolbar-popover--sticky-note) .n-popover-arrow,
+:root[data-custom-theme='true'] .n-popover-shared:has(.tiptap-toolbar-popover--sticky-note) .n-popover-arrow-wrapper,
+.n-popover-shared:has(.tiptap-toolbar-popover--sticky-note),
+.n-popover-shared:has(.tiptap-toolbar-popover--sticky-note) .n-popover-arrow,
+.n-popover-shared:has(.tiptap-toolbar-popover--sticky-note) .n-popover-arrow-wrapper,
+:root[data-display-palette='night'] .n-popover.tiptap-toolbar-popover--sticky-note,
+:root[data-display-palette='night'] .n-popover-shared.tiptap-toolbar-popover--sticky-note,
+:root[data-display-palette='night'] .n-popover-shared.tiptap-toolbar-popover--sticky-note .n-popover-arrow,
+:root[data-display-palette='night'] .n-popover-shared.tiptap-toolbar-popover--sticky-note .n-popover-arrow-wrapper,
+:root[data-custom-theme='true'] .n-popover.tiptap-toolbar-popover--sticky-note,
+:root[data-custom-theme='true'] .n-popover-shared.tiptap-toolbar-popover--sticky-note,
+:root[data-custom-theme='true'] .n-popover-shared.tiptap-toolbar-popover--sticky-note .n-popover-arrow,
+:root[data-custom-theme='true'] .n-popover-shared.tiptap-toolbar-popover--sticky-note .n-popover-arrow-wrapper,
+.n-popover.tiptap-toolbar-popover--sticky-note,
+.n-popover-shared.tiptap-toolbar-popover--sticky-note,
+.n-popover-shared.tiptap-toolbar-popover--sticky-note .n-popover-arrow,
+.n-popover-shared.tiptap-toolbar-popover--sticky-note .n-popover-arrow-wrapper {
+  --n-color: #ffffff !important;
+  --n-text-color: #0f172a !important;
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+}
+
+:root[data-display-palette='night'] .tiptap-toolbar-popover--sticky-note,
+:root[data-custom-theme='true'] .tiptap-toolbar-popover--sticky-note,
+.tiptap-toolbar-popover--sticky-note {
+  --n-color: #ffffff !important;
+  --n-text-color: #0f172a !important;
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+}
+
+:root[data-display-palette='night'] .tiptap-toolbar-picker--sticky-note,
+:root[data-custom-theme='true'] .tiptap-toolbar-picker--sticky-note,
+.tiptap-toolbar-picker--sticky-note {
+  background: #ffffff !important;
+  color: #0f172a !important;
+}
+
+:root[data-display-palette='night'] .tiptap-toolbar-picker--sticky-note .tiptap-toolbar-picker__item,
+:root[data-custom-theme='true'] .tiptap-toolbar-picker--sticky-note .tiptap-toolbar-picker__item,
+.tiptap-toolbar-picker--sticky-note .tiptap-toolbar-picker__item {
+  color: #0f172a !important;
+}
+
+:root[data-display-palette='night'] .tiptap-toolbar-picker--sticky-note .tiptap-toolbar-picker__item:hover,
+:root[data-display-palette='night'] .tiptap-toolbar-picker--sticky-note .tiptap-toolbar-picker__item.is-active,
+:root[data-custom-theme='true'] .tiptap-toolbar-picker--sticky-note .tiptap-toolbar-picker__item:hover,
+:root[data-custom-theme='true'] .tiptap-toolbar-picker--sticky-note .tiptap-toolbar-picker__item.is-active,
+.tiptap-toolbar-picker--sticky-note .tiptap-toolbar-picker__item:hover,
+.tiptap-toolbar-picker--sticky-note .tiptap-toolbar-picker__item.is-active {
+  background: rgba(37, 99, 235, 0.1) !important;
+}
+
+:root[data-display-palette='night'] .tiptap-toolbar-picker--sticky-note .tiptap-toolbar-picker__item.is-active,
+:root[data-custom-theme='true'] .tiptap-toolbar-picker--sticky-note .tiptap-toolbar-picker__item.is-active,
+.tiptap-toolbar-picker--sticky-note .tiptap-toolbar-picker__item.is-active {
+  color: #2563eb !important;
+}
+
+:root[data-display-palette='night'] .tiptap-toolbar-picker--sticky-note .tiptap-toolbar-picker__custom,
+:root[data-custom-theme='true'] .tiptap-toolbar-picker--sticky-note .tiptap-toolbar-picker__custom,
+.tiptap-toolbar-picker--sticky-note .tiptap-toolbar-picker__custom {
+  border-top-color: #e5e7eb !important;
+}
+
+:root[data-display-palette='night'] .tiptap-toolbar-picker--sticky-note .n-input,
+:root[data-display-palette='night'] .tiptap-toolbar-picker--sticky-note .n-input-wrapper,
+:root[data-custom-theme='true'] .tiptap-toolbar-picker--sticky-note .n-input,
+:root[data-custom-theme='true'] .tiptap-toolbar-picker--sticky-note .n-input-wrapper,
+.tiptap-toolbar-picker--sticky-note .n-input,
+.tiptap-toolbar-picker--sticky-note .n-input-wrapper {
+  --n-color: #ffffff !important;
+  --n-text-color: #0f172a !important;
+  --n-placeholder-color: #94a3b8 !important;
+  --n-border: 1px solid #d1d5db !important;
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+}
+
+:root[data-display-palette='night'] .tiptap-toolbar-picker--sticky-note .n-button,
+:root[data-custom-theme='true'] .tiptap-toolbar-picker--sticky-note .n-button,
+.tiptap-toolbar-picker--sticky-note .n-button {
+  --n-text-color: #0f172a !important;
+  --n-color: #f8fafc !important;
+  --n-color-hover: #eef2ff !important;
+  --n-border: 1px solid #d1d5db !important;
+}
+
+:root[data-display-palette='night'] .tiptap-platform-font-select__menu--sticky-note,
+:root[data-custom-theme='true'] .tiptap-platform-font-select__menu--sticky-note {
+  --n-color: #ffffff !important;
+  --n-option-text-color: #0f172a !important;
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+}
+
 .tiptap-platform-font-option {
   width: 100%;
 }
@@ -3197,6 +3680,46 @@ defineExpose({
     text-decoration: underline;
   }
 
+  .tiptap-ruby {
+    position: relative;
+    display: inline-block;
+    padding-top: 0.38em;
+    ruby-align: center;
+    ruby-position: over;
+    font-family: var(--ruby-font-family, inherit);
+    color: var(--ruby-color, inherit);
+    font-weight: var(--ruby-font-weight, inherit);
+    font-style: var(--ruby-font-style, inherit);
+    text-decoration: var(--ruby-text-decoration, inherit);
+    background-color: var(--ruby-background-color, transparent);
+  }
+
+  .tiptap-ruby[data-ruby-spoiler='true'] {
+    background-color: var(--spoiler-reveal-bg);
+  }
+
+  .tiptap-ruby::before {
+    content: attr(data-ruby-text);
+    position: absolute;
+    left: 50%;
+    bottom: calc(100% - 0.16em);
+    transform: translateX(-50%);
+    font-family: var(--ruby-font-family, inherit);
+    font-size: calc(var(--ruby-font-size, 1em) * 0.58);
+    font-weight: var(--ruby-font-weight, inherit);
+    font-style: var(--ruby-font-style, inherit);
+    text-decoration: var(--ruby-text-decoration, inherit);
+    background-color: var(--ruby-background-color, transparent);
+    line-height: 0.82;
+    white-space: nowrap;
+    color: var(--ruby-color, inherit);
+    pointer-events: none;
+  }
+
+  .tiptap-ruby[data-ruby-spoiler='true']::before {
+    background-color: var(--spoiler-reveal-bg);
+  }
+
   /* 对齐样式 */
   [style*="text-align: center"] {
     text-align: center;
@@ -3262,6 +3785,17 @@ defineExpose({
   line-height: 1.45;
 }
 
+.ruby-modal__note {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.75rem;
+  border-radius: 0.75rem;
+  background: color-mix(in srgb, var(--primary-color, #3b82f6) 8%, transparent);
+  color: var(--sc-text-secondary, #475569);
+  font-size: 0.8125rem;
+  line-height: 1.45;
+}
+
 /* ===== 夜间模式适配 ===== */
 
 /* 编辑器容器夜间模式 */
@@ -3286,6 +3820,11 @@ defineExpose({
 }
 
 :root[data-display-palette='night'] .smart-link-modal__note {
+  color: var(--sc-text-secondary, #cbd5e1);
+  background: color-mix(in srgb, var(--sc-bg-elevated, #27272a) 86%, var(--primary-color, #60a5fa) 14%);
+}
+
+:root[data-display-palette='night'] .ruby-modal__note {
   color: var(--sc-text-secondary, #cbd5e1);
   background: color-mix(in srgb, var(--sc-bg-elevated, #27272a) 86%, var(--primary-color, #60a5fa) 14%);
 }

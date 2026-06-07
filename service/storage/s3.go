@@ -9,7 +9,9 @@ import (
 	"io"
 	"log"
 	"net/url"
+	"os"
 	"path"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -157,6 +159,35 @@ func (s *s3Backend) presignedURL(ctx context.Context, objectKey string, ttl time
 		return ""
 	}
 	return target.String()
+}
+
+func (s *s3Backend) downloadToPath(ctx context.Context, objectKey string, targetPath string) error {
+	if s == nil || s.client == nil {
+		return fmt.Errorf("S3 存储未初始化")
+	}
+	objectKey = strings.TrimSpace(objectKey)
+	if objectKey == "" {
+		return fmt.Errorf("objectKey 不能为空")
+	}
+	reader, err := s.client.GetObject(ctx, s.bucket, objectKey, minio.GetObjectOptions{})
+	if err != nil {
+		return err
+	}
+	defer reader.Close()
+
+	if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
+		return err
+	}
+	output, err := os.Create(targetPath)
+	if err != nil {
+		return err
+	}
+	defer output.Close()
+
+	if _, err := io.Copy(output, reader); err != nil {
+		return err
+	}
+	return nil
 }
 
 func normalizeEndpoint(endpoint string, useSSL bool) (string, bool) {

@@ -1,7 +1,7 @@
 <script setup lang="tsx">
 import dayjs from 'dayjs';
 import Element from '@satorijs/element'
-import { onMounted, ref, h, computed, watch, onBeforeUnmount, nextTick, defineAsyncComponent } from 'vue';
+import { onMounted, onUpdated, ref, h, computed, watch, onBeforeUnmount, nextTick, defineAsyncComponent } from 'vue';
 import type { PropType } from 'vue';
 import { urlBase } from '@/stores/_config';
 import DOMPurify from 'dompurify';
@@ -25,7 +25,7 @@ import { onLongPress } from '@vueuse/core';
 import Viewer from 'viewerjs';
 import 'viewerjs/dist/viewer.css';
 import { useWorldGlossaryStore } from '@/stores/worldGlossary'
-import { useDisplayStore, type TimestampFormat } from '@/stores/display'
+import { useDisplayStore, type BotBadgeStyle, type TimestampFormat } from '@/stores/display'
 import { useChannelImageLayoutStore } from '@/stores/channelImageLayout';
 import { refreshWorldKeywordHighlights } from '@/utils/worldKeywordHighlighter'
 import { createKeywordTooltip } from '@/utils/keywordTooltip'
@@ -50,6 +50,11 @@ import IdentityMetaInlineRow from './IdentityMetaInlineRow.vue'
 import MessageReactions from './MessageReactions.vue'
 import IFormEmbedFrame from '@/components/iform/IFormEmbedFrame.vue'
 import type { ChannelIForm } from '@/types/iform';
+import {
+  resolveIdentityMetaHostBackground,
+  resolveIdentityMetaOutlineStyle,
+  resolveIdentityMetaStyle,
+} from '@/utils/identityMetaContrast'
 
 type EditingPreviewInfo = {
   userId: string;
@@ -115,6 +120,8 @@ const TIMESTAMP_HOVER_DELAY = 2000;
 
 let hasImage = ref(false);
 const messageContentRef = ref<HTMLElement | null>(null);
+const botBadgeRef = ref<HTMLElement | null>(null);
+const botBadgeHostBackgroundColor = ref('');
 let stopMessageLongPress: (() => void) | null = null;
 
 type InlineImageViewerInstance = Viewer & {
@@ -1198,9 +1205,14 @@ const props = defineProps({
   },
 })
 
-const emit = defineEmits(['avatar-longpress', 'avatar-click', 'edit', 'edit-save', 'edit-cancel', 'toggle-select', 'range-click', 'image-layout-edit-state-change', 'retry-send', 'reedit-revoked', 'edit-inline-image']);
+const emit = defineEmits(['avatar-longpress', 'avatar-click', 'edit', 'edit-save', 'edit-cancel', 'toggle-select', 'range-click', 'relocate-target-pick', 'image-layout-edit-state-change', 'retry-send', 'reedit-revoked', 'edit-inline-image']);
 
 const timestampTicker = ref(Date.now());
+const editingSelfActionsPlacementClass = computed(() => (
+  displayStore.settings.editingSelfActionsPlacement === 'left'
+    ? 'editing-self-actions--left'
+    : 'editing-self-actions--right'
+));
 const inlineTimestampText = computed(() => {
   timestampTicker.value;
   return formatTimestampByPreference(props.item?.createdAt, displayStore.settings.timestampFormat);
@@ -1494,6 +1506,13 @@ const effectiveIsSelected = computed(() => {
     return chat.multiSelect.selectedIds.has(props.item.id);
   }
   return false;
+});
+const relocateModeActive = computed(() => chat.multiSelect?.relocate?.active ?? false);
+const effectiveIsRelocateTarget = computed(() => {
+  if (!relocateModeActive.value || !props.item?.id) {
+    return false;
+  }
+  return chat.multiSelect?.relocate?.targetMessageId === props.item.id;
 });
 
 const hoverTimestampVisible = ref(false);
@@ -2963,6 +2982,14 @@ const handleSelectToggle = (e: MouseEvent) => {
 // Handle click on message block in multi-select mode
 const handleMessageClick = (e: MouseEvent) => {
   if (!effectiveMultiSelectMode.value || !props.item?.id) return;
+
+  if (relocateModeActive.value) {
+    if (chat.isRelocateSourceMessage(props.item.id)) {
+      return;
+    }
+    emit('relocate-target-pick', props.item.id);
+    return;
+  }
   
   // If in range mode, use range selection
   if (chat.multiSelect?.rangeModeEnabled) {
@@ -3101,6 +3128,7 @@ onMounted(() => {
 
   applyDiceTone();
   ensureImageViewer();
+  syncBotBadgeHostBackgroundColor();
   void ensureMessageImageLayoutsLoaded();
   void applyImageLayoutToDom();
   processMessageLinks();
@@ -3126,6 +3154,8 @@ onMounted(() => {
   window.addEventListener('pointercancel', resetMessageIFormPointerState, true);
   window.addEventListener('blur', resetMessageIFormPointerState);
 })
+
+onUpdated(syncBotBadgeHostBackgroundColor);
 
 watch([displayContent, () => props.tone], () => {
   applyDiceTone();
@@ -3353,6 +3383,53 @@ const nameColor = computed(() => {
   return props.item?.identity?.color || props.item?.sender_identity_color || props.identityColor || '';
 });
 
+const botBadgeStyleValue = computed<BotBadgeStyle>(() => displayStore.settings.botBadgeStyle || 'solidBlue');
+
+const shouldShowBotBadgeBeforeName = computed(() => (
+  isBotMessageItem(props.item) && botBadgeStyleValue.value === 'dice'
+));
+
+const shouldShowBotBadgeAfterName = computed(() => (
+  isBotMessageItem(props.item) && botBadgeStyleValue.value !== 'dice'
+));
+
+const botBadgeText = computed(() => (botBadgeStyleValue.value === 'dice' ? '🎲' : 'BOT'));
+
+const botBadgeClass = computed(() => [
+  'chat-item__bot-tag',
+  `chat-item__bot-tag--${botBadgeStyleValue.value}`,
+]);
+
+const botBadgeInlineStyle = computed<Record<string, string>>(() => {
+  const style = botBadgeStyleValue.value;
+  if (style === 'solidTone') {
+    return resolveIdentityMetaStyle({
+      enabled: displayStore.settings.characterCardBadgeAutoContrastEnabled,
+      kind: 'badge',
+      identityColor: nameColor.value,
+      backgroundColor: botBadgeHostBackgroundColor.value,
+    }).style;
+  }
+  if (style === 'outline') {
+    return resolveIdentityMetaOutlineStyle({
+      enabled: displayStore.settings.characterCardBadgeAutoContrastEnabled,
+      identityColor: nameColor.value,
+      backgroundColor: botBadgeHostBackgroundColor.value,
+    }).style;
+  }
+  if (style === 'dice' && nameColor.value) {
+    return { color: nameColor.value };
+  }
+  return {};
+});
+
+function syncBotBadgeHostBackgroundColor() {
+  const nextColor = resolveIdentityMetaHostBackground(botBadgeRef.value);
+  if (botBadgeHostBackgroundColor.value !== nextColor) {
+    botBadgeHostBackgroundColor.value = nextColor;
+  }
+}
+
 const senderIdentityId = computed(() => props.item?.identity?.id || props.item?.sender_identity_id || props.item?.senderIdentityId || '');
 
 type MessageSendStatus = 'sending' | 'sent' | 'failed';
@@ -3434,7 +3511,8 @@ const handleRetrySend = () => {
       { 'chat-item--merged': props.isMerged },
       { 'chat-item--body-only': props.bodyOnly },
       { 'chat-item--multiselect': effectiveMultiSelectMode },
-      { 'chat-item--selected': effectiveIsSelected }
+      { 'chat-item--selected': effectiveIsSelected },
+      { 'chat-item--relocate-target': effectiveIsRelocateTarget }
     ]"
     @mouseenter="handleTimestampHoverStart"
     @mouseleave="handleTimestampHoverEnd"
@@ -3477,7 +3555,19 @@ const handleRetrySend = () => {
           <span>{{ tooltipTimestampText }}</span>
         </n-popover>
         <template v-if="props.isRtl">
+          <span
+            v-if="shouldShowBotBadgeBeforeName"
+            ref="botBadgeRef"
+            :class="botBadgeClass"
+            :style="botBadgeInlineStyle"
+          >{{ botBadgeText }}</span>
           <span class="name" :style="nameColor ? { color: nameColor } : undefined">{{ nick }}</span>
+          <span
+            v-if="shouldShowBotBadgeAfterName"
+            ref="botBadgeRef"
+            :class="botBadgeClass"
+            :style="botBadgeInlineStyle"
+          >{{ botBadgeText }}</span>
           <span
             v-if="showSendingIndicator"
             class="chat-item__send-status chat-item__send-status--sending"
@@ -3506,7 +3596,19 @@ const handleRetrySend = () => {
         </template>
 
         <template v-else>
+          <span
+            v-if="shouldShowBotBadgeBeforeName"
+            ref="botBadgeRef"
+            :class="botBadgeClass"
+            :style="botBadgeInlineStyle"
+          >{{ botBadgeText }}</span>
           <span class="name" :style="nameColor ? { color: nameColor } : undefined">{{ nick }}</span>
+          <span
+            v-if="shouldShowBotBadgeAfterName"
+            ref="botBadgeRef"
+            :class="botBadgeClass"
+            :style="botBadgeInlineStyle"
+          >{{ botBadgeText }}</span>
           <span
             v-if="showSendingIndicator"
             class="chat-item__send-status chat-item__send-status--sending"
@@ -3551,8 +3653,6 @@ const handleRetrySend = () => {
             <span v-else-if="!props.item?.editedByUserName">编辑时间未知</span>
           </div>
         </n-popover>
-        <span v-if="isBotMessageItem(props.item)"
-          class=" bg-blue-500 rounded-md px-2 text-white">bot</span>
       </span>
       <div class="content typo relative" ref="messageContentRef" @contextmenu="onContextMenu($event, item)" @dblclick="handleContentDblclick" @click="handleContentClick" @pointerdown="handleMessageIFormPointerDown" @mousedown="handleMessageIFormPointerDown"
         :class="contentClassList">
@@ -3627,7 +3727,7 @@ const handleRetrySend = () => {
               <span v-if="messageImageAttachmentIds.length > 1" class="image-resize-actions__tip">单击后拖动已选图片可调整</span>
             </div>
           </div>
-          <div v-if="selfEditingPreview" class="editing-self-actions">
+          <div v-if="selfEditingPreview" class="editing-self-actions" :class="editingSelfActionsPlacementClass">
             <n-button quaternary size="tiny" class="editing-self-actions__btn editing-self-actions__btn--save" :disabled="props.editSaving" @click.stop="handleEditSave">
               <n-icon :component="Check" size="14" class="editing-self-actions__btn-icon" />
               保存
@@ -3923,6 +4023,17 @@ const handleRetrySend = () => {
   background-color: rgba(59, 130, 246, 0.15);
 }
 
+.chat-item--relocate-target {
+  background-color: rgba(16, 185, 129, 0.12);
+  border-radius: 8px;
+  box-shadow: inset 0 0 0 1px rgba(16, 185, 129, 0.35);
+}
+
+:root[data-display-palette='night'] .chat-item--relocate-target {
+  background-color: rgba(16, 185, 129, 0.16);
+  box-shadow: inset 0 0 0 1px rgba(52, 211, 153, 0.45);
+}
+
 .chat-item > .right {
   margin-left: 0.4rem;
   flex: 1;
@@ -3956,6 +4067,51 @@ const handleRetrySend = () => {
 
 .chat-item > .right > .title > .time {
   color: #94a3b8;
+}
+
+.chat-item__bot-tag {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  align-self: center;
+  min-width: 1.85rem;
+  min-height: 1rem;
+  padding: 0.04rem 0.34rem;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0;
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+
+.chat-item__bot-tag--solidBlue {
+  background: #5865f2;
+  border-color: color-mix(in srgb, #5865f2 82%, #ffffff);
+  color: #ffffff;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, #5865f2 70%, #ffffff);
+}
+
+.chat-item__bot-tag--solidTone {
+  border-color: currentColor;
+}
+
+.chat-item__bot-tag--outline {
+  background: transparent;
+}
+
+.chat-item__bot-tag--dice {
+  min-width: 1rem;
+  min-height: 1rem;
+  padding: 0;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  font-size: 0.95rem;
+  line-height: 1;
+  text-shadow: none;
 }
 
 .chat-item__send-status {
@@ -4691,9 +4847,16 @@ const handleRetrySend = () => {
 .editing-self-actions {
   display: flex;
   gap: 0.5rem;
-  justify-content: flex-end;
   align-items: center;
   margin-top: 0.3rem;
+}
+
+.editing-self-actions--left {
+  justify-content: flex-start;
+}
+
+.editing-self-actions--right {
+  justify-content: flex-end;
 }
 
 .editing-self-actions__btn {

@@ -4,12 +4,17 @@ import (
 	"context"
 	"encoding/hex"
 	"errors"
+	"fmt"
+	"io"
+	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"sealchat/model"
 	"sealchat/service/storage"
+	"sealchat/utils"
 )
 
 type AttachmentLocation struct {
@@ -50,12 +55,106 @@ func PersistAttachmentFile(hash []byte, size int64, tempPath string, contentType
 	}, nil
 }
 
+func PersistAttachmentFileForceNew(hash []byte, size int64, tempPath string, contentType string, originalName string) (*AttachmentLocation, error) {
+	manager := GetStorageManager()
+	if manager == nil {
+		return nil, errors.New("存储服务未初始化")
+	}
+	ctx := context.Background()
+	objectKey := storage.BuildAttachmentReissueObjectKey(hex.EncodeToString(hash), size, originalName, time.Now())
+	result, err := manager.UploadAttachment(ctx, storage.UploadInput{
+		ObjectKey:   objectKey,
+		LocalPath:   tempPath,
+		ContentType: contentType,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if result.Backend == storage.BackendS3 {
+		_ = os.Remove(tempPath)
+	}
+	return &AttachmentLocation{
+		StorageType: convertBackendToModel(result.Backend),
+		ObjectKey:   result.ObjectKey,
+		ExternalURL: result.PublicURL,
+	}, nil
+}
+
 func ResolveLocalAttachmentPath(objectKey string) (string, error) {
 	manager := GetStorageManager()
 	if manager == nil {
 		return "", errors.New("存储服务未初始化")
 	}
 	return manager.ResolveLocalPath(objectKey)
+}
+
+func attachmentHistoricalUploadRoots() []string {
+	roots := make([]string, 0, 4)
+	seen := map[string]struct{}{}
+	add := func(path string) {
+		path = strings.TrimSpace(path)
+		if path == "" {
+			return
+		}
+		clean := filepath.Clean(path)
+		if _, ok := seen[clean]; ok {
+			return
+		}
+		seen[clean] = struct{}{}
+		roots = append(roots, clean)
+	}
+
+	cfg := utils.GetConfig()
+	if cfg != nil && strings.TrimSpace(cfg.Storage.Local.UploadDir) != "" {
+		add(cfg.Storage.Local.UploadDir)
+	}
+	add("./data/upload")
+	add("./sealchat-data/upload")
+	add("./data11/upload")
+	return roots
+}
+
+func tryMaterializeFromHistoricalLocalRoots(att *model.AttachmentModel, tempPath string) bool {
+	if att == nil {
+		return false
+	}
+	candidates := make([]string, 0, 8)
+	if objectKey := strings.TrimSpace(att.ObjectKey); objectKey != "" {
+		clean := strings.TrimLeft(filepath.Clean(strings.ReplaceAll(objectKey, "\\", "/")), "/")
+		relative := clean
+		if strings.HasPrefix(clean, "attachments/") {
+			relative = strings.TrimPrefix(clean, "attachments/")
+		}
+		if relative != "" && relative != "." {
+			for _, root := range attachmentHistoricalUploadRoots() {
+				candidates = append(candidates, filepath.Join(root, filepath.FromSlash(relative)))
+			}
+		}
+	}
+	if len(att.Hash) > 0 {
+		legacyKey := fmt.Sprintf("%s_%d", hex.EncodeToString([]byte(att.Hash)), att.Size)
+		for _, root := range attachmentHistoricalUploadRoots() {
+			candidates = append(candidates, filepath.Join(root, legacyKey))
+		}
+	}
+	if attachmentID := strings.TrimSpace(att.ID); attachmentID != "" {
+		for _, root := range attachmentHistoricalUploadRoots() {
+			candidates = append(candidates, filepath.Join(root, attachmentID))
+		}
+	}
+
+	seen := map[string]struct{}{}
+	for _, candidate := range candidates {
+		candidate = filepath.Clean(candidate)
+		if _, ok := seen[candidate]; ok {
+			continue
+		}
+		seen[candidate] = struct{}{}
+		if err := copyLocalFileToPath(candidate, tempPath); err == nil {
+			return true
+		}
+	}
+	return false
 }
 
 func tryReuseAttachment(hash []byte, size int64, targetBackend storage.BackendType) (*AttachmentLocation, bool, error) {
@@ -95,6 +194,107 @@ func tryReuseAttachment(hash []byte, size int64, targetBackend storage.BackendTy
 		ObjectKey:   existing.ObjectKey,
 		ExternalURL: existing.ExternalURL,
 	}, true, nil
+}
+
+func MaterializeAttachmentToTempFile(att *model.AttachmentModel) (string, error) {
+	if att == nil {
+		return "", errors.New("附件不存在")
+	}
+	manager := GetStorageManager()
+	if manager == nil {
+		return "", errors.New("存储服务未初始化")
+	}
+
+	pattern := "sealchat-attachment-*"
+	if ext := strings.TrimSpace(filepath.Ext(att.Filename)); ext != "" {
+		pattern += ext
+	}
+	tempFile, err := os.CreateTemp("", pattern)
+	if err != nil {
+		return "", err
+	}
+	tempPath := tempFile.Name()
+	if err := tempFile.Close(); err != nil {
+		_ = os.Remove(tempPath)
+		return "", err
+	}
+
+	if objectKey := strings.TrimSpace(att.ObjectKey); objectKey != "" {
+		backend := convertModelToBackend(att.StorageType)
+		if err := manager.DownloadToPath(context.Background(), backend, objectKey, tempPath); err == nil {
+			return tempPath, nil
+		}
+	}
+
+	legacyKey := fmt.Sprintf("%s_%d", hex.EncodeToString([]byte(att.Hash)), att.Size)
+	if strings.TrimSpace(legacyKey) != "" {
+		if err := manager.DownloadToPath(context.Background(), storage.BackendLocal, legacyKey, tempPath); err == nil {
+			return tempPath, nil
+		}
+	}
+
+	if attachmentID := strings.TrimSpace(att.ID); attachmentID != "" {
+		if err := manager.DownloadToPath(context.Background(), storage.BackendLocal, attachmentID, tempPath); err == nil {
+			return tempPath, nil
+		}
+	}
+	if tryMaterializeFromHistoricalLocalRoots(att, tempPath) {
+		return tempPath, nil
+	}
+
+	exportURL := strings.TrimSpace(AttachmentExportURL(att))
+	if exportURL == "" {
+		_ = os.Remove(tempPath)
+		return "", fmt.Errorf("附件 %s 缺少可读取的存储地址", strings.TrimSpace(att.ID))
+	}
+	if err := downloadAttachmentURLToPath(exportURL, tempPath); err != nil {
+		_ = os.Remove(tempPath)
+		return "", err
+	}
+	return tempPath, nil
+}
+
+func copyLocalFileToPath(sourcePath string, targetPath string) error {
+	input, err := os.Open(sourcePath)
+	if err != nil {
+		return err
+	}
+	defer input.Close()
+
+	if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
+		return err
+	}
+	output, err := os.Create(targetPath)
+	if err != nil {
+		return err
+	}
+	defer output.Close()
+
+	if _, err := io.Copy(output, input); err != nil {
+		return err
+	}
+	return nil
+}
+
+func downloadAttachmentURLToPath(targetURL string, tempPath string) error {
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Get(targetURL)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("下载附件失败: %s", resp.Status)
+	}
+	output, err := os.Create(tempPath)
+	if err != nil {
+		return err
+	}
+	defer output.Close()
+	if _, err := io.Copy(output, resp.Body); err != nil {
+		return err
+	}
+	return nil
 }
 
 func convertBackendToModel(backend storage.BackendType) model.StorageType {

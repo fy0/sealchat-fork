@@ -7,6 +7,11 @@ import { chatEvent, useChatStore } from '../stores/chat'
 import { buildBridgeMessagePayload, buildRoleSnapshot } from './sealchatBridgeSerializer'
 import type { SealChatBridgeMessageEvent } from './sealchatBridgeProtocol'
 import { createSealChatBridgeRuntime } from './sealchatBridgeRuntime'
+import {
+  markBridgeError,
+  setSealChatBridgeConnectState,
+  syncSealChatBridgeContext,
+} from './sealchatBridgeStatus'
 
 export const installSealChatBridgeRuntime = ({
   pinia,
@@ -30,6 +35,15 @@ export const installSealChatBridgeRuntime = ({
   }
   const resolveCurrentWorldId = () => String(chat.currentWorldId || resolveRouteWorldId() || '').trim()
   const resolveCurrentChannelId = () => String(chat.curChannel?.id || resolveRouteChannelId() || '').trim()
+  const syncBridgeMeta = () => {
+    syncSealChatBridgeContext({
+      worldId: resolveCurrentWorldId(),
+      channelId: resolveCurrentChannelId(),
+    })
+    setSealChatBridgeConnectState(chat.connectState || '')
+  }
+
+  syncBridgeMeta()
 
   const runtime = createSealChatBridgeRuntime({
     postMessage: (payload, origin) => {
@@ -77,7 +91,9 @@ export const installSealChatBridgeRuntime = ({
       }
       timer = setTimeout(() => {
         timer = null
-        void runtime.publishRolesSnapshot()
+        void runtime.publishRolesSnapshot().catch((error) => {
+          markBridgeError(error)
+        })
       }, 60)
     }
   })()
@@ -119,15 +135,19 @@ export const installSealChatBridgeRuntime = ({
       ? (chat.getScopedChannelIdentities(channelId).find((identity) => identity.id === identityId) || null)
       : null
     const liveVariant = identityId ? chat.getActiveIdentityVariant(channelId, identityId) : null
-    runtime.publishMessage(buildBridgeMessagePayload({
-      event: eventName,
-      worldId: resolveCurrentWorldId(),
-      channelId,
-      message,
-      liveIdentity,
-      liveVariant,
-      resolveAttachmentUrl,
-    }))
+    try {
+      runtime.publishMessage(buildBridgeMessagePayload({
+        event: eventName,
+        worldId: resolveCurrentWorldId(),
+        channelId,
+        message,
+        liveIdentity,
+        liveVariant,
+        resolveAttachmentUrl,
+      }))
+    } catch (error) {
+      markBridgeError(error)
+    }
   }
 
   window.addEventListener('message', handleWindowMessage)
@@ -165,11 +185,13 @@ export const installSealChatBridgeRuntime = ({
       })
     },
     () => {
+      syncBridgeMeta()
       scheduleRolesSnapshot()
     },
   )
 
   router?.afterEach(() => {
+    syncBridgeMeta()
     scheduleRolesSnapshot()
   })
 

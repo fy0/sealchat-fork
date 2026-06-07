@@ -2,6 +2,7 @@ package storage
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -128,4 +129,38 @@ func (l *localBackend) deletePrefix(objectKey string) error {
 		return err
 	}
 	return nil
+}
+
+func (l *localBackend) downloadToPath(objectKey string, targetPath string) error {
+	source, err := l.resolvePath(objectKey)
+	if err != nil {
+		return err
+	}
+	input, err := os.Open(source)
+	if err != nil {
+		return err
+	}
+	defer input.Close()
+
+	if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
+		return err
+	}
+	output, err := os.Create(targetPath)
+	if err != nil {
+		return err
+	}
+	defer output.Close()
+
+	if _, err := io.Copy(output, input); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (l *localBackend) resolveLegacyAttachmentPath(fileName string) (string, error) {
+	fileName = strings.TrimSpace(filepath.Base(fileName))
+	if fileName == "" || fileName == "." {
+		return "", fmt.Errorf("非法旧附件文件名")
+	}
+	return filepath.Join(l.attachmentRoot, fileName), nil
 }

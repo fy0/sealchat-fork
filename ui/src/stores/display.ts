@@ -27,6 +27,8 @@ import { DEFAULT_WORLD_KEYWORD_TOOLTIP_INTERACTION } from '@/utils/worldKeywordT
 
 export type DisplayLayout = 'bubble' | 'compact'
 export type DisplayPalette = 'day' | 'night'
+export type BotBadgeStyle = 'solidBlue' | 'solidTone' | 'outline' | 'dice'
+export type EditingSelfActionsPlacement = 'left' | 'right'
 export type { CustomTheme, CustomThemeColors, PlatformTheme, ThemeSelectionMode } from '@/services/theme/themeTypes'
 
 export interface FavoriteHotkey {
@@ -67,6 +69,7 @@ export interface DisplaySettings {
   avatarSize: number            // 头像大小 (px)
   avatarBorderRadius: number    // 头像圆角 (0-50, 50为圆形)
   showInputPreview: boolean
+  editingSelfActionsPlacement: EditingSelfActionsPlacement
   autoScrollTypingPreview: boolean
   mergeNeighbors: boolean
   showPinnedMessages: boolean
@@ -126,6 +129,7 @@ export interface DisplaySettings {
   // 人物卡
   characterCardBadgeSettingsExpanded: boolean
   characterCardBadgeEnabled: boolean
+  botBadgeStyle: BotBadgeStyle
   characterCardBadgeVisibilityScope: MessageVisibilityScope
   characterCardBadgeAutoContrastEnabled: boolean
   characterCardAutoSyncBotNickname: boolean
@@ -273,6 +277,16 @@ const normalizeFontAssetId = (value: unknown): string | null => {
 
 const coerceLayout = (value?: string): DisplayLayout => (value === 'compact' ? 'compact' : 'bubble')
 const coercePalette = (value?: string): DisplayPalette => (value === 'day' ? 'day' : 'night')
+const coerceEditingSelfActionsPlacement = (value: unknown): EditingSelfActionsPlacement => (value === 'left' ? 'left' : 'right')
+const BOT_BADGE_STYLE_VALUES: BotBadgeStyle[] = ['solidBlue', 'solidTone', 'outline', 'dice']
+const BOT_BADGE_STYLE_DEFAULT: BotBadgeStyle = 'solidBlue'
+const coerceBotBadgeStyle = (value: unknown): BotBadgeStyle => (
+  value === 'solidMuted'
+    ? 'solidTone'
+    : typeof value === 'string' && BOT_BADGE_STYLE_VALUES.includes(value as BotBadgeStyle)
+      ? value as BotBadgeStyle
+    : BOT_BADGE_STYLE_DEFAULT
+)
 const coerceBoolean = (value: any): boolean => value !== false
 const coerceNumberInRange = (value: any, fallback: number, min: number, max: number): number => {
   const num = Number(value)
@@ -440,6 +454,7 @@ export const createDefaultDisplaySettings = (): DisplaySettings => ({
   avatarSize: AVATAR_SIZE_DEFAULT,
   avatarBorderRadius: AVATAR_BORDER_RADIUS_DEFAULT,
   showInputPreview: true,
+  editingSelfActionsPlacement: 'right',
   autoScrollTypingPreview: false,
   mergeNeighbors: true,
   showPinnedMessages: true,
@@ -494,6 +509,7 @@ export const createDefaultDisplaySettings = (): DisplaySettings => ({
   inputAreaHeight: INPUT_AREA_HEIGHT_DEFAULT,
   characterCardBadgeSettingsExpanded: true,
   characterCardBadgeEnabled: true,
+  botBadgeStyle: BOT_BADGE_STYLE_DEFAULT,
   characterCardBadgeVisibilityScope: 'ic',
   characterCardBadgeAutoContrastEnabled: true,
   characterCardAutoSyncBotNickname: true,
@@ -668,6 +684,7 @@ const parseStoredSettings = (raw: string | null | undefined): DisplaySettings =>
         AVATAR_BORDER_RADIUS_MAX,
       ),
       showInputPreview: coerceBoolean(parsed.showInputPreview),
+      editingSelfActionsPlacement: coerceEditingSelfActionsPlacement((parsed as any)?.editingSelfActionsPlacement),
       autoScrollTypingPreview: coerceBoolean((parsed as any)?.autoScrollTypingPreview ?? false),
       mergeNeighbors: coerceBoolean(parsed.mergeNeighbors),
       showPinnedMessages: coerceBoolean((parsed as any)?.showPinnedMessages ?? true),
@@ -776,6 +793,7 @@ const parseStoredSettings = (raw: string | null | undefined): DisplaySettings =>
         (parsed as any)?.characterCardBadgeSettingsExpanded,
       ),
       characterCardBadgeEnabled: coerceBoolean((parsed as any)?.characterCardBadgeEnabled ?? true),
+      botBadgeStyle: coerceBotBadgeStyle((parsed as any)?.botBadgeStyle),
       characterCardBadgeVisibilityScope: normalizeMessageVisibilityScope((parsed as any)?.characterCardBadgeVisibilityScope),
       characterCardBadgeAutoContrastEnabled: coerceBoolean((parsed as any)?.characterCardBadgeAutoContrastEnabled ?? true),
       characterCardAutoSyncBotNickname: coerceBoolean((parsed as any)?.characterCardAutoSyncBotNickname ?? true),
@@ -836,6 +854,10 @@ const normalizeWith = (base: DisplaySettings, patch?: Partial<DisplaySettings>):
     patch && Object.prototype.hasOwnProperty.call(patch, 'showInputPreview')
       ? coerceBoolean(patch.showInputPreview)
       : base.showInputPreview,
+  editingSelfActionsPlacement:
+    patch && Object.prototype.hasOwnProperty.call(patch, 'editingSelfActionsPlacement')
+      ? coerceEditingSelfActionsPlacement((patch as any).editingSelfActionsPlacement)
+      : base.editingSelfActionsPlacement,
   autoScrollTypingPreview:
     patch && Object.prototype.hasOwnProperty.call(patch, 'autoScrollTypingPreview')
       ? coerceBoolean((patch as any).autoScrollTypingPreview)
@@ -1084,6 +1106,10 @@ const normalizeWith = (base: DisplaySettings, patch?: Partial<DisplaySettings>):
     patch && Object.prototype.hasOwnProperty.call(patch, 'characterCardBadgeEnabled')
       ? coerceBoolean((patch as any).characterCardBadgeEnabled)
       : base.characterCardBadgeEnabled,
+  botBadgeStyle:
+    patch && Object.prototype.hasOwnProperty.call(patch, 'botBadgeStyle')
+      ? coerceBotBadgeStyle((patch as any).botBadgeStyle)
+      : base.botBadgeStyle,
   characterCardBadgeVisibilityScope:
     patch && Object.prototype.hasOwnProperty.call(patch, 'characterCardBadgeVisibilityScope')
       ? normalizeMessageVisibilityScope((patch as any).characterCardBadgeVisibilityScope)

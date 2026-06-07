@@ -105,6 +105,59 @@ interface UtilsState {
   pageWidth: any;
 }
 
+export interface AdminPerfSamplePoint {
+  timestamp: number;
+  goroutines: number;
+  heapAllocBytes: number;
+  heapInuseBytes: number;
+  heapSysBytes: number;
+  stackInuseBytes: number;
+  gcCycles: number;
+  lastPauseNs: number;
+}
+
+export interface AdminPerfSessionState {
+  sessionId: string;
+  active: boolean;
+  startedAt: number;
+  endsAt: number;
+  fileName: string;
+  fileSize: number;
+  lastError?: string;
+  autoStopped: boolean;
+}
+
+export interface AdminPerfState {
+  enabled: boolean;
+  status: string;
+  outputDir: string;
+  lightIntervalSec: number;
+  snapshotIntervalSec: number;
+  cpuProfileDurationSec: number;
+  retentionDays: number;
+  lastSampleAt: number;
+  lastError?: string;
+  latest?: AdminPerfSamplePoint;
+  cpuSession?: AdminPerfSessionState;
+}
+
+export interface AdminPerfArtifact {
+  name: string;
+  kind: string;
+  size: number;
+  modifiedAt: number;
+}
+
+export interface AdminPerfTopFunction {
+  name: string;
+  flat: number;
+  cumulative: number;
+  flatPct: string;
+  cumPct: string;
+  source: string;
+  unit: string;
+}
+
 export const useUtilsStore = defineStore({
   id: 'utils',
 
@@ -225,7 +278,8 @@ export const useUtilsStore = defineStore({
       page?: number;
       pageSize?: number;
       keyword?: string;
-      type?: string
+      type?: string;
+      status?: string;
     }) {
       const user = useUserStore();
       const resp = await api.get('api/v1/admin/user-list', {
@@ -302,6 +356,57 @@ export const useUtilsStore = defineStore({
       return resp;
     },
 
+    async adminPerfStatus() {
+      const user = useUserStore();
+      return await api.get<{ message: string; state: AdminPerfState }>('api/v1/admin/perf/status', {
+        headers: { 'Authorization': user.token },
+      });
+    },
+
+    async adminPerfHistory(params?: { range?: '15m' | '1h' | '6h' | '24h' | '7d'; start?: number; end?: number }) {
+      const user = useUserStore();
+      return await api.get<{ message: string; points: AdminPerfSamplePoint[] }>('api/v1/admin/perf/history', {
+        headers: { 'Authorization': user.token },
+        params,
+      });
+    },
+
+    async adminPerfArtifacts() {
+      const user = useUserStore();
+      return await api.get<{ message: string; items: AdminPerfArtifact[] }>('api/v1/admin/perf/artifacts', {
+        headers: { 'Authorization': user.token },
+      });
+    },
+
+    async adminPerfTopFunctions() {
+      const user = useUserStore();
+      return await api.get<{ message: string; items: AdminPerfTopFunction[] }>('api/v1/admin/perf/top-functions', {
+        headers: { 'Authorization': user.token },
+      });
+    },
+
+    async adminPerfStartCpuSession(durationSec?: number) {
+      const user = useUserStore();
+      return await api.post<{ message: string; state: AdminPerfSessionState | null }>(
+        'api/v1/admin/perf/cpu-session/start',
+        durationSec ? { durationSec } : {},
+        {
+          headers: { 'Authorization': user.token },
+        },
+      );
+    },
+
+    async adminPerfStopCpuSession() {
+      const user = useUserStore();
+      return await api.post<{ message: string; state: AdminPerfSessionState | null }>(
+        'api/v1/admin/perf/cpu-session/stop',
+        {},
+        {
+          headers: { 'Authorization': user.token },
+        },
+      );
+    },
+
     async userResetPassword(id: string) {
       const user = useUserStore();
       const resp = await api.post(`api/v1/admin/user-password-reset`, null, {
@@ -323,6 +428,15 @@ export const useUtilsStore = defineStore({
     async userDisable(id: string) {
       const user = useUserStore();
       const resp = await api.post(`api/v1/admin/user-disable`, null, {
+        headers: { 'Authorization': user.token },
+        params: { id },
+      })
+      return resp
+    },
+
+    async userDelete(id: string) {
+      const user = useUserStore();
+      const resp = await api.post(`api/v1/admin/user-delete`, null, {
         headers: { 'Authorization': user.token },
         params: { id },
       })

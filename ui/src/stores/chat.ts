@@ -23,7 +23,7 @@ import { mergeCharacterApiRuntimeStateIntoChannels } from './chatChannelRuntimeS
 import { findChannelByIdFromTree, findFirstEnterableChannel, isDeletedChannelForAccess } from './chatChannelSelection';
 import { addWhisperTargetUnique } from './whisperTargetSelection';
 import { parseLastChannelByWorldMap, resolvePreferredChannelForWorld, updateLastChannelByWorldMap } from './chatWorldChannelSession';
-import { normalizeStoredChannelIcOocMode, resolveChannelRestorePreference, type StoredChannelIcOocMode } from '@/utils/channelSessionRestore';
+import { normalizeStoredChannelIcOocMode, resolveChannelRestorePreference, resolveChannelSessionRestoreStrategy as resolveChannelSessionRestoreState, type StoredChannelIcOocMode } from '@/utils/channelSessionRestore';
 import { resolveWindowFocusState } from '@/utils/windowFocusState';
 
 const inFlightChannelIdentityLoads = new Map<string, Promise<ChannelIdentity[]>>();
@@ -68,10 +68,27 @@ const notifyNormalDrain = () => {
   const waiters = normalDrainWaiters.splice(0);
   waiters.forEach((resolve) => resolve());
 };
-
 type ChannelUnreadStatePayload = {
   counts: Record<string, number>;
   mentions: Record<string, boolean>;
+};
+
+type ChannelIdentityAvatarReissueResult = {
+  channelId: string;
+  processedUserCount: number;
+  processedIdentityCount: number;
+  processedVariantCount: number;
+  refreshedIdentityCount: number;
+  refreshedVariantCount: number;
+  createdAttachmentCount: number;
+  failedCount: number;
+  failed: Array<{
+    scope: string;
+    referenceId: string;
+    targetUserId: string;
+    sourceToken?: string;
+    reason: string;
+  }>;
 };
 
 const normalizeChannelUnreadStatePayload = (data: unknown): ChannelUnreadStatePayload => {
@@ -236,6 +253,7 @@ interface ChatState {
     showArchived: boolean;
     roleIds: string[];
   };
+  channelSessionRestoreFilterOverride: 'all' | 'ic' | 'ooc';
   channelRoleCache: Record<string, string[]>;
   channelMemberRoleMap: Record<string, Record<string, string[]>>;
   channelAdminMap: Record<string, Record<string, boolean>>;
@@ -253,6 +271,11 @@ interface ChatState {
     selectedIds: Set<string>;
     rangeAnchorId: string | null;
     rangeModeEnabled: boolean; // 范围选择模式：首条是起点，第二条是终点
+    relocate: {
+      active: boolean;
+      sourceMessageIds: string[];
+      targetMessageId: string | null;
+    };
   } | null;
   // 当前频道的第一条未读消息信息
   firstUnreadInfo: {
@@ -1194,6 +1217,7 @@ export const useChatStore = defineStore({
       showArchived: false,
       roleIds: [],
     },
+    channelSessionRestoreFilterOverride: 'all',
     channelRoleCache: {},
     channelMemberRoleMap: {},
     channelAdminMap: {},
@@ -2472,7 +2496,7 @@ export const useChatStore = defineStore({
           this.observerChannelId = id;
           writeObserverSessionChannel(this.observerSlug, this.observerWorldId || this.currentWorldId, id);
           persistLastChannelForWorld(this.observerWorldId || this.currentWorldId, id);
-          this.setIcMode(this.resolveStoredChannelIcOocMode(id), id);
+          this.setIcMode(this.resolveChannelSessionRestoreMode(id).mode, id, undefined, { persist: false });
           this.setChannelUnreadCount(id, 0);
           if (isStale()) {
             return true;
@@ -2529,7 +2553,7 @@ export const useChatStore = defineStore({
       }
 
       persistLastChannelForWorld(this.currentWorldId, id);
-      this.setIcMode(this.resolveStoredChannelIcOocMode(id), id);
+      this.setIcMode(this.resolveChannelSessionRestoreMode(id).mode, id, undefined, { persist: false });
       this.setChannelUnreadCount(id, 0);
       this.setChannelMentionState(id, false);
       this.curChannelUsers = [];
@@ -2625,23 +2649,42 @@ export const useChatStore = defineStore({
       return readChannelIcOocModeFromStorage(scopeKey);
     },
 
+    setChannelSessionRestoreFilterOverride(filter: 'all' | 'ic' | 'ooc') {
+      this.channelSessionRestoreFilterOverride = filter === 'ic' || filter === 'ooc' ? filter : 'all';
+    },
+
+    resolveChannelSessionRestoreMode(channelId: string, targetUserId?: string | null) {
+      const scopeKey = this.resolveChannelIdentityScopeKey(channelId, targetUserId);
+      return resolveChannelSessionRestoreState({
+        splitFilter: scopeKey === channelId ? this.channelSessionRestoreFilterOverride : 'all',
+        storedMode: scopeKey ? readChannelIcOocModeFromStorage(scopeKey) : 'ic',
+      });
+    },
+
     restoreChannelIdentitySession(channelId: string, items: ChannelIdentity[], targetUserId?: string | null) {
       const scopeKey = this.resolveChannelIdentityScopeKey(channelId, targetUserId);
       const defaultItem = items.find(item => item.isDefault) || items[0];
+      const restoreState = this.resolveChannelSessionRestoreMode(channelId, targetUserId);
+      const currentActiveIdentityId = String(this.activeChannelIdentity[scopeKey] || '').trim();
+      const hasCurrentActiveIdentity = (
+        currentActiveIdentityId.length > 0
+        && items.some((item) => item.id === currentActiveIdentityId)
+      );
       if (!scopeKey) {
-        const storedMode = this.resolveStoredChannelIcOocMode(channelId, targetUserId);
-        this.setIcMode(storedMode, channelId, targetUserId);
+        this.setIcMode(restoreState.mode, channelId, targetUserId, { persist: restoreState.useStoredIdentity });
         return {
-          mode: storedMode,
+          mode: restoreState.mode,
           identityId: '',
           preferIdentityModeMapping: false,
         };
       }
       if (scopeKey !== channelId) {
         const savedActive = readChannelIdentityFromStorage(scopeKey);
-        const activeId = savedActive && items.some(item => item.id === savedActive)
-          ? savedActive
-          : (defaultItem?.id || '');
+        const activeId = hasCurrentActiveIdentity
+          ? currentActiveIdentityId
+          : (savedActive && items.some(item => item.id === savedActive)
+            ? savedActive
+            : (defaultItem?.id || ''));
         if (activeId) {
           this.setActiveIdentity(channelId, activeId, targetUserId);
         } else {
@@ -2656,18 +2699,22 @@ export const useChatStore = defineStore({
           preferIdentityModeMapping: false,
         };
       }
-      const storedMode = this.resolveStoredChannelIcOocMode(channelId, targetUserId);
       const config = this.getChannelIcOocRoleConfig(channelId, targetUserId);
       const restored = resolveChannelRestorePreference({
-        storedMode,
-        storedIdentityId: readChannelIdentityFromStorage(scopeKey),
+        storedMode: restoreState.mode,
+        currentIdentityId: hasCurrentActiveIdentity ? currentActiveIdentityId : '',
+        storedIdentityId: restoreState.useStoredIdentity ? readChannelIdentityFromStorage(scopeKey) : '',
         defaultIdentityId: defaultItem?.id || '',
         icRoleId: config.icRoleId,
         oocRoleId: config.oocRoleId,
+        preferStoredIdentity: false,
         validIdentityIds: items.map((item) => item.id),
       });
       if (restored.identityId) {
-        this.setActiveIdentity(channelId, restored.identityId, targetUserId);
+        this.setActiveIdentity(channelId, restored.identityId, targetUserId, {
+          persist: restoreState.useStoredIdentity,
+          syncIcOocFromRole: restoreState.useStoredIdentity,
+        });
       } else {
         this.activeChannelIdentity = {
           ...this.activeChannelIdentity,
@@ -2675,7 +2722,7 @@ export const useChatStore = defineStore({
         };
       }
       if (!restored.preferIdentityModeMapping) {
-        this.setIcMode(restored.mode, channelId, targetUserId);
+        this.setIcMode(restored.mode, channelId, targetUserId, { persist: restoreState.useStoredIdentity });
       }
       return restored;
     },
@@ -2837,7 +2884,12 @@ export const useChatStore = defineStore({
       persistIdentityRecentSpokenToStorage(this.channelIdentityRecentSpokenAt);
     },
 
-    setActiveIdentity(channelId: string, identityId: string, targetUserId?: string | null) {
+    setActiveIdentity(
+      channelId: string,
+      identityId: string,
+      targetUserId?: string | null,
+      options?: { persist?: boolean; syncIcOocFromRole?: boolean },
+    ) {
       const scopeKey = this.resolveChannelIdentityScopeKey(channelId, targetUserId);
       if (!scopeKey) {
         return;
@@ -2846,14 +2898,22 @@ export const useChatStore = defineStore({
         ...this.activeChannelIdentity,
         [scopeKey]: identityId,
       };
-      writeChannelIdentityToStorage(scopeKey, identityId || '');
+      if (options?.persist !== false) {
+        writeChannelIdentityToStorage(scopeKey, identityId || '');
+      }
       // 反向自动切换：切换角色时检查是否需要切换场内外模式
-      if (scopeKey === channelId) {
-        this.autoSwitchIcOocOnRoleChange(channelId, identityId);
+      if (scopeKey === channelId && options?.syncIcOocFromRole !== false) {
+        this.autoSwitchIcOocOnRoleChange(channelId, identityId, options?.persist !== false);
       }
     },
 
-    setActiveIdentityVariant(channelId: string, identityId: string, variantId: string, targetUserId?: string | null) {
+    setActiveIdentityVariant(
+      channelId: string,
+      identityId: string,
+      variantId: string,
+      targetUserId?: string | null,
+      options?: { persist?: boolean },
+    ) {
       const scopeKey = this.resolveChannelIdentityScopeKey(channelId, targetUserId);
       if (!scopeKey || !identityId) {
         return;
@@ -2866,14 +2926,16 @@ export const useChatStore = defineStore({
         ...this.activeChannelIdentityVariant,
         [scopeKey]: perChannel,
       };
-      writeChannelIdentityVariantToStorage(scopeKey, identityId, variantId || '');
+      if (options?.persist !== false) {
+        writeChannelIdentityVariantToStorage(scopeKey, identityId, variantId || '');
+      }
     },
 
     /**
      * 切换角色时的反向自动切换场内外
      * 如果角色存在唯一的场内外映射（仅映射到IC或仅映射到OOC），则自动切换模式
      */
-    autoSwitchIcOocOnRoleChange(channelId: string, newRoleId: string) {
+    autoSwitchIcOocOnRoleChange(channelId: string, newRoleId: string, persist = true) {
       const display = useDisplayStore();
       // 检查是否启用自动切换
       if (!display.settings.autoSwitchRoleOnIcOocToggle) {
@@ -2890,7 +2952,7 @@ export const useChatStore = defineStore({
         : '';
       if (temporaryMode === 'ic' || temporaryMode === 'ooc') {
         if (this.icMode !== temporaryMode) {
-          this.setIcMode(temporaryMode, channelId);
+          this.setIcMode(temporaryMode, channelId, undefined, { persist });
         }
         return;
       }
@@ -2903,12 +2965,12 @@ export const useChatStore = defineStore({
       if (isIcRole && !isOocRole) {
         // 角色仅映射到 IC，自动切换到 IC 模式
         if (this.icMode !== 'ic') {
-          this.setIcMode('ic', channelId);
+          this.setIcMode('ic', channelId, undefined, { persist });
         }
       } else if (isOocRole && !isIcRole) {
         // 角色仅映射到 OOC，自动切换到 OOC 模式
         if (this.icMode !== 'ooc') {
-          this.setIcMode('ooc', channelId);
+          this.setIcMode('ooc', channelId, undefined, { persist });
         }
       }
       // 如果角色同时映射到 IC 和 OOC，或都不匹配，不做切换
@@ -3328,6 +3390,11 @@ export const useChatStore = defineStore({
       await api.delete('api/v1/channel-identities/' + identityId, { params });
       this.removeChannelIdentity(channelId, identityId, targetUserId);
       chatEvent.emit('channel-identity-updated', { channelId, removedId: identityId });
+    },
+
+    async reissueChannelIdentityAvatars(channelId: string) {
+      const resp = await api.post<ChannelIdentityAvatarReissueResult>(`api/v1/channels/${channelId}/channel-identity-avatar-reissue`, {});
+      return resp.data;
     },
 
     async createChannelIdentityFolder(channelId: string, name: string, sortOrder?: number, targetUserId?: string | null) {
@@ -4641,6 +4708,27 @@ export const useChatStore = defineStore({
       return data;
     },
 
+    async messageRelocateBatch(
+      channel_id: string,
+      payload: { messageIds: string[]; targetMessageId: string; placement?: 'after'; clientOpId?: string },
+    ) {
+      if (!this.curChannel?.id || !Array.isArray(payload.messageIds) || payload.messageIds.length === 0) {
+        return;
+      }
+      const resp = await this.sendAPI('message.relocate.batch', {
+        channel_id,
+        message_ids: payload.messageIds,
+        target_message_id: payload.targetMessageId,
+        placement: payload.placement || 'after',
+        client_op_id: payload.clientOpId || '',
+      });
+      const data = resp?.data as { message_ids?: string[]; target_message_id?: string } | undefined;
+      if (!data || !Array.isArray(data.message_ids) || data.message_ids.length === 0 || !data.target_message_id) {
+        throw new Error('重定位失败：未找到目标消息或无权限操作');
+      }
+      return data;
+    },
+
     async messageCreate(
       content: string,
       quote_id?: string,
@@ -5472,7 +5560,12 @@ export const useChatStore = defineStore({
     },
 
     // 新增方法
-    setIcMode(mode: 'ic' | 'ooc', channelId?: string, targetUserId?: string | null) {
+    setIcMode(
+      mode: 'ic' | 'ooc',
+      channelId?: string,
+      targetUserId?: string | null,
+      options?: { persist?: boolean },
+    ) {
       const normalizedMode = normalizeStoredChannelIcOocMode(mode);
       this.icMode = normalizedMode;
       const targetChannelId = String(channelId || this.curChannel?.id || '').trim();
@@ -5483,7 +5576,9 @@ export const useChatStore = defineStore({
       if (!scopeKey) {
         return;
       }
-      writeChannelIcOocModeToStorage(scopeKey, normalizedMode);
+      if (options?.persist !== false) {
+        writeChannelIcOocModeToStorage(scopeKey, normalizedMode);
+      }
     },
 
     markGatewayActivity() {
@@ -5742,6 +5837,11 @@ export const useChatStore = defineStore({
         selectedIds: new Set(anchorMessageId ? [anchorMessageId] : []),
         rangeAnchorId: anchorMessageId ?? null,
         rangeModeEnabled: false,
+        relocate: {
+          active: false,
+          sourceMessageIds: [],
+          targetMessageId: null,
+        },
       };
     },
 
@@ -5751,6 +5851,9 @@ export const useChatStore = defineStore({
 
     toggleMessageSelection(messageId: string) {
       if (!this.multiSelect) {
+        return;
+      }
+      if (this.multiSelect.relocate.active) {
         return;
       }
       if (this.multiSelect.selectedIds.has(messageId)) {
@@ -5782,6 +5885,11 @@ export const useChatStore = defineStore({
       }
       this.multiSelect.selectedIds.clear();
       this.multiSelect.rangeAnchorId = null;
+      this.multiSelect.relocate = {
+        active: false,
+        sourceMessageIds: [],
+        targetMessageId: null,
+      };
     },
 
     isMessageSelected(messageId: string): boolean {
@@ -5790,11 +5898,56 @@ export const useChatStore = defineStore({
 
     toggleRangeMode() {
       if (!this.multiSelect) return;
+      if (this.multiSelect.relocate.active) {
+        return;
+      }
       this.multiSelect.rangeModeEnabled = !this.multiSelect.rangeModeEnabled;
       // 开启范围模式时清空锚点，等待用户选择起点
       if (this.multiSelect.rangeModeEnabled) {
         this.multiSelect.rangeAnchorId = null;
       }
+    },
+
+    startMultiSelectRelocate(sourceMessageIds: string[]) {
+      if (!this.multiSelect) {
+        return;
+      }
+      const ids = Array.from(new Set((sourceMessageIds || []).map(id => String(id || '').trim()).filter(Boolean)));
+      if (!ids.length) {
+        return;
+      }
+      this.multiSelect.rangeModeEnabled = false;
+      this.multiSelect.rangeAnchorId = null;
+      this.multiSelect.relocate = {
+        active: true,
+        sourceMessageIds: ids,
+        targetMessageId: null,
+      };
+    },
+
+    setMultiSelectRelocateTarget(messageId: string | null) {
+      if (!this.multiSelect) {
+        return;
+      }
+      this.multiSelect.relocate.targetMessageId = String(messageId || '').trim() || null;
+    },
+
+    cancelMultiSelectRelocate() {
+      if (!this.multiSelect) {
+        return;
+      }
+      this.multiSelect.relocate = {
+        active: false,
+        sourceMessageIds: [],
+        targetMessageId: null,
+      };
+    },
+
+    isRelocateSourceMessage(messageId: string): boolean {
+      if (!this.multiSelect?.relocate.active) {
+        return false;
+      }
+      return this.multiSelect.relocate.sourceMessageIds.includes(String(messageId || '').trim());
     },
 
     // 范围选择处理：点击消息时调用

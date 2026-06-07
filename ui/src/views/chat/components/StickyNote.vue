@@ -158,10 +158,12 @@
             class="sticky-note__editor"
           >
             <!-- 富文本模式 -->
-            <ChatInputRich
+            <RichTextEditor
               v-if="richMode"
               ref="editorRef"
               v-model="localContent"
+              variant="sticky-note"
+              image-upload-mode="delegate"
               :mention-options="stickyMentionOptions"
               :input-class="['chat-input--fullscreen', 'sticky-note__rich-input']"
               placeholder="在此输入内容..."
@@ -263,8 +265,9 @@ import { uploadImageAttachment } from '@/views/chat/composables/useAttachmentUpl
 import { normalizeAttachmentId } from '@/composables/useAttachmentResolver'
 import { generateStickyNoteEmbedLink } from '@/utils/stickyNoteEmbedLink'
 import { copyTextWithFallback, copyTextWithResult } from '@/utils/clipboard'
-import ChatInputRich from './inputs/ChatInputRich.vue'
+import RichTextEditor from '@/components/rich-text/RichTextEditor.vue'
 import { isTipTapJson, tiptapJsonToHtml } from '@/utils/tiptap-render'
+import { preloadPlatformFontsFromDom } from '@/services/font/platformFontRegistry'
 
 // 动态导入类型组件
 const StickyNoteText = defineAsyncComponent(() => import('./sticky-notes/StickyNoteText.vue'))
@@ -299,7 +302,7 @@ const message = useMessage()
 
 const noteEl = ref<HTMLElement | null>(null)
 const headerEl = ref<HTMLElement | null>(null)
-const editorRef = ref<InstanceType<typeof ChatInputRich> | null>(null)
+const editorRef = ref<InstanceType<typeof RichTextEditor> | null>(null)
 const inlineImageInputRef = ref<HTMLInputElement | null>(null)
 
 // 本地编辑状态
@@ -773,7 +776,7 @@ function isEditingScopeTarget(target: Node | null) {
   if (targetElement?.closest('.mention-dropdown, .tiptap-bubble-menu')) {
     return true
   }
-  if (editorRef.value?.hasOpenOverlay?.() && targetElement?.closest('.n-popover, .n-modal, [role="dialog"]')) {
+  if (editorRef.value?.hasOpenOverlay?.() && targetElement?.closest('.n-popover, .n-modal, .n-base-select-menu, .tiptap-platform-font-select__menu, [role="dialog"]')) {
     return true
   }
   return false
@@ -906,6 +909,15 @@ const sanitizedContent = computed(() => {
   
   return processed
 })
+
+async function preloadReadOnlyPlatformFonts() {
+  if (isEditing.value) return
+  await nextTick()
+  if (!noteEl.value) return
+  void preloadPlatformFontsFromDom(noteEl.value).catch((error) => {
+    console.warn('便签阅读态平台字体预加载失败', error)
+  })
+}
 
 const handleContentClick = (event: MouseEvent) => {
   const target = event.target as HTMLElement | null
@@ -1207,6 +1219,14 @@ watch(() => allTargetIds.value, () => {
   }
   pushTargets.value = pushTargets.value.filter(id => allTargetIds.value.includes(id))
 })
+
+watch(
+  [sanitizedContent, isEditing, () => props.noteId],
+  () => {
+    void preloadReadOnlyPlatformFonts()
+  },
+  { immediate: true }
+)
 
 onUnmounted(() => {
   clearHighlightTimer()
