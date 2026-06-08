@@ -182,6 +182,9 @@ func DBInit(cfg *utils.AppConfig) {
 	db.AutoMigrate(&ConfigCurrentModel{}, &ConfigHistoryModel{})
 	db.AutoMigrate(&UserPreferenceModel{})
 	db.AutoMigrate(&ExportColorProfileModel{})
+	if err := ensureChatHistoryIndexes(); err != nil {
+		log.Printf("初始化聊天历史索引失败: %v", err)
+	}
 	if err := ensureDigestPushIndexesAndConstraints(); err != nil {
 		log.Printf("初始化未读提醒索引失败: %v", err)
 	}
@@ -221,6 +224,20 @@ func DBInit(cfg *utils.AppConfig) {
 			}
 		}()
 	}
+}
+
+func ensureChatHistoryIndexes() error {
+	if db == nil {
+		return nil
+	}
+	if IsSQLite() {
+		return db.Exec(`
+CREATE INDEX IF NOT EXISTS idx_msg_live_cursor
+ON messages(channel_id, display_order DESC, created_at DESC, id DESC)
+WHERE is_deleted = 0 AND is_archived = 0
+`).Error
+	}
+	return nil
 }
 
 func ensureDigestPushIndexesAndConstraints() error {

@@ -6,7 +6,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 
 	"github.com/knadh/koanf/parsers/yaml"
@@ -15,6 +14,8 @@ import (
 	"github.com/knadh/koanf/v2"
 	"github.com/samber/lo"
 )
+
+const defaultSQLiteReadConnections = 2
 
 type LogUploadConfig struct {
 	Enabled        bool     `json:"enabled" yaml:"enabled"`
@@ -251,23 +252,23 @@ const (
 )
 
 type CertificateConfig struct {
-	Enabled          bool                 `json:"enabled" yaml:"enabled"`
-	SubjectIP        string               `json:"subjectIp" yaml:"subjectIp"`
-	Issuer           CertificateIssuer    `json:"issuer" yaml:"issuer"`
-	Challenge        CertificateChallenge `json:"challenge" yaml:"challenge"`
-	Email            string               `json:"email" yaml:"email"`
-	StorageDir       string               `json:"storageDir" yaml:"storageDir"`
-	HTTPSServeAt     string               `json:"httpsServeAt" yaml:"httpsServeAt"`
-	ForceHTTPS       bool                 `json:"forceHTTPS" yaml:"forceHTTPS"`
-	RedirectHTTP     bool                 `json:"redirectHTTP" yaml:"redirectHTTP"`
-	CheckIntervalMinutes int              `json:"checkIntervalMinutes" yaml:"checkIntervalMinutes"`
-	RenewBeforeDays      int              `json:"renewBeforeDays" yaml:"renewBeforeDays"`
-	RetryInitialMinutes  int              `json:"retryInitialMinutes" yaml:"retryInitialMinutes"`
-	RetryMaxMinutes      int              `json:"retryMaxMinutes" yaml:"retryMaxMinutes"`
-	ZeroSSLAPIKey    string               `json:"zeroSSLAPIKey,omitempty" yaml:"zeroSSLAPIKey"`
-	ZeroSSLEABKeyID  string               `json:"zeroSSLEABKeyID,omitempty" yaml:"zeroSSLEABKeyID"`
-	ZeroSSLEABMACKey string               `json:"zeroSSLEABMACKey,omitempty" yaml:"zeroSSLEABMACKey"`
-	Staging          bool                 `json:"staging" yaml:"staging"`
+	Enabled              bool                 `json:"enabled" yaml:"enabled"`
+	SubjectIP            string               `json:"subjectIp" yaml:"subjectIp"`
+	Issuer               CertificateIssuer    `json:"issuer" yaml:"issuer"`
+	Challenge            CertificateChallenge `json:"challenge" yaml:"challenge"`
+	Email                string               `json:"email" yaml:"email"`
+	StorageDir           string               `json:"storageDir" yaml:"storageDir"`
+	HTTPSServeAt         string               `json:"httpsServeAt" yaml:"httpsServeAt"`
+	ForceHTTPS           bool                 `json:"forceHTTPS" yaml:"forceHTTPS"`
+	RedirectHTTP         bool                 `json:"redirectHTTP" yaml:"redirectHTTP"`
+	CheckIntervalMinutes int                  `json:"checkIntervalMinutes" yaml:"checkIntervalMinutes"`
+	RenewBeforeDays      int                  `json:"renewBeforeDays" yaml:"renewBeforeDays"`
+	RetryInitialMinutes  int                  `json:"retryInitialMinutes" yaml:"retryInitialMinutes"`
+	RetryMaxMinutes      int                  `json:"retryMaxMinutes" yaml:"retryMaxMinutes"`
+	ZeroSSLAPIKey        string               `json:"zeroSSLAPIKey,omitempty" yaml:"zeroSSLAPIKey"`
+	ZeroSSLEABKeyID      string               `json:"zeroSSLEABKeyID,omitempty" yaml:"zeroSSLEABKeyID"`
+	ZeroSSLEABMACKey     string               `json:"zeroSSLEABMACKey,omitempty" yaml:"zeroSSLEABMACKey"`
+	Staging              bool                 `json:"staging" yaml:"staging"`
 }
 
 type PerformanceProfilerConfig struct {
@@ -280,42 +281,42 @@ type PerformanceProfilerConfig struct {
 }
 
 type AppConfig struct {
-	ServeAt                   string                  `json:"serveAt" yaml:"serveAt"`
-	Domain                    string                  `json:"domain" yaml:"domain"`
-	ImageBaseURL              string                  `json:"imageBaseUrl" yaml:"imageBaseUrl"`
-	RegisterOpen              bool                    `json:"registerOpen" yaml:"registerOpen"`
-	RegisterInviteCode        string                  `json:"registerInviteCode" yaml:"registerInviteCode"`
-	RegisterInviteRequired    bool                    `json:"registerInviteRequired" yaml:"-"`
-	WebUrl                    string                  `json:"webUrl" yaml:"webUrl"`
-	PageTitle                 string                  `json:"pageTitle" yaml:"pageTitle"`
-	PageDescription           string                  `json:"pageDescription" yaml:"pageDescription"`
-	FaviconAttachmentID       string                  `json:"faviconAttachmentId" yaml:"faviconAttachmentId"`
-	ChatHistoryPersistentDays int64                   `json:"chatHistoryPersistentDays" yaml:"chatHistoryPersistentDays"`
-	MessageSortBasis          MessageSortBasis        `json:"messageSortBasis" yaml:"messageSortBasis"`
-	TypingOrderWindowMs       int64                   `json:"typingOrderWindowMs" yaml:"typingOrderWindowMs"`
-	ImageSizeLimit            int64                   `json:"imageSizeLimit" yaml:"imageSizeLimit"` // in kb
-	ImageCompress             bool                    `json:"imageCompress" yaml:"imageCompress"`
-	ImageCompressQuality      int                     `json:"imageCompressQuality" yaml:"imageCompressQuality"`
-	KeywordMaxLength          int64                   `json:"keywordMaxLength" yaml:"keywordMaxLength"` // 术语最大字数
-	DSN                       string                  `json:"-" yaml:"dbUrl" koanf:"dbUrl"`
-	BuiltInSealBotEnable      bool                    `json:"builtInSealBotEnable" yaml:"builtInSealBotEnable"` // 内置小海豹启用
-	Version                   int                     `json:"version" yaml:"version"`
-	GalleryQuotaMB            int64                   `json:"galleryQuotaMB" yaml:"galleryQuotaMB"`
-	LogUpload                 LogUploadConfig         `json:"logUpload" yaml:"logUpload"`
-	Audio                     AudioConfig             `json:"audio" yaml:"audio"`
-	Export                    ExportConfig            `json:"export" yaml:"export"`
-	Storage                   StorageConfig           `json:"storage" yaml:"storage"`
-	SQLite                    SQLiteConfig            `json:"sqlite" yaml:"sqlite"`
-	Captcha                   CaptchaConfig           `json:"captcha" yaml:"captcha"`
-	EmailNotification         EmailNotificationConfig `json:"emailNotification" yaml:"emailNotification"`
-	EmailAuth                 EmailAuthConfig         `json:"emailAuth" yaml:"emailAuth"`
-	UpdateCheck               UpdateCheckConfig       `json:"updateCheck" yaml:"updateCheck"`
-	Backup                    BackupConfig            `json:"backup" yaml:"backup"`
-	AuthSession               AuthSessionConfig       `json:"authSession" yaml:"authSession"`
-	LoginBackground           LoginBackgroundConfig   `json:"loginBackground" yaml:"loginBackground"`
-	ThemeManagement           ThemeManagementConfig   `json:"themeManagement" yaml:"themeManagement"`
-	UITextReplace             UITextReplaceConfig     `json:"uiTextReplace" yaml:"uiTextReplace"`
-	Certificate               CertificateConfig       `json:"certificate" yaml:"certificate"`
+	ServeAt                   string                    `json:"serveAt" yaml:"serveAt"`
+	Domain                    string                    `json:"domain" yaml:"domain"`
+	ImageBaseURL              string                    `json:"imageBaseUrl" yaml:"imageBaseUrl"`
+	RegisterOpen              bool                      `json:"registerOpen" yaml:"registerOpen"`
+	RegisterInviteCode        string                    `json:"registerInviteCode" yaml:"registerInviteCode"`
+	RegisterInviteRequired    bool                      `json:"registerInviteRequired" yaml:"-"`
+	WebUrl                    string                    `json:"webUrl" yaml:"webUrl"`
+	PageTitle                 string                    `json:"pageTitle" yaml:"pageTitle"`
+	PageDescription           string                    `json:"pageDescription" yaml:"pageDescription"`
+	FaviconAttachmentID       string                    `json:"faviconAttachmentId" yaml:"faviconAttachmentId"`
+	ChatHistoryPersistentDays int64                     `json:"chatHistoryPersistentDays" yaml:"chatHistoryPersistentDays"`
+	MessageSortBasis          MessageSortBasis          `json:"messageSortBasis" yaml:"messageSortBasis"`
+	TypingOrderWindowMs       int64                     `json:"typingOrderWindowMs" yaml:"typingOrderWindowMs"`
+	ImageSizeLimit            int64                     `json:"imageSizeLimit" yaml:"imageSizeLimit"` // in kb
+	ImageCompress             bool                      `json:"imageCompress" yaml:"imageCompress"`
+	ImageCompressQuality      int                       `json:"imageCompressQuality" yaml:"imageCompressQuality"`
+	KeywordMaxLength          int64                     `json:"keywordMaxLength" yaml:"keywordMaxLength"` // 术语最大字数
+	DSN                       string                    `json:"-" yaml:"dbUrl" koanf:"dbUrl"`
+	BuiltInSealBotEnable      bool                      `json:"builtInSealBotEnable" yaml:"builtInSealBotEnable"` // 内置小海豹启用
+	Version                   int                       `json:"version" yaml:"version"`
+	GalleryQuotaMB            int64                     `json:"galleryQuotaMB" yaml:"galleryQuotaMB"`
+	LogUpload                 LogUploadConfig           `json:"logUpload" yaml:"logUpload"`
+	Audio                     AudioConfig               `json:"audio" yaml:"audio"`
+	Export                    ExportConfig              `json:"export" yaml:"export"`
+	Storage                   StorageConfig             `json:"storage" yaml:"storage"`
+	SQLite                    SQLiteConfig              `json:"sqlite" yaml:"sqlite"`
+	Captcha                   CaptchaConfig             `json:"captcha" yaml:"captcha"`
+	EmailNotification         EmailNotificationConfig   `json:"emailNotification" yaml:"emailNotification"`
+	EmailAuth                 EmailAuthConfig           `json:"emailAuth" yaml:"emailAuth"`
+	UpdateCheck               UpdateCheckConfig         `json:"updateCheck" yaml:"updateCheck"`
+	Backup                    BackupConfig              `json:"backup" yaml:"backup"`
+	AuthSession               AuthSessionConfig         `json:"authSession" yaml:"authSession"`
+	LoginBackground           LoginBackgroundConfig     `json:"loginBackground" yaml:"loginBackground"`
+	ThemeManagement           ThemeManagementConfig     `json:"themeManagement" yaml:"themeManagement"`
+	UITextReplace             UITextReplaceConfig       `json:"uiTextReplace" yaml:"uiTextReplace"`
+	Certificate               CertificateConfig         `json:"certificate" yaml:"certificate"`
 	PerformanceProfiler       PerformanceProfilerConfig `json:"performanceProfiler" yaml:"performanceProfiler"`
 }
 
@@ -434,7 +435,7 @@ func ReadConfig() *AppConfig {
 			CacheSizeKB:             512000,
 			Synchronous:             "NORMAL",
 			TxLockImmediate:         true,
-			ReadConnections:         runtime.NumCPU(),
+			ReadConnections:         defaultSQLiteReadConnections,
 			OptimizeOnInit:          true,
 			AutoVacuumEnabled:       true,
 			AutoVacuumIntervalHours: 168,
@@ -629,11 +630,11 @@ func NormalizeCertificateConfig(cfg CertificateConfig) CertificateConfig {
 
 func defaultCertificateConfig() CertificateConfig {
 	return NormalizeCertificateConfig(CertificateConfig{
-		Issuer:       CertificateIssuerLetsEncryptShortLived,
-		Challenge:    CertificateChallengeHTTP01,
-		StorageDir:   defaultCertificateStorageDir,
-		ForceHTTPS:   true,
-		RedirectHTTP: true,
+		Issuer:               CertificateIssuerLetsEncryptShortLived,
+		Challenge:            CertificateChallengeHTTP01,
+		StorageDir:           defaultCertificateStorageDir,
+		ForceHTTPS:           true,
+		RedirectHTTP:         true,
 		CheckIntervalMinutes: 360,
 		RenewBeforeDays:      14,
 		RetryInitialMinutes:  5,
@@ -729,7 +730,7 @@ func applySQLiteDefaults(cfg *SQLiteConfig) {
 		cfg.Synchronous = "NORMAL"
 	}
 	if cfg.ReadConnections <= 0 {
-		cfg.ReadConnections = runtime.NumCPU()
+		cfg.ReadConnections = defaultSQLiteReadConnections
 	}
 	if cfg.AutoVacuumIntervalHours <= 0 {
 		cfg.AutoVacuumIntervalHours = 168

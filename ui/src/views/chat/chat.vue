@@ -13498,17 +13498,11 @@ const loadOlderMessages = async () => {
       normalized = normalizeMessageList(resp.data);
       nextCursor = resp?.next ?? '';
       if (!normalized.length && !nextCursor) {
-        // Cursor已耗尽但仍有可能存在历史数据，改用时间窗口重试
-        const fallback = await loadOlderMessagesByWindow();
-        normalized = fallback.messages;
-        nextCursor = fallback.cursor;
-        reachedStart = fallback.reachedStart;
+        reachedStart = true;
       }
     } else {
-      const fallback = await loadOlderMessagesByWindow();
-      normalized = fallback.messages;
-      nextCursor = fallback.cursor;
-      reachedStart = fallback.reachedStart;
+      reachedStart = true;
+      nextCursor = '';
     }
 
     if (nextCursor !== undefined) {
