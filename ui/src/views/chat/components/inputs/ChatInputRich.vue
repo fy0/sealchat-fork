@@ -25,7 +25,7 @@ import {
   type SmartLinkTextType,
   type SmartLinkUrlType,
 } from '@/utils/tiptapSmartLink';
-import type { PerformanceEffect, PerformanceEnterMode } from '@/utils/tiptap-performance-mark';
+import { normalizePerformanceEffect, type PerformanceEffect, type PerformanceEnterMode } from '@/utils/tiptap-performance-mark';
 import type { PerformanceCommandType } from '@/utils/tiptap-performance-node';
 
 const props = withDefaults(defineProps<{
@@ -958,11 +958,11 @@ const closePerformancePopover = () => {
 
 const syncPerformanceControlsFromSelection = () => {
   const attrs = (editor.value?.getAttributes('performance') || {}) as Record<string, any>;
-  const effect = String(attrs.effect || '').trim();
+  const effect = normalizePerformanceEffect(attrs.effect);
   const enterMode = String(attrs.enterMode || '').trim();
   const enterSpeed = Number(attrs.enterSpeed);
   const toneIntensity = Number(attrs.toneIntensity);
-  if (effect === 'shake' || effect === 'wave' || effect === 'rainbow' || effect === 'glitch' || effect === 'blur-in') {
+  if (effect) {
     performanceEffect.value = effect;
   }
   if (enterMode === 'normal' || enterMode === 'blur' || enterMode === 'typewriter') {
@@ -2627,7 +2627,7 @@ defineExpose({
                   <button type="button" class="tiptap-performance-chip" :class="{ 'is-active': performanceEffect === 'shake' }" @click="performanceEffect = 'shake'">抖动</button>
                   <button type="button" class="tiptap-performance-chip" :class="{ 'is-active': performanceEffect === 'rainbow' }" @click="performanceEffect = 'rainbow'">虹彩</button>
                   <button type="button" class="tiptap-performance-chip" :class="{ 'is-active': performanceEffect === 'glitch' }" @click="performanceEffect = 'glitch'">故障</button>
-                  <button type="button" class="tiptap-performance-chip" :class="{ 'is-active': performanceEffect === 'blur-in' }" @click="performanceEffect = 'blur-in'">显现</button>
+                  <button type="button" class="tiptap-performance-chip" :class="{ 'is-active': performanceEffect === 'blink' }" @click="performanceEffect = 'blink'">闪烁</button>
                 </div>
                 <n-button size="tiny" type="primary" @click="applyPerformanceEffectToSelection">应用文字效果到选区</n-button>
               </div>

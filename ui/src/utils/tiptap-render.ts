@@ -5,6 +5,7 @@
 
 import { urlBase } from '@/stores/_config';
 import { isLocalMessageLink, parseMessageLink } from './messageLink';
+import { normalizePerformanceEffect } from './tiptap-performance-mark';
 import {
   SMART_LINK_DATA_ATTR,
   SMART_LINK_IMAGE_ROLE_ATTR,
@@ -312,7 +313,8 @@ function applyRubyMark(text: string, mark: { type: string; attrs?: Record<string
 
 function applyPerformanceMark(text: string, mark: { type: string; attrs?: Record<string, any> }): string {
   const attrs = mark.attrs || {};
-  const effect = escapeHtml(String(attrs.effect || '').trim());
+  const normalizedEffect = normalizePerformanceEffect(attrs.effect);
+  const effect = normalizedEffect ? escapeHtml(normalizedEffect) : '';
   const enterMode = escapeHtml(String(attrs.enterMode || '').trim());
   const enterSpeed = Number(attrs.enterSpeed);
   const toneIntensity = Number(attrs.toneIntensity);
@@ -327,7 +329,6 @@ function applyPerformanceMark(text: string, mark: { type: string; attrs?: Record
   }
   if (enterMode) {
     dataAttrs.push(`data-performance-enter-mode="${enterMode}"`);
-    classNames.push(`enter-${enterMode}`);
   }
   if (Number.isFinite(enterSpeed)) {
     dataAttrs.push(`data-performance-enter-speed="${escapeHtml(String(enterSpeed))}"`);

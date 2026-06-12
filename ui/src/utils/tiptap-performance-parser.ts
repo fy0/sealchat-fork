@@ -1,4 +1,4 @@
-import type { PerformanceEffect, PerformanceEnterMode, PerformanceScale } from './tiptap-performance-mark';
+import { normalizePerformanceEffect, type PerformanceEffect, type PerformanceEnterMode, type PerformanceScale } from './tiptap-performance-mark';
 import type { PerformanceCommandType } from './tiptap-performance-node';
 
 export type PerformanceInstruction =
@@ -39,7 +39,7 @@ const readPerformanceAttrs = (marks: TipTapNode['marks']) => {
   const toneIntensity = Number(mark?.attrs?.toneIntensity);
   const enterSpeed = Number(mark?.attrs?.enterSpeed);
   return {
-    effect: mark?.attrs?.effect as PerformanceEffect | undefined,
+    effect: normalizePerformanceEffect(mark?.attrs?.effect) || undefined,
     scale: mark?.attrs?.scale as PerformanceScale | undefined,
     toneIntensity: Number.isFinite(toneIntensity)
       ? toneIntensity

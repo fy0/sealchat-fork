@@ -1,6 +1,6 @@
 type TiptapCoreModule = typeof import('@tiptap/core');
 
-export type PerformanceEffect = 'shake' | 'wave' | 'rainbow' | 'glitch' | 'blur-in';
+export type PerformanceEffect = 'shake' | 'wave' | 'rainbow' | 'glitch' | 'blink';
 export type PerformanceEnterMode = 'normal' | 'blur' | 'typewriter';
 export type PerformanceScale = 'shout' | 'whisper';
 
@@ -11,6 +11,17 @@ export interface PerformanceMarkAttrs {
   toneIntensity?: number | null;
   scale?: PerformanceScale | null;
 }
+
+export const normalizePerformanceEffect = (value: unknown): PerformanceEffect | null => {
+  const raw = String(value || '').trim();
+  if (raw === 'blur-in') {
+    return 'blink';
+  }
+  if (raw === 'shake' || raw === 'wave' || raw === 'rainbow' || raw === 'glitch' || raw === 'blink') {
+    return raw;
+  }
+  return null;
+};
 
 declare module '@tiptap/core' {
   interface Commands<ReturnType> {
@@ -31,9 +42,9 @@ export const createPerformanceExtension = ({
     return {
       effect: {
         default: null,
-        parseHTML: (element: HTMLElement) => element.getAttribute('data-performance-effect') || null,
+        parseHTML: (element: HTMLElement) => normalizePerformanceEffect(element.getAttribute('data-performance-effect')),
         renderHTML: (attributes: PerformanceMarkAttrs) => {
-          const effect = String(attributes.effect || '').trim();
+          const effect = normalizePerformanceEffect(attributes.effect);
           return effect ? { 'data-performance-effect': effect } : {};
         },
       },
@@ -91,7 +102,7 @@ export const createPerformanceExtension = ({
   },
 
   renderHTML({ HTMLAttributes }) {
-    const effect = String(HTMLAttributes.effect || '').trim();
+    const effect = normalizePerformanceEffect(HTMLAttributes.effect);
     const enterMode = String(HTMLAttributes.enterMode || '').trim();
     const enterSpeed = Number(HTMLAttributes.enterSpeed);
     const toneIntensity = Number(HTMLAttributes.toneIntensity);
@@ -129,7 +140,7 @@ export const createPerformanceExtension = ({
         (attrs: PerformanceMarkAttrs) =>
         ({ commands }) => {
           const nextAttrs = {
-            effect: attrs.effect || null,
+            effect: normalizePerformanceEffect(attrs.effect),
             enterMode: attrs.enterMode || null,
             enterSpeed: Number.isFinite(Number(attrs.enterSpeed)) ? Number(attrs.enterSpeed) : null,
             toneIntensity: Number.isFinite(Number(attrs.toneIntensity)) ? Number(attrs.toneIntensity) : null,
