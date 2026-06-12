@@ -310,6 +310,41 @@ function applyRubyMark(text: string, mark: { type: string; attrs?: Record<string
   return `<ruby class="tiptap-ruby" ${dataAttrs.join(' ')}${styleAttr}>${text}<rt>${rubyText}</rt></ruby>`;
 }
 
+function applyPerformanceMark(text: string, mark: { type: string; attrs?: Record<string, any> }): string {
+  const attrs = mark.attrs || {};
+  const effect = escapeHtml(String(attrs.effect || '').trim());
+  const enterMode = escapeHtml(String(attrs.enterMode || '').trim());
+  const enterSpeed = Number(attrs.enterSpeed);
+  const toneIntensity = Number(attrs.toneIntensity);
+  const scale = escapeHtml(String(attrs.scale || '').trim());
+  const dataAttrs: string[] = [];
+  const classNames = ['tiptap-performance'];
+  const styleVars: string[] = [];
+
+  if (effect) {
+    dataAttrs.push(`data-performance-effect="${effect}"`);
+    classNames.push(`fx-${effect}`);
+  }
+  if (enterMode) {
+    dataAttrs.push(`data-performance-enter-mode="${enterMode}"`);
+    classNames.push(`enter-${enterMode}`);
+  }
+  if (Number.isFinite(enterSpeed)) {
+    dataAttrs.push(`data-performance-enter-speed="${escapeHtml(String(enterSpeed))}"`);
+    styleVars.push(`--performance-enter-speed: ${escapeHtml(String(enterSpeed))}`);
+  }
+  if (Number.isFinite(toneIntensity)) {
+    dataAttrs.push(`data-performance-tone-intensity="${escapeHtml(String(toneIntensity))}"`);
+    styleVars.push(`--performance-tone-intensity: ${escapeHtml(String(toneIntensity))}`);
+  }
+  if (scale) {
+    dataAttrs.push(`data-performance-scale="${scale}"`);
+    classNames.push(`scale-${scale}`);
+  }
+
+  return `<span class="${classNames.join(' ')}"${dataAttrs.length ? ` ${dataAttrs.join(' ')}` : ''}${styleVars.length ? ` style="${styleVars.join('; ')}"` : ''}>${text}</span>`;
+}
+
 /**
  * 渲染单个节点
  */
@@ -329,6 +364,9 @@ function renderNode(node: TipTapNode, options: RenderOptions = {}): string {
       text = applyCombinedTextStyle(text, node.marks);
       node.marks.forEach((mark) => {
         switch (mark.type) {
+          case 'performance':
+            text = applyPerformanceMark(text, mark);
+            break;
           case 'ruby':
             text = applyRubyMark(text, mark);
             break;
@@ -398,6 +436,12 @@ function renderNode(node: TipTapNode, options: RenderOptions = {}): string {
     }
     case 'doc':
       return childrenHtml;
+
+    case 'performanceCommand': {
+      const command = escapeHtml(String(node.attrs?.command || ''));
+      const value = node.attrs?.value == null ? '' : escapeHtml(String(node.attrs.value));
+      return `<span data-performance-command="${command}" data-performance-value="${value}" class="tiptap-performance-command"></span>`;
+    }
 
     case 'paragraph':
       const textAlign = node.attrs?.textAlign;
