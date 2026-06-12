@@ -1158,6 +1158,9 @@ const insertPerformanceCommandNode = () => {
   if (!ed) {
     return;
   }
+  if (!applyPerformanceBlockSettings({ silent: false })) {
+    return;
+  }
   const command = performanceCommandType.value === 'pause' ? 'pause' : 'delay';
   const rawValue = performanceCommandValue.value.trim();
   const numericValue = rawValue === '' ? null : Number(rawValue);
