@@ -33,11 +33,13 @@ interface ExportColorProfileEntry {
 interface Props {
   visible: boolean
   channelId?: string
+  battleSummaryEnabled?: boolean
 }
 
 interface Emits {
   (e: 'update:visible', visible: boolean): void
   (e: 'export', params: ExportParams): void
+  (e: 'request-battle-summary'): void
 }
 
 const props = defineProps<Props>()
@@ -941,7 +943,15 @@ const shortcuts = {
     </n-form>
 
     <template #footer>
-      <n-space justify="end">
+      <n-space justify="space-between">
+        <n-button
+          v-if="props.battleSummaryEnabled"
+          tertiary
+          @click="emit('request-battle-summary')"
+        >
+          战报总结
+        </n-button>
+        <n-space>
         <n-button @click="handleClose">取消</n-button>
         <n-button
           type="primary"
@@ -950,6 +960,7 @@ const shortcuts = {
         >
           开始导出
         </n-button>
+        </n-space>
       </n-space>
     </template>
   </n-modal>

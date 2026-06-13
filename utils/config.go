@@ -271,6 +271,69 @@ type CertificateConfig struct {
 	Staging              bool                 `json:"staging" yaml:"staging"`
 }
 
+type AIRoutingMode string
+
+const (
+	AIRoutingModeRoundRobin AIRoutingMode = "round_robin"
+)
+
+type AIFeatureAccessMode string
+
+const (
+	AIFeatureAccessAll           AIFeatureAccessMode = "all"
+	AIFeatureAccessUsers         AIFeatureAccessMode = "users"
+	AIFeatureAccessWorlds        AIFeatureAccessMode = "worlds"
+	AIFeatureAccessUsersOrWorlds AIFeatureAccessMode = "users_or_worlds"
+)
+
+type AIModelParams struct {
+	Temperature *float32 `json:"temperature,omitempty" yaml:"temperature,omitempty"`
+	MaxTokens   int      `json:"maxTokens,omitempty" yaml:"maxTokens,omitempty"`
+	TopP        *float32 `json:"topP,omitempty" yaml:"topP,omitempty"`
+}
+
+type AIFeatureAccessConfig struct {
+	Mode     AIFeatureAccessMode `json:"mode" yaml:"mode"`
+	UserIDs  []string            `json:"userIds" yaml:"userIds"`
+	WorldIDs []string            `json:"worldIds" yaml:"worldIds"`
+}
+
+type AIFeatureConfig struct {
+	Enabled       bool                  `json:"enabled" yaml:"enabled"`
+	DefaultPrompt string                `json:"defaultPrompt" yaml:"defaultPrompt"`
+	DefaultModel  string                `json:"defaultModel" yaml:"defaultModel"`
+	Params        AIModelParams         `json:"params" yaml:"params"`
+	Access        AIFeatureAccessConfig `json:"access" yaml:"access"`
+}
+
+type AIRetryConfig struct {
+	MaxAttempts    int `json:"maxAttempts" yaml:"maxAttempts"`
+	InitialDelayMs int `json:"initialDelayMs" yaml:"initialDelayMs"`
+	MaxDelayMs     int `json:"maxDelayMs" yaml:"maxDelayMs"`
+}
+
+type AIRoutingConfig struct {
+	Mode AIRoutingMode `json:"mode" yaml:"mode"`
+}
+
+type AIProviderConfig struct {
+	ID      string   `json:"id" yaml:"id"`
+	Name    string   `json:"name" yaml:"name"`
+	Enabled bool     `json:"enabled" yaml:"enabled"`
+	BaseURL string   `json:"baseUrl" yaml:"baseUrl"`
+	APIKey  string   `json:"apiKey,omitempty" yaml:"apiKey"`
+	Models  []string `json:"models" yaml:"models"`
+	Weight  int      `json:"weight" yaml:"weight"`
+}
+
+type AIConfig struct {
+	Enabled   bool                       `json:"enabled" yaml:"enabled"`
+	Routing   AIRoutingConfig            `json:"routing" yaml:"routing"`
+	Retry     AIRetryConfig              `json:"retry" yaml:"retry"`
+	Providers []AIProviderConfig         `json:"providers" yaml:"providers"`
+	Features  map[string]AIFeatureConfig `json:"features" yaml:"features"`
+}
+
 type PerformanceProfilerConfig struct {
 	Enabled                bool   `json:"enabled" yaml:"enabled"`
 	OutputDir              string `json:"outputDir" yaml:"outputDir"`
@@ -317,6 +380,7 @@ type AppConfig struct {
 	ThemeManagement           ThemeManagementConfig     `json:"themeManagement" yaml:"themeManagement"`
 	UITextReplace             UITextReplaceConfig       `json:"uiTextReplace" yaml:"uiTextReplace"`
 	Certificate               CertificateConfig         `json:"certificate" yaml:"certificate"`
+	AI                        AIConfig                  `json:"ai" yaml:"ai"`
 	PerformanceProfiler       PerformanceProfilerConfig `json:"performanceProfiler" yaml:"performanceProfiler"`
 }
 
@@ -501,6 +565,7 @@ func ReadConfig() *AppConfig {
 			Rules:   DefaultUITextReplaceRules(),
 		},
 		Certificate: defaultCertificateConfig(),
+		AI:          NormalizeAIConfig(AIConfig{}),
 		PerformanceProfiler: PerformanceProfilerConfig{
 			Enabled:                false,
 			OutputDir:              "./data/perf",
@@ -585,6 +650,7 @@ func ReadConfig() *AppConfig {
 	config.ThemeManagement = NormalizeThemeManagementConfig(config.ThemeManagement)
 	config.UITextReplace = NormalizeUITextReplaceConfig(config.UITextReplace)
 	config.Certificate = NormalizeCertificateConfig(config.Certificate)
+	config.AI = NormalizeAIConfig(config.AI)
 	applyPerformanceProfilerDefaults(&config.PerformanceProfiler)
 
 	k.Print()
@@ -640,6 +706,186 @@ func defaultCertificateConfig() CertificateConfig {
 		RetryInitialMinutes:  5,
 		RetryMaxMinutes:      240,
 	})
+}
+
+func defaultAIFeatureConfig(featureKey string) AIFeatureConfig {
+	switch featureKey {
+	case "battle_summary":
+		return AIFeatureConfig{
+			Enabled:       false,
+			DefaultPrompt: "你是跑团战报助手。根据提供内容整理清晰、忠实原意的战报摘要。",
+			DefaultModel:  "deepseek-v4-flash",
+			Access: AIFeatureAccessConfig{
+				Mode: AIFeatureAccessAll,
+			},
+		}
+	default:
+		return AIFeatureConfig{
+			Enabled:       false,
+			DefaultPrompt: "你是中文文本润色助手。保持原意，修正病句，提升流畅度，不要增加无关信息。",
+			DefaultModel:  "deepseek-v4-flash",
+			Access: AIFeatureAccessConfig{
+				Mode: AIFeatureAccessAll,
+			},
+		}
+	}
+}
+
+func normalizeAIIdentifierList(values []string) []string {
+	out := make([]string, 0, len(values))
+	seen := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if _, exists := seen[value]; exists {
+			continue
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+	}
+	return out
+}
+
+func NormalizeAIConfig(cfg AIConfig) AIConfig {
+	result := AIConfig{
+		Enabled:   cfg.Enabled,
+		Routing:   cfg.Routing,
+		Retry:     cfg.Retry,
+		Providers: make([]AIProviderConfig, 0, max(1, len(cfg.Providers))),
+		Features:  make(map[string]AIFeatureConfig, max(2, len(cfg.Features))),
+	}
+	if result.Routing.Mode == "" {
+		result.Routing.Mode = AIRoutingModeRoundRobin
+	}
+	if result.Retry.MaxAttempts <= 0 {
+		result.Retry.MaxAttempts = 2
+	}
+	if result.Retry.InitialDelayMs <= 0 {
+		result.Retry.InitialDelayMs = 300
+	}
+	if result.Retry.MaxDelayMs <= 0 {
+		result.Retry.MaxDelayMs = 3000
+	}
+
+	sourceProviders := cfg.Providers
+	if len(sourceProviders) == 0 {
+		sourceProviders = []AIProviderConfig{{
+			ID:      "deepseek-default",
+			Name:    "DeepSeek",
+			Enabled: true,
+			BaseURL: "https://api.deepseek.com/v1",
+			Models:  []string{"deepseek-v4-flash"},
+			Weight:  1,
+		}}
+	}
+	for idx, provider := range sourceProviders {
+		id := strings.TrimSpace(provider.ID)
+		if id == "" {
+			id = fmt.Sprintf("ai-provider-%d", idx+1)
+		}
+		name := strings.TrimSpace(provider.Name)
+		if name == "" {
+			name = id
+		}
+		models := make([]string, 0, len(provider.Models))
+		for _, model := range provider.Models {
+			model = strings.TrimSpace(model)
+			if model == "" {
+				continue
+			}
+			models = append(models, model)
+		}
+		result.Providers = append(result.Providers, AIProviderConfig{
+			ID:      id,
+			Name:    name,
+			Enabled: provider.Enabled,
+			BaseURL: strings.TrimSpace(provider.BaseURL),
+			APIKey:  strings.TrimSpace(provider.APIKey),
+			Models:  models,
+			Weight:  max(1, provider.Weight),
+		})
+	}
+
+	for _, featureKey := range []string{"polish", "battle_summary"} {
+		feature := defaultAIFeatureConfig(featureKey)
+		if raw, ok := cfg.Features[featureKey]; ok {
+			feature.Enabled = raw.Enabled
+			if prompt := strings.TrimSpace(raw.DefaultPrompt); prompt != "" {
+				feature.DefaultPrompt = prompt
+			}
+			if model := strings.TrimSpace(raw.DefaultModel); model != "" {
+				feature.DefaultModel = model
+			}
+			feature.Params = raw.Params
+			feature.Access.Mode = raw.Access.Mode
+			feature.Access.UserIDs = normalizeAIIdentifierList(raw.Access.UserIDs)
+			feature.Access.WorldIDs = normalizeAIIdentifierList(raw.Access.WorldIDs)
+		}
+		if feature.Access.Mode == "" {
+			feature.Access.Mode = AIFeatureAccessAll
+		}
+		result.Features[featureKey] = feature
+	}
+
+	return result
+}
+
+func ValidateAIConfig(cfg AIConfig) error {
+	cfg = NormalizeAIConfig(cfg)
+	if cfg.Retry.MaxAttempts <= 0 {
+		return fmt.Errorf("AI 重试次数必须大于 0")
+	}
+	if cfg.Retry.InitialDelayMs <= 0 || cfg.Retry.MaxDelayMs <= 0 {
+		return fmt.Errorf("AI 重试延迟必须大于 0")
+	}
+	if cfg.Retry.MaxDelayMs < cfg.Retry.InitialDelayMs {
+		return fmt.Errorf("AI 最大重试延迟不能小于初始延迟")
+	}
+	if cfg.Routing.Mode != AIRoutingModeRoundRobin {
+		return fmt.Errorf("AI 路由模式无效: %s", cfg.Routing.Mode)
+	}
+	if len(cfg.Providers) == 0 {
+		return fmt.Errorf("AI provider 不能为空")
+	}
+	seenProviderIDs := make(map[string]struct{}, len(cfg.Providers))
+	for _, provider := range cfg.Providers {
+		if provider.ID == "" {
+			return fmt.Errorf("AI provider id 不能为空")
+		}
+		if _, exists := seenProviderIDs[provider.ID]; exists {
+			return fmt.Errorf("AI provider id 重复: %s", provider.ID)
+		}
+		seenProviderIDs[provider.ID] = struct{}{}
+		if provider.BaseURL == "" {
+			return fmt.Errorf("AI provider %s baseUrl 不能为空", provider.ID)
+		}
+		parsed, err := url.Parse(provider.BaseURL)
+		if err != nil || parsed == nil || parsed.Scheme == "" || parsed.Host == "" {
+			return fmt.Errorf("AI provider %s baseUrl 非法", provider.ID)
+		}
+		if parsed.Scheme != "https" && parsed.Scheme != "http" {
+			return fmt.Errorf("AI provider %s baseUrl 协议非法", provider.ID)
+		}
+		if len(provider.Models) == 0 {
+			return fmt.Errorf("AI provider %s 至少需要一个模型", provider.ID)
+		}
+	}
+	for featureKey, feature := range cfg.Features {
+		if strings.TrimSpace(feature.DefaultPrompt) == "" {
+			return fmt.Errorf("AI 功能 %s prompt 不能为空", featureKey)
+		}
+		if strings.TrimSpace(feature.DefaultModel) == "" {
+			return fmt.Errorf("AI 功能 %s model 不能为空", featureKey)
+		}
+		switch feature.Access.Mode {
+		case AIFeatureAccessAll, AIFeatureAccessUsers, AIFeatureAccessWorlds, AIFeatureAccessUsersOrWorlds:
+		default:
+			return fmt.Errorf("AI 功能 %s access mode 非法: %s", featureKey, feature.Access.Mode)
+		}
+	}
+	return nil
 }
 
 func ValidateCertificateConfig(cfg CertificateConfig) error {
@@ -1115,6 +1361,7 @@ func WriteConfig(config *AppConfig) {
 		config.Storage.normalize()
 		config.Certificate = NormalizeCertificateConfig(config.Certificate)
 		config.UITextReplace = NormalizeUITextReplaceConfig(config.UITextReplace)
+		config.AI = NormalizeAIConfig(config.AI)
 		config.ImageCompressQuality = normalizeImageCompressQuality(config.ImageCompressQuality)
 		config.MessageSortBasis = NormalizeMessageSortBasis(config.MessageSortBasis)
 		applyPerformanceProfilerDefaults(&config.PerformanceProfiler)
@@ -1177,6 +1424,13 @@ func WriteConfig(config *AppConfig) {
 		_ = k.Set("certificate.zeroSSLEABKeyID", config.Certificate.ZeroSSLEABKeyID)
 		_ = k.Set("certificate.zeroSSLEABMACKey", config.Certificate.ZeroSSLEABMACKey)
 		_ = k.Set("certificate.staging", config.Certificate.Staging)
+		_ = k.Set("ai.enabled", config.AI.Enabled)
+		_ = k.Set("ai.routing.mode", string(config.AI.Routing.Mode))
+		_ = k.Set("ai.retry.maxAttempts", config.AI.Retry.MaxAttempts)
+		_ = k.Set("ai.retry.initialDelayMs", config.AI.Retry.InitialDelayMs)
+		_ = k.Set("ai.retry.maxDelayMs", config.AI.Retry.MaxDelayMs)
+		_ = k.Set("ai.providers", config.AI.Providers)
+		_ = k.Set("ai.features", config.AI.Features)
 		_ = k.Set("performanceProfiler.enabled", config.PerformanceProfiler.Enabled)
 		_ = k.Set("performanceProfiler.outputDir", config.PerformanceProfiler.OutputDir)
 		_ = k.Set("performanceProfiler.lightSampleIntervalSec", config.PerformanceProfiler.LightSampleIntervalSec)

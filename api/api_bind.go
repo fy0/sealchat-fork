@@ -431,6 +431,8 @@ func Init(config *utils.AppConfig, uiStatic fs.FS) error {
 	// User preferences
 	v1Auth.Get("/user/preferences", UserPreferencesGet)
 	v1Auth.Post("/user/preferences", UserPreferencesUpsert)
+	v1Auth.Get("/user/ai-profiles", UserAIProfilesGet)
+	v1Auth.Post("/user/ai-profiles", UserAIProfilesUpsert)
 
 	// User input stats
 	v1Auth.Get("/user/input-stats/overview", UserInputStatsOverview)
@@ -483,6 +485,8 @@ func Init(config *utils.AppConfig, uiStatic fs.FS) error {
 	v1Auth.Delete("/channel-identity-variants/:id", ChannelIdentityVariantDelete)
 	v1Auth.Post("/channel-identity-variants/reorder", ChannelIdentityVariantReorder)
 	v1Auth.Put("/channels/:channelId/identity-mode-config", ChannelIdentityModeConfigUpsert)
+	v1Auth.Get("/ai/capabilities", AICapabilitiesGet)
+	v1Auth.Post("/ai/tasks/:featureKey", AITaskRun)
 	v1Auth.Post("/channel-identities/:id/bind-character-card", ChannelIdentityBindCharacterCard)
 	v1Auth.Post("/channel-identities/:id/unbind-character-card", ChannelIdentityUnbindCharacterCard)
 
@@ -729,6 +733,9 @@ func Init(config *utils.AppConfig, uiStatic fs.FS) error {
 	v1AuthAdmin.Get("/admin/update-status", AdminUpdateStatus)
 	v1AuthAdmin.Post("/admin/update-check", AdminUpdateCheck)
 	v1AuthAdmin.Post("/admin/update-version", AdminUpdateVersion)
+	v1AuthAdmin.Get("/admin/ai/config", AdminAIConfigGet)
+	v1AuthAdmin.Put("/admin/ai/config", AdminAIConfigUpdate)
+	v1AuthAdmin.Post("/admin/ai/test", AdminAIProviderTest)
 	v1AuthAdmin.Get("/admin/certificates/config", AdminCertificateConfigGet)
 	v1AuthAdmin.Put("/admin/certificates/config", AdminCertificateConfigUpdate)
 	v1AuthAdmin.Get("/admin/certificates/status", AdminCertificateStatus)

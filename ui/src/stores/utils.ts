@@ -1,5 +1,5 @@
 import { defineStore } from "pinia"
-import type { BotOneBotConfig, CertificateConfig, ServerConfig, UserInfo } from "@/types";
+import type { AIConfig, BotOneBotConfig, CertificateConfig, ServerConfig, UserAIProviderProfile, UserInfo } from "@/types";
 import { Howl, Howler } from 'howler';
 
 import axiosFactory from "axios"
@@ -351,6 +351,46 @@ export const useUtilsStore = defineStore({
     async adminCertificateObtain() {
       const user = useUserStore();
       const resp = await api.post('api/v1/admin/certificates/obtain', {}, {
+        headers: { 'Authorization': user.token },
+      });
+      return resp;
+    },
+
+    async adminAIConfigGet() {
+      const user = useUserStore();
+      const resp = await api.get('api/v1/admin/ai/config', {
+        headers: { 'Authorization': user.token },
+      });
+      return resp;
+    },
+
+    async adminAIConfigUpdate(config: AIConfig) {
+      const user = useUserStore();
+      const resp = await api.put('api/v1/admin/ai/config', { config }, {
+        headers: { 'Authorization': user.token },
+      });
+      return resp;
+    },
+
+    async adminAIProviderTest(payload: { providerId: string; model?: string; prompt?: string }) {
+      const user = useUserStore();
+      const resp = await api.post('api/v1/admin/ai/test', payload, {
+        headers: { 'Authorization': user.token },
+      });
+      return resp;
+    },
+
+    async userAIProfilesGet() {
+      const user = useUserStore();
+      const resp = await api.get<{ items: UserAIProviderProfile[] }>('api/v1/user/ai-profiles', {
+        headers: { 'Authorization': user.token },
+      });
+      return resp;
+    },
+
+    async userAIProfilesUpsert(items: UserAIProviderProfile[]) {
+      const user = useUserStore();
+      const resp = await api.post<{ items: UserAIProviderProfile[] }>('api/v1/user/ai-profiles', { items }, {
         headers: { 'Authorization': user.token },
       });
       return resp;

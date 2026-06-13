@@ -1,5 +1,6 @@
 <script setup lang="tsx">
 import AdminSettingsBase from './admin-settings-base.vue'
+import AdminSettingsAI from './admin-settings-ai.vue'
 import AdminSettingsBot from './admin-settings-bot.vue'
 import AdminSettingsCertificate from './admin-settings-certificate.vue'
 import AdminSettingsAudio from './admin-settings-audio.vue'
@@ -9,7 +10,7 @@ import AdminSettingsThemeStyle from './admin-settings-theme-style.vue'
 import AdminSettingsUser from './admin-settings-user.vue'
 import { computed, ref, watch } from 'vue'
 
-type AdminTab = 'basic' | 'backup-storage' | 'bot' | 'user' | 'external-glossary' | 'audio' | 'theme-style' | 'certificate'
+type AdminTab = 'basic' | 'backup-storage' | 'bot' | 'user' | 'external-glossary' | 'audio' | 'theme-style' | 'ai' | 'certificate'
 
 type AdminSettingsTabExpose = {
   save: () => Promise<void>
@@ -19,6 +20,7 @@ type AdminSettingsTabExpose = {
 const emit = defineEmits(['close']);
 const activeTab = ref<AdminTab>('basic');
 const basicSettingsRef = ref<AdminSettingsTabExpose | null>(null);
+const aiSettingsRef = ref<AdminSettingsTabExpose | null>(null);
 const storageOptimizationSettingsRef = ref<AdminSettingsTabExpose | null>(null);
 const themeStyleSettingsRef = ref<AdminSettingsTabExpose | null>(null);
 const certificateSettingsRef = ref<AdminSettingsTabExpose | null>(null);
@@ -34,6 +36,9 @@ const currentSettingsRef = computed<AdminSettingsTabExpose | null>(() => {
   }
   if (activeTab.value === 'theme-style') {
     return themeStyleSettingsRef.value;
+  }
+  if (activeTab.value === 'ai') {
+    return aiSettingsRef.value;
   }
   if (activeTab.value === 'certificate') {
     return certificateSettingsRef.value;
@@ -104,6 +109,9 @@ const saveCurrentTab = async () => {
         <admin-settings-storage-optimization ref="storageOptimizationSettingsRef" />
       </n-tab-pane>
       <n-tab-pane name="audio" tab="音频素材管理" />
+      <n-tab-pane name="ai" tab="AI功能管理">
+        <AdminSettingsAI ref="aiSettingsRef" />
+      </n-tab-pane>
       <n-tab-pane name="certificate" tab="IP证书管理">
         <admin-settings-certificate ref="certificateSettingsRef" />
       </n-tab-pane>

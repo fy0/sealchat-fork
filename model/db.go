@@ -181,6 +181,7 @@ func DBInit(cfg *utils.AppConfig) {
 	db.AutoMigrate(&UpdateCheckState{})
 	db.AutoMigrate(&ConfigCurrentModel{}, &ConfigHistoryModel{})
 	db.AutoMigrate(&UserPreferenceModel{})
+	db.AutoMigrate(&UserAIProviderProfileModel{})
 	db.AutoMigrate(&ExportColorProfileModel{})
 	if err := ensureChatHistoryIndexes(); err != nil {
 		log.Printf("初始化聊天历史索引失败: %v", err)

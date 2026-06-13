@@ -316,6 +316,76 @@ export interface PerformanceProfilerConfig {
   retentionDays: number;
 }
 
+export type AIRoutingMode = 'round_robin';
+export type AIFeatureAccessMode = 'all' | 'users' | 'worlds' | 'users_or_worlds';
+export type AIRunSource = 'platform' | 'user';
+
+export interface AIModelParams {
+  temperature?: number;
+  maxTokens?: number;
+  topP?: number;
+}
+
+export interface AIFeatureAccessConfig {
+  mode: AIFeatureAccessMode;
+  userIds: string[];
+  worldIds: string[];
+}
+
+export interface AIFeatureConfig {
+  enabled: boolean;
+  defaultPrompt: string;
+  defaultModel: string;
+  params: AIModelParams;
+  access: AIFeatureAccessConfig;
+}
+
+export interface AIRetryConfig {
+  maxAttempts: number;
+  initialDelayMs: number;
+  maxDelayMs: number;
+}
+
+export interface AIRoutingConfig {
+  mode: AIRoutingMode;
+}
+
+export interface AIProviderConfig {
+  id: string;
+  name: string;
+  enabled: boolean;
+  baseUrl: string;
+  apiKey?: string;
+  models: string[];
+  weight: number;
+}
+
+export interface UserAIProviderProfile {
+  id: string;
+  name: string;
+  enabled: boolean;
+  baseUrl: string;
+  apiKey?: string;
+  models: string[];
+  hasApiKey?: boolean;
+}
+
+export interface AIConfig {
+  enabled: boolean;
+  routing: AIRoutingConfig;
+  retry: AIRetryConfig;
+  providers: AIProviderConfig[];
+  features: Record<string, AIFeatureConfig>;
+}
+
+export interface AIFeatureCapability {
+  key: string;
+  enabled: boolean;
+  defaultPrompt?: string;
+  defaultModel?: string;
+  params?: AIModelParams;
+}
+
 export interface ServerConfig {
   serveAt: string;
   domain: string;
@@ -352,6 +422,7 @@ export interface ServerConfig {
   themeManagement?: ThemeManagementConfig;
   uiTextReplace?: UITextReplaceConfig;
   certificate?: CertificateConfig;
+  ai?: AIConfig;
   performanceProfiler?: PerformanceProfilerConfig;
 }
 

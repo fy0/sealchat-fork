@@ -15,6 +15,7 @@ import GalleryButton from '@/components/gallery/GalleryButton.vue'
 import GalleryPanel from '@/components/gallery/GalleryPanel.vue'
 import ChatIcOocToggle from './components/ChatIcOocToggle.vue'
 import ChatActionRibbon from './components/ChatActionRibbon.vue'
+import ChatAiPolishDock from './components/ChatAiPolishDock.vue'
 import ChannelFavoriteBar from './components/ChannelFavoriteBar.vue'
 import ChannelFavoriteManager from './components/ChannelFavoriteManager.vue'
 import ChannelRemarkManager from './components/ChannelRemarkManager.vue'
@@ -91,8 +92,20 @@ import { useIFormStore } from '@/stores/iform';
 import { useWorldGlossaryStore } from '@/stores/worldGlossary';
 import { useChannelSearchStore } from '@/stores/channelSearch';
 import { useChannelImagesStore } from '@/stores/channelImages';
+import { useAIStore } from '@/stores/ai';
 import { useChannelImageLayoutStore } from '@/stores/channelImageLayout';
 import { useOnboardingStore } from '@/stores/onboarding';
+import {
+  clearAIPolishSlot,
+  createAIPolishDockState,
+  finishAIPolishTaskError,
+  finishAIPolishTaskSuccess,
+  findNextIdleAIPolishSlot,
+  readCurrentInputIntoSlot,
+  setActiveAIPolishSlot,
+  prepareAIPolishTask,
+  toggleAIPolishDockMinimized,
+} from '@/services/ai/ai-polish-dock'
 import WorldKeywordManager from '@/views/world/WorldKeywordManager.vue'
 import OnboardingRoot from '@/components/onboarding/OnboardingRoot.vue'
 import AvatarSetupPrompt from '@/components/AvatarSetupPrompt.vue'
@@ -158,6 +171,7 @@ const characterRemarkStore = useCharacterRemarkStore();
 const worldGlossary = useWorldGlossaryStore();
 const channelSearch = useChannelSearchStore();
 const channelImages = useChannelImagesStore();
+const aiStore = useAIStore();
 const channelImageLayout = useChannelImageLayoutStore();
 const onboarding = useOnboardingStore();
 const iFormStore = useIFormStore();
@@ -1899,6 +1913,8 @@ const galleryPanelVisible = computed(() => gallery.isPanelVisible);
 const channelImagesPanelVisible = computed(() => channelImages.panelVisible);
 
 const message = useMessage()
+const aiPolishDockVisible = ref(false)
+const aiPolishDockState = reactive(createAIPolishDockState())
 const dialog = useDialog()
 const { t } = useI18n();
 
@@ -1942,6 +1958,7 @@ watch(
     worldGlossary.ensureKeywords(worldId)
     worldGlossary.ensureEffectiveKeywords(worldId)
     chat.worldDetail(worldId)
+    void aiStore.loadCapabilities(String(worldId))
     hideSelectionBar()
   },
   { immediate: true },
@@ -9366,6 +9383,8 @@ const typingToggleClass = computed(() => ({
 }));
 
 const textToSend = ref('');
+const showAIPolish = computed(() => aiStore.isFeatureEnabled('polish'))
+const showBattleSummary = computed(() => aiStore.isFeatureEnabled('battle_summary'))
 const reeditRevokedSource = ref<{ channelId: string; messageId: string } | null>(null);
 
 // 术语快捷输入状态
@@ -9664,6 +9683,36 @@ const isContentMeaningful = (mode: 'plain' | 'rich', content: string) => {
   }
   return !isRichContentEmpty(content);
 };
+
+const resolveAIPolishInput = () => {
+  if (!isContentMeaningful(inputMode.value, textToSend.value)) {
+    return '';
+  }
+  if (inputMode.value === 'plain') {
+    return activeIdentityVariantShortcutContext.value.draftContent;
+  }
+  const raw = String(textToSend.value || '');
+  if (!raw) {
+    return '';
+  }
+  if (isTipTapJson(raw)) {
+    return tiptapJsonToPlainText(raw);
+  }
+  return raw.trim();
+};
+
+const hasAIPolishInput = computed(() => resolveAIPolishInput().trim().length > 0);
+const canRunAIPolish = computed(() => hasAIPolishInput.value);
+const aiPolishActiveSlot = computed(() => aiPolishDockState.slots[aiPolishDockState.activeSlotIndex])
+const aiPolishAnyLoading = computed(() => aiPolishDockState.slots.some((slot) => slot.status === 'loading'))
+const aiPolishFaviconHref = computed(() => {
+  const faviconAttachmentId = utils.config?.faviconAttachmentId?.trim() || ''
+  const normalized = faviconAttachmentId.startsWith('id:') ? faviconAttachmentId.slice(3) : faviconAttachmentId
+  if (normalized) {
+    return `${urlBase}/api/v1/attachment/${encodeURIComponent(normalized)}?v=${encodeURIComponent(normalized)}`
+  }
+  return `${urlBase}/favicon.ico?v=default`
+})
 
 const hasMeaningfulDraft = computed(() => (
   isEditing.value || isContentMeaningful(inputMode.value, textToSend.value)
@@ -14638,6 +14687,108 @@ const handleGalleryDrop = async (event: DragEvent) => {
   }
 };
 
+const openBattleSummaryPlaceholder = () => {
+  message.info('战报总结功能将在后续版本提供')
+}
+
+const runAIPolish = async () => {
+  const input = resolveAIPolishInput()
+  if (!input) {
+    message.error('请输入需要润色的内容')
+    return
+  }
+  aiPolishDockVisible.value = true
+  const activeSlot = aiPolishDockState.slots[aiPolishDockState.activeSlotIndex]
+  if (activeSlot && activeSlot.status !== 'idle' && activeSlot.sourceText.trim()) {
+    const nextIdleIndex = findNextIdleAIPolishSlot(aiPolishDockState)
+    if (nextIdleIndex < 0) {
+      message.warning('5 个润色槽都已占用，请先清空一个槽位或切换后重用')
+      return
+    }
+  }
+  const { slotIndex, requestId } = prepareAIPolishTask(aiPolishDockState, input)
+  try {
+    const resp = await aiStore.runTask('polish', {
+      worldId: chat.currentWorldId ? String(chat.currentWorldId) : '',
+      channelId: chat.curChannel?.id || '',
+      input,
+      source: aiStore.currentSource,
+    })
+    finishAIPolishTaskSuccess(aiPolishDockState, slotIndex, requestId, String(resp.data?.result || ''))
+  } catch (error: any) {
+    const errMsg = error?.response?.data?.message || error?.message || '润色失败'
+    finishAIPolishTaskError(aiPolishDockState, slotIndex, requestId, errMsg)
+    message.error(errMsg)
+  }
+}
+
+const applyAIPolishResult = () => {
+  const resultText = aiPolishActiveSlot.value?.resultText || ''
+  if (inputMode.value === 'rich') {
+    textToSend.value = JSON.stringify(buildRichContentFromPlain(resultText))
+  } else {
+    textToSend.value = resultText
+  }
+  textInputRef.value?.focus?.()
+}
+
+const retryCurrentAIPolishTask = async () => {
+  const sourceText = aiPolishActiveSlot.value?.sourceText?.trim() || ''
+  if (!sourceText) {
+    message.error('当前槽位没有可重试的原文')
+    return
+  }
+  const slotIndex = aiPolishDockState.activeSlotIndex
+  const { requestId } = prepareAIPolishTask(aiPolishDockState, sourceText, slotIndex)
+  try {
+    const resp = await aiStore.runTask('polish', {
+      worldId: chat.currentWorldId ? String(chat.currentWorldId) : '',
+      channelId: chat.curChannel?.id || '',
+      input: sourceText,
+      source: aiStore.currentSource,
+    })
+    finishAIPolishTaskSuccess(aiPolishDockState, slotIndex, requestId, String(resp.data?.result || ''))
+  } catch (error: any) {
+    const errMsg = error?.response?.data?.message || error?.message || '润色失败'
+    finishAIPolishTaskError(aiPolishDockState, slotIndex, requestId, errMsg)
+    message.error(errMsg)
+  }
+}
+
+const readCurrentInputIntoAIPolishSlot = () => {
+  const input = resolveAIPolishInput()
+  if (!input) {
+    message.error('当前输入框没有可读取内容')
+    return
+  }
+  aiPolishDockVisible.value = true
+  readCurrentInputIntoSlot(aiPolishDockState, aiPolishDockState.activeSlotIndex, input)
+}
+
+const updateActiveAIPolishResultText = (value: string) => {
+  const slot = aiPolishActiveSlot.value
+  if (!slot) return
+  slot.resultText = value
+}
+
+const updateActiveAIPolishSourceText = (value: string) => {
+  const slot = aiPolishActiveSlot.value
+  if (!slot) return
+  slot.sourceText = value
+}
+
+const clearCurrentAIPolishSlot = () => {
+  if (aiPolishActiveSlot.value?.status === 'loading') {
+    message.warning('当前槽位仍在处理中，暂不能清空')
+    return
+  }
+  clearAIPolishSlot(aiPolishDockState, aiPolishDockState.activeSlotIndex)
+}
+
+const closeAIPolishDock = () => {
+  aiPolishDockVisible.value = false
+}
+
 
 onBeforeUnmount(() => {
   handleInputResizeEnd();
@@ -14681,6 +14832,8 @@ onBeforeUnmount(() => {
           :favorite-active="channelFavoritesVisible"
           :character-remark-active="characterRemarkManagerVisible"
           :channel-images-active="channelImagesPanelVisible"
+          :battle-summary-enabled="showBattleSummary"
+          :battle-summary-active="false"
           :can-import="canManageWorldKeywords"
           :import-active="importDialogVisible"
           :split-enabled="splitEntryEnabled"
@@ -14706,6 +14859,7 @@ onBeforeUnmount(() => {
           @open-favorites="channelFavoritesVisible = true"
           @open-character-remark="characterRemarkManagerVisible = true"
           @open-channel-images="openChannelImagesPanel"
+          @open-battle-summary="openBattleSummaryPlaceholder"
           @open-split="openSplitView"
           @open-ic-ooc-split="openIcOocSplitView"
           @toggle-sticky-note="toggleStickyNotes"
@@ -15146,6 +15300,18 @@ onBeforeUnmount(() => {
                 </div>
               </div>
             </n-popover>
+          </div>
+          <div v-if="showAIPolish" class="chat-input-actions__cell">
+            <n-tooltip trigger="hover">
+              <template #trigger>
+                <n-button quaternary circle :disabled="!canRunAIPolish" @click="runAIPolish">
+                  <template #icon>
+                    <n-icon :component="Palette" size="18" />
+                  </template>
+                </n-button>
+              </template>
+              润色
+            </n-tooltip>
           </div>
           <div class="chat-input-actions__cell">
             <n-popover
@@ -16317,6 +16483,18 @@ onBeforeUnmount(() => {
                     </DiceTray>
                   </n-popover>
                 </div>
+                <div class="chat-input-actions__cell" v-if="showAIPolish">
+                  <n-tooltip trigger="hover">
+                    <template #trigger>
+                      <n-button quaternary circle :disabled="!canRunAIPolish" @click="runAIPolish">
+                        <template #icon>
+                          <n-icon :component="Palette" size="18" />
+                        </template>
+                      </n-button>
+                    </template>
+                    润色
+                  </n-tooltip>
+                </div>
                 <div class="chat-input-actions__cell" v-else-if="showDiceTrayTrigger">
                   <n-popover trigger="manual" placement="top" :show="diceTrayDesktopVisible">
                     <template #trigger>
@@ -17423,7 +17601,24 @@ onBeforeUnmount(() => {
   <ExportDialog
     v-model:visible="exportDialogVisible"
     :channel-id="chat.curChannel?.id"
+    :battle-summary-enabled="showBattleSummary"
     @export="handleExportMessages"
+    @request-battle-summary="openBattleSummaryPlaceholder"
+  />
+  <ChatAiPolishDock
+    :visible="aiPolishDockVisible"
+    :favicon-href="aiPolishFaviconHref"
+    :dock-state="aiPolishDockState"
+    @restore="toggleAIPolishDockMinimized(aiPolishDockState, false)"
+    @toggle-minimize="toggleAIPolishDockMinimized(aiPolishDockState)"
+    @select-slot="setActiveAIPolishSlot(aiPolishDockState, $event)"
+    @read-current-input="readCurrentInputIntoAIPolishSlot"
+    @retry="retryCurrentAIPolishTask"
+    @apply="applyAIPolishResult"
+    @clear-slot="clearCurrentAIPolishSlot"
+    @close="closeAIPolishDock"
+    @update:source-text="updateActiveAIPolishSourceText"
+    @update:result-text="updateActiveAIPolishResultText"
   />
   <ChatImportDialog
     v-model:visible="importDialogVisible"

@@ -1,4 +1,5 @@
 <script lang="tsx" setup>
+import { useAIStore } from '@/stores/ai';
 import { useUserStore } from '@/stores/user';
 import { useUtilsStore } from '@/stores/utils';
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
@@ -8,7 +9,7 @@ import { api, urlBase } from '@/stores/_config';
 import { useMessage } from 'naive-ui';
 import { useI18n } from 'vue-i18n'
 import router from '@/router';
-import type { ServerConfig } from '@/types';
+import type { AIRunSource, ServerConfig, UserAIProviderProfile } from '@/types';
 import { useCapWidget } from '@/composables/useCapWidget';
 
 declare global {
@@ -27,6 +28,7 @@ const { t } = useI18n()
 
 const user = useUserStore();
 const utils = useUtilsStore();
+const aiStore = useAIStore();
 const message = useMessage()
 
 const model = ref({
@@ -51,6 +53,10 @@ const emailCodeSending = ref(false);
 const emailCodeCountdown = ref(0);
 let emailCodeTimer: ReturnType<typeof setInterval> | null = null;
 const lastEmailForCode = ref('');
+const aiSettingsVisible = ref(false);
+const aiSettingsSaving = ref(false);
+const aiSettingsSource = ref<AIRunSource>('platform');
+const aiProfileDrafts = ref<UserAIProviderProfile[]>([]);
 
 // Captcha state
 const captchaId = ref('');
@@ -91,6 +97,7 @@ onMounted(async () => {
   await user.infoUpdate();
   model.value.nickname = user.info.nick;
   model.value.brief = user.info.brief;
+  aiSettingsSource.value = aiStore.currentSource;
 
   try {
     const resp = await utils.configGet();
@@ -192,6 +199,70 @@ const save = async () => {
 
 const passwordChange = () => {
   router.push({ name: 'user-password-reset' })
+}
+
+const createAIProfileDraft = (): UserAIProviderProfile => ({
+  id: `user-ai-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+  name: '',
+  enabled: true,
+  baseUrl: 'https://api.deepseek.com/v1',
+  apiKey: '',
+  models: ['deepseek-v4-flash'],
+  hasApiKey: false,
+})
+
+const cloneAIProfile = (profile: UserAIProviderProfile): UserAIProviderProfile => ({
+  id: String(profile.id || '').trim(),
+  name: String(profile.name || '').trim(),
+  enabled: profile.enabled !== false,
+  baseUrl: String(profile.baseUrl || '').trim(),
+  apiKey: profile.apiKey || '',
+  models: Array.isArray(profile.models) ? profile.models.map((item) => String(item || '').trim()).filter(Boolean) : [],
+  hasApiKey: profile.hasApiKey === true,
+})
+
+const formatModelsInput = (profile: UserAIProviderProfile) => (Array.isArray(profile.models) ? profile.models.join(', ') : '')
+
+const updateProfileModels = (profile: UserAIProviderProfile, value: string) => {
+  profile.models = value
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean)
+}
+
+const openAISettings = async () => {
+  aiSettingsVisible.value = true
+  aiSettingsSource.value = aiStore.currentSource
+  try {
+    const items = await aiStore.loadUserProfiles()
+    aiProfileDrafts.value = items.map(cloneAIProfile)
+  } catch (error: any) {
+    aiProfileDrafts.value = []
+    message.error(error?.response?.data?.message || error?.message || '加载 AI 设置失败')
+  }
+}
+
+const addAIProfile = () => {
+  aiProfileDrafts.value.push(createAIProfileDraft())
+}
+
+const removeAIProfile = (profileId: string) => {
+  aiProfileDrafts.value = aiProfileDrafts.value.filter((item) => item.id !== profileId)
+}
+
+const saveAISettings = async () => {
+  aiSettingsSaving.value = true
+  try {
+    const normalized = aiProfileDrafts.value.map(cloneAIProfile)
+    await aiStore.saveUserProfiles(normalized)
+    aiStore.setSource(aiSettingsSource.value)
+    aiSettingsVisible.value = false
+    message.success('AI 设置已保存')
+  } catch (error: any) {
+    message.error(error?.response?.data?.message || error?.message || '保存 AI 设置失败')
+  } finally {
+    aiSettingsSaving.value = false
+  }
 }
 
 // Captcha functions
@@ -519,6 +590,7 @@ onBeforeUnmount(() => {
       <n-form-item :label="'其他'" path="textareaValue">
         <div class="flex flex-col gap-2 w-full">
           <n-button @click="passwordChange">修改密码</n-button>
+          <n-button @click="openAISettings">AI 设置</n-button>
 
           <!-- 邮箱绑定区域 -->
           <template v-if="emailAuthEnabled">
@@ -590,6 +662,81 @@ onBeforeUnmount(() => {
       <n-button @click="emit('close')">{{ $t('userProfile.cancel') }}</n-button>
       <n-button @click="save" type="primary">{{ $t('userProfile.save') }}</n-button>
     </div>
+
+    <n-modal
+      v-model:show="aiSettingsVisible"
+      preset="card"
+      title="AI 设置"
+      class="sc-fluid-modal sc-fluid-modal--xwide"
+      :auto-focus="false"
+    >
+      <n-spin :show="aiStore.profileLoading || aiSettingsSaving">
+        <div class="user-profile-ai">
+          <n-alert type="info" class="user-profile-ai__notice">
+            选择“我的 API”后，配置仅保存在当前浏览器，请求会由浏览器直接发送到你填写的模型接口，不经过 SealChat 后端代理。
+          </n-alert>
+
+          <n-form label-placement="top">
+            <n-form-item label="AI 来源">
+              <n-radio-group v-model:value="aiSettingsSource">
+                <n-space>
+                  <n-radio-button value="platform">平台 AI</n-radio-button>
+                  <n-radio-button value="user">我的 API</n-radio-button>
+                </n-space>
+              </n-radio-group>
+            </n-form-item>
+          </n-form>
+
+          <div class="user-profile-ai__header">
+            <div class="user-profile-ai__title">自定义 Provider</div>
+            <n-button size="small" @click="addAIProfile">新增</n-button>
+          </div>
+
+          <div class="user-profile-ai__profiles">
+            <n-empty v-if="aiProfileDrafts.length === 0" description="暂无自定义 API 配置" />
+            <div v-for="(profile, index) in aiProfileDrafts" :key="profile.id || index" class="user-profile-ai__profile">
+              <div class="user-profile-ai__profile-head">
+                <span>Provider {{ index + 1 }}</span>
+                <n-space align="center" size="small">
+                  <n-switch v-model:value="profile.enabled" />
+                  <n-button text type="error" @click="removeAIProfile(profile.id)">删除</n-button>
+                </n-space>
+              </div>
+              <div class="user-profile-ai__grid">
+                <n-form-item label="名称">
+                  <n-input v-model:value="profile.name" placeholder="例如：DeepSeek Personal" />
+                </n-form-item>
+                <n-form-item label="Base URL">
+                  <n-input v-model:value="profile.baseUrl" placeholder="https://api.deepseek.com/v1" />
+                </n-form-item>
+                <n-form-item label="API Key">
+                  <n-input
+                    v-model:value="profile.apiKey"
+                    type="password"
+                    show-password-on="click"
+                    placeholder="仅保存在当前浏览器"
+                  />
+                </n-form-item>
+                <n-form-item label="模型列表">
+                  <n-input
+                    :value="formatModelsInput(profile)"
+                    placeholder="多个模型用英文逗号分隔"
+                    @update:value="updateProfileModels(profile, $event)"
+                  />
+                </n-form-item>
+              </div>
+            </div>
+          </div>
+        </div>
+      </n-spin>
+
+      <template #footer>
+        <n-space justify="end">
+          <n-button @click="aiSettingsVisible = false">取消</n-button>
+          <n-button type="primary" :loading="aiSettingsSaving" @click="saveAISettings">保存</n-button>
+        </n-space>
+      </template>
+    </n-modal>
   </div>
 </template>
 
@@ -613,5 +760,59 @@ onBeforeUnmount(() => {
 
 .avatar-editor-container {
   width: 100%;
+}
+
+.user-profile-ai {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.user-profile-ai__notice {
+  margin-bottom: 0.25rem;
+}
+
+.user-profile-ai__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.user-profile-ai__title {
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.user-profile-ai__profiles {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.user-profile-ai__profile {
+  border: 1px solid var(--n-border-color, rgba(0, 0, 0, 0.12));
+  border-radius: 8px;
+  padding: 0.9rem;
+}
+
+.user-profile-ai__profile-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.user-profile-ai__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 0.75rem;
+}
+
+@media (max-width: 720px) {
+  .user-profile-ai__grid {
+    grid-template-columns: 1fr;
+  }
 }
 </style>
