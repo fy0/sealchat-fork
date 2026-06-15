@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -32,9 +33,29 @@ type WsSyncConn struct {
 }
 
 func (c *WsSyncConn) WriteJSON(v interface{}) error {
+	return c.WriteJSONWithTimeout(v, wsWriteTimeout)
+}
+
+func (c *WsSyncConn) WriteJSONWithTimeout(v interface{}, timeout time.Duration) error {
+	if c == nil || c.Conn == nil {
+		return errors.New("websocket connection unavailable")
+	}
 	c.Mux.Lock()
 	defer c.Mux.Unlock()
-	return c.Conn.WriteJSON(v)
+	if timeout > 0 {
+		if err := c.Conn.SetWriteDeadline(time.Now().Add(timeout)); err != nil {
+			_ = c.Conn.Close()
+			return err
+		}
+		defer func() {
+			_ = c.Conn.SetWriteDeadline(time.Time{})
+		}()
+	}
+	if err := c.Conn.WriteJSON(v); err != nil {
+		_ = c.Conn.Close()
+		return err
+	}
+	return nil
 }
 
 type ConnInfo struct {
@@ -123,6 +144,8 @@ const (
 	channelPresenceBroadcastMinIntervalMs = int64(2000)
 	// 在线态全量兜底广播间隔（秒）
 	channelPresenceFullBroadcastIntervalSeconds = 30
+	// 单次 WebSocket JSON 写超时
+	wsWriteTimeout = 10 * time.Second
 )
 
 type wsConnectionSnapshot struct {

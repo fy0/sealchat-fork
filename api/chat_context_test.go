@@ -1,9 +1,15 @@
 package api
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
+	fastws "github.com/fasthttp/websocket"
+	wsfiber "github.com/gofiber/contrib/websocket"
+
 	"sealchat/protocol"
+	"sealchat/utils"
 )
 
 func TestNormalizeBotCommandContentWithPrefixes_ConvertsTipTapCommand(t *testing.T) {
@@ -68,5 +74,64 @@ func TestNormalizeEventForBot_EscapesPlainTextAmpersandCommand(t *testing.T) {
 	want := ".st &amp;手枪伤害=1d6+1"
 	if got.Message.Content != want {
 		t.Fatalf("expected %q, got %q", want, got.Message.Content)
+	}
+}
+
+func newClosedChatTestConn(t *testing.T) *WsSyncConn {
+	t.Helper()
+
+	serverConnCh := make(chan *fastws.Conn, 1)
+	upgrader := fastws.Upgrader{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			t.Errorf("upgrade failed: %v", err)
+			return
+		}
+		serverConnCh <- conn
+		for {
+			if _, _, err := conn.ReadMessage(); err != nil {
+				return
+			}
+		}
+	}))
+	defer server.Close()
+
+	clientConn, _, err := fastws.DefaultDialer.Dial("ws"+server.URL[len("http"):], nil)
+	if err != nil {
+		t.Fatalf("dial test websocket failed: %v", err)
+	}
+	defer clientConn.Close()
+
+	serverConn := <-serverConnCh
+	conn := &WsSyncConn{Conn: &wsfiber.Conn{Conn: serverConn}}
+	_ = conn.Close()
+	return conn
+}
+
+func TestBroadcastEventInChannelRemovesBrokenConnection(t *testing.T) {
+	brokenConn := newClosedChatTestConn(t)
+	connMap := &utils.SyncMap[*WsSyncConn, *ConnInfo]{}
+	connMap.Store(brokenConn, &ConnInfo{
+		Conn:          brokenConn,
+		ChannelId:     "channel-test",
+		LastPingTime:  1,
+		LastAliveTime: 1,
+	})
+
+	ctx := &ChatContext{
+		UserId2ConnInfo: &utils.SyncMap[string, *utils.SyncMap[*WsSyncConn, *ConnInfo]]{},
+	}
+	ctx.UserId2ConnInfo.Store("user-test", connMap)
+
+	ctx.BroadcastEventInChannel("channel-test", &protocol.Event{
+		Type: protocol.EventMessageCreated,
+		Message: &protocol.Message{
+			Content: "hello",
+		},
+	})
+
+	if connMap.Exists(brokenConn) {
+		t.Fatal("expected broken websocket connection to be removed after write failure")
 	}
 }
