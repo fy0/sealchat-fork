@@ -4667,6 +4667,7 @@ const handleRetrySend = () => {
 }
 
 .content.typo p {
+  margin: 0;
   line-height: inherit;
 }
 
@@ -4675,7 +4676,6 @@ const handleRetrySend = () => {
   white-space: break-spaces;
 }
 
-:global(.message-rich-content p),
 :global(.message-rich-content li),
 :global(.message-rich-content blockquote),
 :global(.message-rich-content h1),
