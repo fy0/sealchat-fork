@@ -6123,6 +6123,18 @@ export const useChatStore = defineStore({
       };
     },
 
+    async getChannelMessageActiveDays(channelId: string, month: string) {
+      const resp = await api.get(`api/v1/channels/${channelId}/message-active-days`, {
+        params: { month },
+      });
+      return resp.data as {
+        channel_id: string;
+        month: string;
+        timezone?: string;
+        days?: string[];
+      };
+    },
+
     async listExportTasks(
       channelId: string,
       opts?: { page?: number; size?: number; status?: string; keyword?: string }

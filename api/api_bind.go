@@ -683,6 +683,7 @@ func Init(config *utils.AppConfig, uiStatic fs.FS) error {
 	v1Auth.Post("/channels/unarchive", ChannelUnarchive)
 	v1Auth.Delete("/channels/archived", ChannelPermanentDelete)
 	v1Auth.Get("/channel-presence", ChannelPresence)
+	v1Auth.Get("/channels/:channelId/message-active-days", ChannelMessageActiveDaysHandler)
 	v1Auth.Post("/chat/export", ChatExportCreate)
 	v1Auth.Get("/chat/export", ChatExportList)
 	v1Auth.Get("/chat/export/:taskId", ChatExportGet)
