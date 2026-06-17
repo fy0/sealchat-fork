@@ -26,6 +26,11 @@ type battleReportReorderRequest struct {
 	IDs []string `json:"ids"`
 }
 
+type battleReportDisplayRequest struct {
+	DisplayName string `json:"displayName"`
+	Enabled     *bool  `json:"enabled"`
+}
+
 type battleReportResponse struct {
 	ID                 string `json:"id"`
 	ChannelID          string `json:"channelId"`
@@ -47,6 +52,17 @@ type battleReportResponse struct {
 	AIFeatureKey       string `json:"aiFeatureKey,omitempty"`
 	CreatedAt          int64  `json:"createdAt"`
 	UpdatedAt          int64  `json:"updatedAt"`
+}
+
+type battleReportDisplayResponse struct {
+	ID               string `json:"id"`
+	WorldID          string `json:"worldId"`
+	SourceChannelID  string `json:"sourceChannelId"`
+	DisplayChannelID string `json:"displayChannelId"`
+	DisplayName      string `json:"displayName"`
+	Enabled          bool   `json:"enabled"`
+	CreatedAt        int64  `json:"createdAt"`
+	UpdatedAt        int64  `json:"updatedAt"`
 }
 
 func BattleReportList(c *fiber.Ctx) error {
@@ -135,6 +151,83 @@ func BattleReportReorder(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{"message": "战报顺序已更新"})
 }
 
+func BattleReportDisplayGet(c *fiber.Ctx) error {
+	user := getCurUser(c)
+	if user == nil {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"message": "未登录"})
+	}
+	item, err := service.GetBattleReportDisplayChannel(c.Params("channelId"), user.ID)
+	if err != nil {
+		return battleReportError(c, err)
+	}
+	if item == nil {
+		return c.JSON(fiber.Map{"item": nil})
+	}
+	return c.JSON(fiber.Map{"item": battleReportDisplayToResponse(item)})
+}
+
+func BattleReportDisplayEnsure(c *fiber.Ctx) error {
+	user := getCurUser(c)
+	if user == nil {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"message": "未登录"})
+	}
+	var req battleReportDisplayRequest
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": "请求体解析失败"})
+	}
+	item, err := service.EnsureBattleReportDisplayChannel(c.Params("channelId"), user.ID, req.DisplayName)
+	if err != nil {
+		return battleReportError(c, err)
+	}
+	return c.JSON(fiber.Map{"item": battleReportDisplayToResponse(item)})
+}
+
+func BattleReportDisplayUpdate(c *fiber.Ctx) error {
+	user := getCurUser(c)
+	if user == nil {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"message": "未登录"})
+	}
+	var req battleReportDisplayRequest
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": "请求体解析失败"})
+	}
+	item, err := service.EnsureBattleReportDisplayChannel(c.Params("channelId"), user.ID, req.DisplayName)
+	if err != nil {
+		return battleReportError(c, err)
+	}
+	return c.JSON(fiber.Map{"item": battleReportDisplayToResponse(item)})
+}
+
+func BattleReportDisplayDelete(c *fiber.Ctx) error {
+	user := getCurUser(c)
+	if user == nil {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"message": "未登录"})
+	}
+	if err := service.DisableBattleReportDisplayChannel(c.Params("channelId"), user.ID); err != nil {
+		return battleReportError(c, err)
+	}
+	return c.JSON(fiber.Map{"message": "战报展示频道已关闭"})
+}
+
+func BattleReportDisplayResync(c *fiber.Ctx) error {
+	user := getCurUser(c)
+	if user == nil {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"message": "未登录"})
+	}
+	channelID := c.Params("channelId")
+	item, err := service.GetBattleReportDisplayChannel(channelID, user.ID)
+	if err != nil {
+		return battleReportError(c, err)
+	}
+	if item == nil {
+		return c.JSON(fiber.Map{"message": "战报展示频道未开启"})
+	}
+	if err := service.SyncBattleReportDisplayFromReports(channelID); err != nil {
+		return battleReportError(c, err)
+	}
+	return c.JSON(fiber.Map{"message": "战报展示频道已同步"})
+}
+
 func BattleReportSummarize(c *fiber.Ctx) error {
 	user := getCurUser(c)
 	if user == nil {
@@ -162,6 +255,22 @@ func BattleReportSummarize(c *fiber.Ctx) error {
 		return battleReportError(c, err)
 	}
 	return c.JSON(fiber.Map{"item": battleReportToResponse(item, true)})
+}
+
+func battleReportDisplayToResponse(item *model.BattleReportDisplayChannelModel) battleReportDisplayResponse {
+	if item == nil {
+		return battleReportDisplayResponse{}
+	}
+	return battleReportDisplayResponse{
+		ID:               item.ID,
+		WorldID:          item.WorldID,
+		SourceChannelID:  item.SourceChannelID,
+		DisplayChannelID: item.DisplayChannelID,
+		DisplayName:      item.DisplayName,
+		Enabled:          item.Enabled,
+		CreatedAt:        timeToUnixMilli(item.CreatedAt),
+		UpdatedAt:        timeToUnixMilli(item.UpdatedAt),
+	}
 }
 
 func battleReportInputFromRequest(req battleReportRequest) service.BattleReportInput {

@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import { api } from './_config';
-import type { BattleReport, BattleReportPayload } from '@/types';
+import type { BattleReport, BattleReportDisplayChannel, BattleReportPayload } from '@/types';
 
 interface BattleReportListResponse {
   items?: BattleReport[];
@@ -10,9 +10,14 @@ interface BattleReportItemResponse {
   item?: BattleReport;
 }
 
+interface BattleReportDisplayResponse {
+  item?: BattleReportDisplayChannel | null;
+}
+
 interface BattleReportState {
   itemsByChannel: Record<string, BattleReport[]>;
   detailById: Record<string, BattleReport>;
+  displayByChannel: Record<string, BattleReportDisplayChannel | null>;
   loading: boolean;
   saving: boolean;
 }
@@ -23,6 +28,7 @@ export const useBattleReportStore = defineStore('battleReport', {
   state: (): BattleReportState => ({
     itemsByChannel: Object.create(null),
     detailById: Object.create(null),
+    displayByChannel: Object.create(null),
     loading: false,
     saving: false,
   }),
@@ -128,6 +134,54 @@ export const useBattleReportStore = defineStore('battleReport', {
         const item = resp.data?.item;
         this.upsertItem(item);
         return item;
+      } finally {
+        this.saving = false;
+      }
+    },
+    async getDisplayChannel(channelId: string) {
+      const resp = await api.get<BattleReportDisplayResponse>(`api/v1/channels/${channelId}/battle-report-display`);
+      const item = resp.data?.item || null;
+      this.displayByChannel[channelId] = item;
+      if (item?.sourceChannelId) {
+        this.displayByChannel[item.sourceChannelId] = item;
+      }
+      if (item?.displayChannelId) {
+        this.displayByChannel[item.displayChannelId] = item;
+      }
+      return item;
+    },
+    async ensureDisplayChannel(channelId: string, displayName: string) {
+      this.saving = true;
+      try {
+        const resp = await api.post<BattleReportDisplayResponse>(`api/v1/channels/${channelId}/battle-report-display`, { displayName });
+        const item = resp.data?.item || null;
+        this.displayByChannel[channelId] = item;
+        if (item?.sourceChannelId) {
+          this.displayByChannel[item.sourceChannelId] = item;
+        }
+        if (item?.displayChannelId) {
+          this.displayByChannel[item.displayChannelId] = item;
+        }
+        return item;
+      } finally {
+        this.saving = false;
+      }
+    },
+    async resyncDisplayChannel(channelId: string) {
+      await api.post(`api/v1/channels/${channelId}/battle-report-display/resync`);
+    },
+    async disableDisplayChannel(channelId: string) {
+      this.saving = true;
+      try {
+        await api.delete(`api/v1/channels/${channelId}/battle-report-display`);
+        const existing = this.displayByChannel[channelId];
+        if (existing?.sourceChannelId) {
+          this.displayByChannel[existing.sourceChannelId] = null;
+        }
+        if (existing?.displayChannelId) {
+          this.displayByChannel[existing.displayChannelId] = null;
+        }
+        this.displayByChannel[channelId] = null;
       } finally {
         this.saving = false;
       }

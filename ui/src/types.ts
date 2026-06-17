@@ -155,6 +155,17 @@ export interface BattleReportPayload {
   source?: string;
 }
 
+export interface BattleReportDisplayChannel {
+  id: string;
+  worldId: string;
+  sourceChannelId: string;
+  displayChannelId: string;
+  displayName: string;
+  enabled: boolean;
+  createdAt: number;
+  updatedAt: number;
+}
+
 import type { PlatformTheme } from '@/services/theme/themeTypes';
 
 export interface LogUploadConfig {

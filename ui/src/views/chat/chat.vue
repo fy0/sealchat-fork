@@ -7981,6 +7981,7 @@ const finalizeDrag = async () => {
       (moving as any).displayOrder = Number(resp.display_order);
       sortRowsByDisplayOrder();
     }
+    chatEvent.emit('battle-report-display-message-reordered' as any, { channelId });
   } catch (error) {
     restoreMessageOrderFromSnapshot(activeId, originalRows);
     message.error('消息排序失败，请稍后重试');
@@ -8206,6 +8207,14 @@ const applyReorderPayload = (payload: any) => {
   }
   sortRowsByDisplayOrder();
 };
+
+function handleBattleReportDisplayRefresh(payload: any) {
+  const channelId = String(payload?.channelId || '').trim();
+  if (!channelId || channelId !== chat.curChannel?.id) {
+    return;
+  }
+  scheduleLatestMessagesRefetch();
+}
 
 const recordIdentitySpokenFromMessage = (message?: Message) => {
   if (!message) {
@@ -12963,6 +12972,7 @@ chatEvent.on('message-reordered', (e?: Event) => {
   if (clientOpId && localReorderOps.has(clientOpId)) {
     localReorderOps.delete(clientOpId);
   }
+  chatEvent.emit('battle-report-display-message-reordered' as any, { channelId: e.channel?.id });
 });
 
 chatEvent.off('message-archived', '*');
@@ -13262,6 +13272,8 @@ chatEvent.on('channel-presence-updated', (e?: Event) => {
   chatEvent.off('channel-context-cleared', '*');
   chatEvent.on('channel-context-cleared', handleChannelContextCleared as any);
   chatEvent.on('channel-switch-to', handleChannelSwitchEvent as any)
+  chatEvent.on('battle-report-display-refresh' as any, handleBattleReportDisplayRefresh as any);
+  chatEvent.on('battle-report-open-editor' as any, handleBattleReportOpenEditorRequest as any);
 
   await fetchLatestMessages();
   await fetchPinnedMessages();
@@ -14714,6 +14726,18 @@ const openBattleSummary = () => {
   battleReportDrawerVisible.value = true
 }
 
+const handleBattleReportOpenEditorRequest = async (payload: any) => {
+  if (payload?.deferToDrawer) return
+  const reportId = String(payload?.reportId || '').trim()
+  if (!reportId) return
+  battleReportDrawerVisible.value = true
+  await nextTick()
+  chatEvent.emit('battle-report-open-editor' as any, {
+    ...payload,
+    deferToDrawer: true,
+  })
+}
+
 const runAIPolish = async () => {
   const input = resolveAIPolishInput()
   if (!input) {
@@ -14826,6 +14850,8 @@ onBeforeUnmount(() => {
   chatEvent.off('open-display-settings', handleOpenDisplaySettings);
   chatEvent.off('channel-context-cleared', handleChannelContextCleared as any);
   chatEvent.off('channel-switch-to', handleChannelSwitchEvent as any);
+  chatEvent.off('battle-report-display-refresh' as any, handleBattleReportDisplayRefresh as any);
+  chatEvent.off('battle-report-open-editor' as any, handleBattleReportOpenEditorRequest as any);
   revokeIdentityObjectURL();
   revokeIdentityVariantObjectURL();
   searchHighlightTimers.forEach((timer) => window.clearTimeout(timer));

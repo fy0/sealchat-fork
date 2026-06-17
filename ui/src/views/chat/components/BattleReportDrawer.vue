@@ -4,7 +4,7 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useMessage } from 'naive-ui'
 import { useBattleReportStore } from '@/stores/battleReport'
 import { useAIStore } from '@/stores/ai'
-import { chatEvent } from '@/stores/chat'
+import { chatEvent, useChatStore } from '@/stores/chat'
 import type { BattleReport } from '@/types'
 import { copyTextWithFallback } from '@/utils/clipboard'
 import { generateBattleReportEmbedLink } from '@/utils/battleReportEmbedLink'
@@ -27,8 +27,10 @@ const emit = defineEmits<Emits>()
 const message = useMessage()
 const store = useBattleReportStore()
 const aiStore = useAIStore()
+const chat = useChatStore()
 
 const createVisible = ref(false)
+const displayVisible = ref(false)
 const editorVisible = ref(false)
 const editingReportId = ref('')
 const draggedId = ref('')
@@ -39,11 +41,17 @@ const createForm = reactive({
   period: null as [number, number] | null,
   contextReportCount: 3,
 })
+const displayForm = reactive({
+  name: '战报时间线',
+})
 let pollTimer: number | null = null
 
-const reports = computed(() => props.channelId ? (store.itemsByChannel[props.channelId] || []) : [])
+const displayChannel = computed(() => props.channelId ? (store.displayByChannel[props.channelId] || null) : null)
+const sourceChannelId = computed(() => displayChannel.value?.sourceChannelId || props.channelId || '')
+const displayChannelId = computed(() => displayChannel.value?.displayChannelId || '')
+const sourceReports = computed(() => sourceChannelId.value ? (store.itemsByChannel[sourceChannelId.value] || []) : [])
 const editingReport = computed(() => editingReportId.value ? store.detailById[editingReportId.value] : null)
-const hasGenerating = computed(() => reports.value.some((item) => item.status === 'generating'))
+const hasGenerating = computed(() => sourceReports.value.some((item) => item.status === 'generating'))
 
 const formatPeriod = (item: BattleReport) => {
   if (!item.periodStart || !item.periodEnd) return '未设置周期'
@@ -63,7 +71,12 @@ const resetCreateForm = () => {
 const refresh = async () => {
   if (!props.channelId) return
   try {
-    await store.list(props.channelId)
+    const display = await store.getDisplayChannel(props.channelId)
+    const targetChannelId = display?.sourceChannelId || props.channelId
+    await store.list(targetChannelId)
+    if (display?.displayChannelId) {
+      store.displayByChannel[display.displayChannelId] = display
+    }
   } catch (error: any) {
     message.error(error?.response?.data?.message || error?.message || '加载战报失败')
   }
@@ -102,6 +115,67 @@ const openCreate = () => {
   createVisible.value = true
 }
 
+const openDisplaySetup = () => {
+  displayForm.name = displayChannel.value?.displayName || '战报时间线'
+  displayVisible.value = true
+}
+
+const ensureDisplayChannel = async () => {
+  const targetSourceChannelId = sourceChannelId.value
+  if (!targetSourceChannelId) {
+    message.error('未选择频道')
+    return
+  }
+  const name = displayForm.name.trim() || '战报时间线'
+  try {
+    const item = await store.ensureDisplayChannel(targetSourceChannelId, name)
+    if (!item?.displayChannelId) {
+      message.error('展示频道创建失败')
+      return
+    }
+    displayVisible.value = false
+    if (props.worldId || chat.currentWorldId) {
+      await chat.channelList(props.worldId || chat.currentWorldId, true, { autoSwitch: false })
+    }
+    await chat.channelSwitchTo(item.displayChannelId)
+    message.success('已打开战报展示频道')
+  } catch (error: any) {
+    message.error(error?.response?.data?.message || error?.message || '创建展示频道失败')
+  }
+}
+
+const openDisplayChannel = async () => {
+  const targetId = displayChannelId.value
+  if (!targetId) {
+    openDisplaySetup()
+    return
+  }
+  try {
+    await chat.channelSwitchTo(targetId)
+  } catch (error: any) {
+    message.error(error?.message || '打开展示频道失败')
+  }
+}
+
+const disableDisplayChannel = async () => {
+  const targetId = displayChannelId.value || props.channelId || ''
+  if (!targetId) return
+  if (!window.confirm('关闭战报展示频道？旧展示频道会归档，战报本身不会删除。')) return
+  try {
+    await store.disableDisplayChannel(targetId)
+    if (props.worldId || chat.currentWorldId) {
+      await chat.channelList(props.worldId || chat.currentWorldId, true, { autoSwitch: false })
+    }
+    if (sourceChannelId.value && chat.curChannel?.id === targetId) {
+      await chat.channelSwitchTo(sourceChannelId.value)
+    }
+    message.success('战报展示频道已关闭')
+    await refresh()
+  } catch (error: any) {
+    message.error(error?.response?.data?.message || error?.message || '关闭展示频道失败')
+  }
+}
+
 const openEditor = async (item: BattleReport) => {
   editingReportId.value = item.id
   try {
@@ -129,19 +203,32 @@ const openEditorById = async (reportId: string) => {
 const handleBattleReportOpenEditor = (payload: any) => {
   const reportId = String(payload?.reportId || '').trim()
   const channelId = String(payload?.channelId || '').trim()
-  if (channelId && props.channelId && channelId !== props.channelId) {
+  const allowedChannelIds = new Set([
+    String(props.channelId || '').trim(),
+    String(sourceChannelId.value || '').trim(),
+    String(displayChannelId.value || '').trim(),
+  ].filter(Boolean))
+  if (!payload?.deferToDrawer && channelId && allowedChannelIds.size && !allowedChannelIds.has(channelId)) {
     return
   }
   void openEditorById(reportId)
 }
 
+const handleDisplayMessageReordered = (payload: any) => {
+  const channelId = String(payload?.channelId || '').trim()
+  if (!channelId || channelId !== displayChannelId.value) return
+  void refresh()
+}
+
 onMounted(() => {
   chatEvent.on('battle-report-open-editor' as any, handleBattleReportOpenEditor)
+  chatEvent.on('battle-report-display-message-reordered' as any, handleDisplayMessageReordered)
 })
 
 onBeforeUnmount(() => {
   stopPolling()
   chatEvent.off('battle-report-open-editor' as any, handleBattleReportOpenEditor)
+  chatEvent.off('battle-report-display-message-reordered' as any, handleDisplayMessageReordered)
 })
 
 const copyReportLink = async (item: BattleReport) => {
@@ -156,7 +243,7 @@ const copyReportLink = async (item: BattleReport) => {
 }
 
 const createReport = async () => {
-  if (!props.channelId) {
+  if (!sourceChannelId.value) {
     message.error('未选择频道')
     return
   }
@@ -174,10 +261,10 @@ const createReport = async () => {
   }
   try {
     if (createMode.value === 'ai') {
-      await store.summarize(props.channelId, payload)
+      await store.summarize(sourceChannelId.value, payload)
       message.success('AI 总结已开始')
     } else {
-      await store.create(props.channelId, payload)
+      await store.create(sourceChannelId.value, payload)
       message.success('战报已创建')
     }
     createVisible.value = false
@@ -227,20 +314,23 @@ const handleDrop = async (target: BattleReport, event: DragEvent) => {
   event.preventDefault()
   const sourceId = draggedId.value || event.dataTransfer?.getData('text/plain') || ''
   draggedId.value = ''
-  if (!props.channelId || !sourceId || sourceId === target.id) return
-  const current = reports.value.slice()
+  if (!sourceChannelId.value || !sourceId || sourceId === target.id) return
+  const current = sourceReports.value.slice()
   const sourceIndex = current.findIndex((item) => item.id === sourceId)
   const targetIndex = current.findIndex((item) => item.id === target.id)
   if (sourceIndex < 0 || targetIndex < 0) return
   const next = current.slice()
   const [moved] = next.splice(sourceIndex, 1)
   next.splice(targetIndex, 0, moved)
-  store.setChannelItems(props.channelId, next)
+  store.setChannelItems(sourceChannelId.value, next)
   try {
-    await store.reorder(props.channelId, next.map((item) => item.id))
+    await store.reorder(sourceChannelId.value, next.map((item) => item.id))
     await refresh()
+    if (displayChannelId.value) {
+      chatEvent.emit('battle-report-display-refresh' as any, { channelId: displayChannelId.value })
+    }
   } catch (error: any) {
-    store.setChannelItems(props.channelId, current)
+    store.setChannelItems(sourceChannelId.value, current)
     message.error(error?.response?.data?.message || error?.message || '战报排序失败')
   }
 }
@@ -257,17 +347,22 @@ const handleDrop = async (target: BattleReport, event: DragEvent) => {
       <div class="battle-report-toolbar">
         <div>
           <div class="battle-report-toolbar__title">频道战报</div>
-          <div class="battle-report-toolbar__hint">新建后可手写，或交给 AI 按时间周期总结。</div>
+          <div class="battle-report-toolbar__hint">手动或AI总结战报。</div>
         </div>
-        <n-button size="small" type="primary" @click="openCreate">新建战报</n-button>
+        <div class="battle-report-toolbar__actions">
+          <n-button v-if="displayChannel" size="small" secondary @click="openDisplayChannel">打开展示频道</n-button>
+          <n-button v-if="displayChannel" size="small" tertiary @click="disableDisplayChannel">关闭展示频道</n-button>
+          <n-button v-else size="small" secondary @click="openDisplaySetup">开启展示频道</n-button>
+          <n-button size="small" type="primary" @click="openCreate">新建战报</n-button>
+        </div>
       </div>
       <n-spin :show="store.loading">
-        <div v-if="!reports.length" class="battle-report-empty">
+        <div v-if="!sourceReports.length" class="battle-report-empty">
           暂无战报。点击上方新建，手写或交给 AI 总结。
         </div>
         <div v-else class="battle-report-timeline">
           <div
-            v-for="item in reports"
+            v-for="item in sourceReports"
             :key="item.id"
             class="battle-report-item"
             :class="`battle-report-item--${item.status}`"
@@ -328,7 +423,7 @@ const handleDrop = async (target: BattleReport, event: DragEvent) => {
       <n-form-item label="时间周期">
         <ActiveDayDateRangePicker
           v-model="createForm.period"
-          :channel-id="props.channelId"
+          :channel-id="sourceChannelId"
           placeholder="选择需要总结的活跃消息周期"
         />
       </n-form-item>
@@ -356,6 +451,22 @@ const handleDrop = async (target: BattleReport, event: DragEvent) => {
         </n-button>
       </n-space>
     </template>
+  </n-modal>
+
+  <n-modal
+    v-model:show="displayVisible"
+    preset="dialog"
+    title="战报展示频道"
+    positive-text="开启并打开"
+    negative-text="取消"
+    :positive-button-props="{ loading: store.saving }"
+    @positive-click="ensureDisplayChannel"
+  >
+    <n-form label-placement="top">
+      <n-form-item label="频道名称">
+        <n-input v-model:value="displayForm.name" maxlength="80" show-count placeholder="战报时间线" />
+      </n-form-item>
+    </n-form>
   </n-modal>
 
   <BattleReportEditorModal
@@ -393,6 +504,13 @@ const handleDrop = async (target: BattleReport, event: DragEvent) => {
   margin-top: 2px;
   font-size: 12px;
   color: var(--text-color-3);
+}
+
+.battle-report-toolbar__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .battle-report-timeline {

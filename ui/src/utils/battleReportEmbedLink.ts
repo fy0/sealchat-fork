@@ -8,7 +8,7 @@ export interface ParsedSingleBattleReportEmbedLink extends BattleReportEmbedLink
   rawLink: string;
 }
 
-const BATTLE_REPORT_LINK_EXACT_REGEX = /^https?:\/\/[^\s<>"']*#\/([a-zA-Z0-9_-]+)\/([a-zA-Z0-9_-]+)\?([^\s#]+)$/;
+const BATTLE_REPORT_LINK_EXACT_REGEX = /^(?:https?:\/\/[^\s<>"']*)?\/?#\/([a-zA-Z0-9_-]+)\/([a-zA-Z0-9_-]+)\?([^\s#]+)$/;
 
 const normalizeInput = (value: string) => value.replace(/&amp;/gi, '&').trim();
 

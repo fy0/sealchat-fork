@@ -2,6 +2,7 @@
 import dayjs from 'dayjs'
 import { computed, onMounted, ref, watch } from 'vue'
 import { useMessage } from 'naive-ui'
+import { Edit, Copy as CopyIcon } from '@vicons/tabler'
 import { useBattleReportStore } from '@/stores/battleReport'
 import { copyTextWithFallback } from '@/utils/clipboard'
 import { chatEvent } from '@/stores/chat'
@@ -68,7 +69,18 @@ watch(() => props.reportId, load)
         </button>
         <div v-if="periodText" class="battle-report-embed-card__period">{{ periodText }}</div>
       </div>
-      <n-button v-if="rawLink" quaternary circle size="tiny" title="复制链接" @click.stop="copyLink">⧉</n-button>
+      <div class="battle-report-embed-card__actions">
+        <n-button quaternary circle size="tiny" title="编辑战报" @click.stop="openEditor">
+          <template #icon>
+            <n-icon :component="Edit" />
+          </template>
+        </n-button>
+        <n-button v-if="rawLink" quaternary circle size="tiny" title="复制链接" @click.stop="copyLink">
+          <template #icon>
+            <n-icon :component="CopyIcon" />
+          </template>
+        </n-button>
+      </div>
     </div>
     <n-spin :show="loading">
       <div v-if="failed" class="battle-report-embed-card__error">{{ failed }}</div>
@@ -94,17 +106,34 @@ watch(() => props.reportId, load)
 
 <style scoped>
 .battle-report-embed-card {
+  --battle-report-card-bg: color-mix(in srgb, var(--custom-chat-ic-bg, var(--chat-ic-bg, var(--sc-bg-elevated, #ffffff))) 82%, var(--sc-bg-elevated, #ffffff) 18%);
+  --battle-report-card-border: color-mix(in srgb, var(--sc-border-mute, rgba(148, 163, 184, 0.28)) 86%, transparent);
+  --battle-report-card-text: var(--chat-text-primary, var(--sc-text-primary, var(--text-color-1)));
+  --battle-report-card-muted: var(--chat-text-secondary, var(--sc-text-secondary, var(--text-color-3)));
+  --battle-report-card-accent: var(--primary-color, var(--sc-primary-color, #3388de));
+  --battle-report-card-shadow: color-mix(in srgb, var(--sc-text-primary, #0f172a) 8%, transparent);
   width: 100%;
   max-width: 100%;
   min-width: 0;
-  border: 1px solid rgba(148, 163, 184, 0.28);
+  border: 1px solid var(--battle-report-card-border);
   border-radius: 16px;
   padding: 14px;
-  background:
-    radial-gradient(circle at top left, rgba(37, 99, 235, 0.12), transparent 42%),
-    rgba(148, 163, 184, 0.08);
-  color: var(--text-color-1);
-  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.08);
+  background: var(--battle-report-card-bg);
+  color: var(--battle-report-card-text);
+  box-shadow: 0 12px 30px var(--battle-report-card-shadow);
+  transition: background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease, color 0.2s ease;
+}
+
+:global(:root[data-display-palette='night']) .battle-report-embed-card {
+  --battle-report-card-bg: color-mix(in srgb, var(--custom-chat-ic-bg, var(--chat-ic-bg, var(--sc-bg-elevated, #26262c))) 76%, var(--sc-bg-elevated, #26262c) 24%);
+  --battle-report-card-border: color-mix(in srgb, var(--sc-border-strong, rgba(255, 255, 255, 0.18)) 82%, transparent);
+  --battle-report-card-shadow: color-mix(in srgb, #000 36%, transparent);
+}
+
+:global(:root[data-custom-theme='true']) .battle-report-embed-card {
+  --battle-report-card-bg: color-mix(in srgb, var(--custom-chat-ic-bg, var(--chat-ic-bg, var(--sc-bg-elevated))) 78%, var(--sc-bg-elevated) 22%);
+  --battle-report-card-border: color-mix(in srgb, var(--sc-border-strong, var(--sc-border-mute)) 72%, transparent);
+  --battle-report-card-shadow: color-mix(in srgb, var(--sc-text-primary, #000) 10%, transparent);
 }
 
 .battle-report-embed-card__head {
@@ -114,10 +143,17 @@ watch(() => props.reportId, load)
   margin-bottom: 10px;
 }
 
+.battle-report-embed-card__actions {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
+}
+
 .battle-report-embed-card__eyebrow {
   font-size: 12px;
   letter-spacing: 0.08em;
-  color: var(--text-color-3);
+  color: var(--battle-report-card-muted);
 }
 
 .battle-report-embed-card__title {
@@ -125,7 +161,7 @@ watch(() => props.reportId, load)
   padding: 0;
   border: 0;
   background: transparent;
-  color: var(--text-color-1);
+  color: var(--battle-report-card-text);
   font-size: 16px;
   font-weight: 800;
   text-align: left;
@@ -133,13 +169,13 @@ watch(() => props.reportId, load)
 }
 
 .battle-report-embed-card__title:hover {
-  color: var(--primary-color);
+  color: var(--battle-report-card-accent);
 }
 
 .battle-report-embed-card__period {
   margin-top: 2px;
   font-size: 12px;
-  color: var(--text-color-3);
+  color: var(--battle-report-card-muted);
 }
 
 .battle-report-embed-card__content,
@@ -161,7 +197,7 @@ watch(() => props.reportId, load)
 }
 
 .battle-report-embed-card__hint {
-  color: var(--text-color-3);
+  color: var(--battle-report-card-muted);
 }
 
 .battle-report-embed-card__error {

@@ -3307,6 +3307,7 @@ func apiMessageReorder(ctx *ChatContext, data *struct {
 		return nil, err
 	}
 	msg.DisplayOrder = newOrder
+	_ = service.SyncBattleReportOrderFromDisplayMessage(data.ChannelID)
 
 	if msg.WhisperTo != "" && msg.WhisperTarget == nil {
 		msg.WhisperTarget = loadWhisperTargetForChannel(data.ChannelID, msg.WhisperTo)

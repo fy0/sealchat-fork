@@ -101,6 +101,7 @@ func CreateBattleReport(channelID string, userID string, input BattleReportInput
 	if err := model.GetDB().Create(item).Error; err != nil {
 		return nil, err
 	}
+	_ = SyncBattleReportDisplayFromReports(channelID)
 	return item, nil
 }
 
@@ -152,13 +153,17 @@ func DeleteBattleReport(reportID string, userID string) error {
 		return err
 	}
 	now := time.Now()
-	return model.GetDB().Model(&model.BattleReportModel{}).
+	err = model.GetDB().Model(&model.BattleReportModel{}).
 		Where("id = ? AND is_deleted = ?", item.ID, false).
 		Updates(map[string]interface{}{
 			"is_deleted": true,
 			"deleted_at": now,
 			"deleted_by": strings.TrimSpace(userID),
 		}).Error
+	if err != nil {
+		return err
+	}
+	return SyncBattleReportDisplayFromReports(item.ChannelID)
 }
 
 func ReorderBattleReports(channelID string, userID string, ids []string) error {
@@ -193,7 +198,7 @@ func ReorderBattleReports(channelID string, userID string, ids []string) error {
 		return fmt.Errorf("战报排序列表包含无效 ID")
 	}
 
-	return model.GetDB().Transaction(func(tx *gorm.DB) error {
+	if err := model.GetDB().Transaction(func(tx *gorm.DB) error {
 		base := len(normalizedIDs) * 100
 		for index, id := range normalizedIDs {
 			sortOrder := base - index*100
@@ -204,7 +209,10 @@ func ReorderBattleReports(channelID string, userID string, ids []string) error {
 			}
 		}
 		return nil
-	})
+	}); err != nil {
+		return err
+	}
+	return SyncBattleReportDisplayFromReports(channelID)
 }
 
 func loadBattleReport(reportID string) (*model.BattleReportModel, error) {
