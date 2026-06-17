@@ -81,7 +81,7 @@ const save = () => emit('save', {
         <n-input
           v-model:value="form.content"
           type="textarea"
-          :autosize="{ minRows: 12, maxRows: 24 }"
+          :autosize="{ minRows: 18, maxRows: 36 }"
           placeholder="纯文本战报内容"
         />
       </n-form-item>
@@ -97,10 +97,23 @@ const save = () => emit('save', {
 
 <style scoped>
 .battle-report-editor-modal {
-  width: min(760px, calc(100vw - 32px));
+  width: min(960px, calc(100vw - 32px));
 }
 
 .battle-report-editor-modal__alert {
   margin-bottom: 12px;
+}
+
+@media (max-width: 720px) {
+  .battle-report-editor-modal {
+    width: calc(100vw - 16px);
+  }
+
+  :deep(.n-card-header),
+  :deep(.n-card__content),
+  :deep(.n-card__footer) {
+    padding-left: 14px;
+    padding-right: 14px;
+  }
 }
 </style>

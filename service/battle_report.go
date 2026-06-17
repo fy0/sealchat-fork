@@ -158,6 +158,7 @@ func UpdateBattleReport(reportID string, userID string, input BattleReportInput)
 	if err := model.GetDB().Save(item).Error; err != nil {
 		return nil, err
 	}
+	_ = SyncBattleReportDisplayFromReports(item.ChannelID)
 	return item, nil
 }
 

@@ -39,7 +39,7 @@ const defaultFeatureConfig = (featureKey: BuiltinFeatureKey): AIFeatureConfig =>
     ? '你是跑团战报助手。根据提供内容整理清晰、忠实原意的战报摘要。'
     : '你是中文文本润色助手。保持原意，修正病句，提升流畅度，不要增加无关信息。',
   defaultModel: 'deepseek-v4-flash',
-  params: {},
+  params: featureKey === 'battle_summary' ? { maxInputTokens: 30000 } : {},
   access: {
     mode: 'all',
     userIds: [],
@@ -279,6 +279,9 @@ const formatParamsSummary = (params: AIModelParams) => {
   }
   if (typeof params.maxTokens === 'number' && params.maxTokens > 0) {
     summary.push(`maxTokens ${params.maxTokens}`)
+  }
+  if (typeof params.maxInputTokens === 'number' && params.maxInputTokens > 0) {
+    summary.push(`最大输入 ${params.maxInputTokens} tokens`)
   }
   return summary.length ? summary.join(' / ') : '默认'
 }
@@ -584,6 +587,10 @@ defineExpose({
               </n-form-item>
               <n-form-item label="Max Tokens">
                 <n-input-number v-model:value="featureEditorDraft.params.maxTokens" :min="0" />
+              </n-form-item>
+              <n-form-item v-if="editingFeatureKey === 'battle_summary'" label="最大输入 Token 数">
+                <n-input-number v-model:value="featureEditorDraft.params.maxInputTokens" :min="1000" :max="200000" :step="1000" />
+                <template #feedback>按估算 token 控制战报总结 prompt 输入，超出后优先丢弃较旧聊天消息。</template>
               </n-form-item>
             </n-form>
           </n-gi>

@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -91,6 +92,15 @@ func runBattleReportSummaryTask(ctx context.Context, reportID string, opts Battl
 	contextReports, err := loadBattleReportContextReports(report)
 	if err != nil {
 		return err
+	}
+	contextReports, messageGroups = limitBattleReportSummaryPromptInput(
+		report,
+		contextReports,
+		messageGroups,
+		battleReportSummaryMaxInputTokens(opts.AIConfig),
+	)
+	if battleReportMessageGroupLen(messageGroups) == 0 {
+		return markBattleReportSummaryFailed(report.ID, fmt.Errorf("战报总结最大输入 token 数过低，没有可总结的消息"))
 	}
 	prompt := buildBattleReportSummaryPromptWithGroups(report, contextReports, messageGroups)
 	output, err := aiService.RunTaskWithBilling(ctx, aiService.BilledRunInput{
@@ -198,6 +208,90 @@ func battleReportMessageGroupLen(groups []BattleReportMessageGroup) int {
 		total += len(group.Messages)
 	}
 	return total
+}
+
+func battleReportSummaryMaxInputTokens(cfg utils.AIConfig) int {
+	normalized := utils.NormalizeAIConfig(cfg)
+	return normalized.Features[aiService.FeatureBattleSummary].Params.MaxInputTokens
+}
+
+func limitBattleReportSummaryPromptInput(report *model.BattleReportModel, contextReports []*model.BattleReportModel, groups []BattleReportMessageGroup, maxInputTokens int) ([]*model.BattleReportModel, []BattleReportMessageGroup) {
+	if maxInputTokens <= 0 {
+		return contextReports, groups
+	}
+	if estimateBattleReportInputTokens(buildBattleReportSummaryPromptWithGroups(report, contextReports, groups)) <= maxInputTokens {
+		return contextReports, groups
+	}
+	type indexedMessage struct {
+		message      *model.MessageModel
+		groupIndex   int
+		messageIndex int
+	}
+	messages := make([]indexedMessage, 0)
+	for groupIndex, group := range groups {
+		for messageIndex, msg := range group.Messages {
+			if msg == nil {
+				continue
+			}
+			messages = append(messages, indexedMessage{
+				message:      msg,
+				groupIndex:   groupIndex,
+				messageIndex: messageIndex,
+			})
+		}
+	}
+	sort.SliceStable(messages, func(i, j int) bool {
+		left := messages[i]
+		right := messages[j]
+		if !left.message.CreatedAt.Equal(right.message.CreatedAt) {
+			return left.message.CreatedAt.Before(right.message.CreatedAt)
+		}
+		if left.groupIndex != right.groupIndex {
+			return left.groupIndex < right.groupIndex
+		}
+		return left.messageIndex < right.messageIndex
+	})
+	kept := map[*model.MessageModel]struct{}{}
+	for _, item := range messages {
+		kept[item.message] = struct{}{}
+	}
+	currentReports := contextReports
+	currentGroups := buildLimitedBattleReportMessageGroups(groups, kept)
+	for _, item := range messages {
+		if estimateBattleReportInputTokens(buildBattleReportSummaryPromptWithGroups(report, currentReports, currentGroups)) <= maxInputTokens {
+			return currentReports, currentGroups
+		}
+		delete(kept, item.message)
+		currentGroups = buildLimitedBattleReportMessageGroups(groups, kept)
+	}
+	for len(currentReports) > 0 {
+		if estimateBattleReportInputTokens(buildBattleReportSummaryPromptWithGroups(report, currentReports, currentGroups)) <= maxInputTokens {
+			return currentReports, currentGroups
+		}
+		currentReports = currentReports[:len(currentReports)-1]
+	}
+	return currentReports, currentGroups
+}
+
+func buildLimitedBattleReportMessageGroups(groups []BattleReportMessageGroup, kept map[*model.MessageModel]struct{}) []BattleReportMessageGroup {
+	out := make([]BattleReportMessageGroup, 0, len(groups))
+	for _, group := range groups {
+		next := group
+		next.Messages = make([]*model.MessageModel, 0, len(group.Messages))
+		for _, msg := range group.Messages {
+			if _, ok := kept[msg]; ok {
+				next.Messages = append(next.Messages, msg)
+			}
+		}
+		if len(next.Messages) > 0 {
+			out = append(out, next)
+		}
+	}
+	return out
+}
+
+func estimateBattleReportInputTokens(input string) int {
+	return len([]rune(strings.TrimSpace(input)))
 }
 
 func loadBattleReportMessages(channelID string, start time.Time, end time.Time) ([]*model.MessageModel, error) {

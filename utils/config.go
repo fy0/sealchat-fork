@@ -287,9 +287,10 @@ const (
 )
 
 type AIModelParams struct {
-	Temperature *float32 `json:"temperature,omitempty" yaml:"temperature,omitempty"`
-	MaxTokens   int      `json:"maxTokens,omitempty" yaml:"maxTokens,omitempty"`
-	TopP        *float32 `json:"topP,omitempty" yaml:"topP,omitempty"`
+	Temperature    *float32 `json:"temperature,omitempty" yaml:"temperature,omitempty"`
+	MaxTokens      int      `json:"maxTokens,omitempty" yaml:"maxTokens,omitempty"`
+	MaxInputTokens int      `json:"maxInputTokens,omitempty" yaml:"maxInputTokens,omitempty"`
+	TopP           *float32 `json:"topP,omitempty" yaml:"topP,omitempty"`
 }
 
 type AIFeatureAccessConfig struct {
@@ -735,6 +736,9 @@ func defaultAIFeatureConfig(featureKey string) AIFeatureConfig {
 			Enabled:       false,
 			DefaultPrompt: "你是跑团战报助手。根据提供内容整理清晰、忠实原意的战报摘要。",
 			DefaultModel:  "deepseek-v4-flash",
+			Params: AIModelParams{
+				MaxInputTokens: 30000,
+			},
 			Access: AIFeatureAccessConfig{
 				Mode: AIFeatureAccessAll,
 			},
@@ -848,6 +852,9 @@ func NormalizeAIConfig(cfg AIConfig) AIConfig {
 			feature.Access.Mode = raw.Access.Mode
 			feature.Access.UserIDs = normalizeAIIdentifierList(raw.Access.UserIDs)
 			feature.Access.WorldIDs = normalizeAIIdentifierList(raw.Access.WorldIDs)
+		}
+		if featureKey == "battle_summary" && feature.Params.MaxInputTokens <= 0 {
+			feature.Params.MaxInputTokens = defaultAIFeatureConfig(featureKey).Params.MaxInputTokens
 		}
 		if feature.Access.Mode == "" {
 			feature.Access.Mode = AIFeatureAccessAll

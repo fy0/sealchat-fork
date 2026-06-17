@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import dayjs from 'dayjs'
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { useMessage } from 'naive-ui'
+import { useDialog, useMessage } from 'naive-ui'
 import { useBattleReportStore } from '@/stores/battleReport'
 import { useAIStore } from '@/stores/ai'
 import { chatEvent, useChatStore } from '@/stores/chat'
@@ -25,6 +25,7 @@ const props = defineProps<Props>()
 const emit = defineEmits<Emits>()
 
 const message = useMessage()
+const dialog = useDialog()
 const store = useBattleReportStore()
 const aiStore = useAIStore()
 const chat = useChatStore()
@@ -115,6 +116,17 @@ const refresh = async () => {
   }
 }
 
+const refreshDisplayChannelContent = async () => {
+  const targetId = displayChannelId.value
+  if (!targetId) return
+  try {
+    await store.resyncDisplayChannel(targetId)
+    chatEvent.emit('battle-report-display-refresh' as any, { channelId: targetId })
+  } catch (error: any) {
+    message.error(error?.response?.data?.message || error?.message || '刷新展示频道失败')
+  }
+}
+
 const stopPolling = () => {
   if (pollTimer === null) return
   window.clearInterval(pollTimer)
@@ -193,20 +205,27 @@ const openDisplayChannel = async () => {
 const disableDisplayChannel = async () => {
   const targetId = displayChannelId.value || props.channelId || ''
   if (!targetId) return
-  if (!window.confirm('关闭战报展示频道？旧展示频道会归档，战报本身不会删除。')) return
-  try {
-    await store.disableDisplayChannel(targetId)
-    if (props.worldId || chat.currentWorldId) {
-      await chat.channelList(props.worldId || chat.currentWorldId, true, { autoSwitch: false })
+  dialog.warning({
+    title: '关闭战报展示频道',
+    content: '旧展示频道会归档，战报本身不会删除。',
+    positiveText: '关闭展示频道',
+    negativeText: '取消',
+    onPositiveClick: async () => {
+      try {
+        await store.disableDisplayChannel(targetId)
+        if (props.worldId || chat.currentWorldId) {
+          await chat.channelList(props.worldId || chat.currentWorldId, true, { autoSwitch: false })
+        }
+        if (sourceChannelId.value && chat.curChannel?.id === targetId) {
+          await chat.channelSwitchTo(sourceChannelId.value)
+        }
+        message.success('战报展示频道已关闭')
+        await refresh()
+      } catch (error: any) {
+        message.error(error?.response?.data?.message || error?.message || '关闭展示频道失败')
+      }
     }
-    if (sourceChannelId.value && chat.curChannel?.id === targetId) {
-      await chat.channelSwitchTo(sourceChannelId.value)
-    }
-    message.success('战报展示频道已关闭')
-    await refresh()
-  } catch (error: any) {
-    message.error(error?.response?.data?.message || error?.message || '关闭展示频道失败')
-  }
+  })
 }
 
 const openEditor = async (item: BattleReport) => {
@@ -305,6 +324,7 @@ const createReport = async () => {
     }
     createVisible.value = false
     await refresh()
+    await refreshDisplayChannelContent()
   } catch (error: any) {
     message.error(error?.response?.data?.message || error?.message || '创建战报失败')
   }
@@ -323,19 +343,29 @@ const saveEditor = async (payload: { title: string; content: string }) => {
     editorVisible.value = false
     message.success('战报已保存')
     await refresh()
+    await refreshDisplayChannelContent()
   } catch (error: any) {
     message.error(error?.response?.data?.message || error?.message || '保存战报失败')
   }
 }
 
 const deleteReport = async (item: BattleReport) => {
-  if (!window.confirm(`删除战报“${item.title}”？`)) return
-  try {
-    await store.delete(item.id)
-    message.success('战报已删除')
-  } catch (error: any) {
-    message.error(error?.response?.data?.message || error?.message || '删除战报失败')
-  }
+  dialog.warning({
+    title: '删除战报',
+    content: `删除战报“${item.title || '未命名战报'}”？此操作不会删除聊天记录。`,
+    positiveText: '删除',
+    negativeText: '取消',
+    onPositiveClick: async () => {
+      try {
+        await store.delete(item.id)
+        message.success('战报已删除')
+        await refresh()
+        await refreshDisplayChannelContent()
+      } catch (error: any) {
+        message.error(error?.response?.data?.message || error?.message || '删除战报失败')
+      }
+    }
+  })
 }
 
 const handleDragStart = (item: BattleReport, event: DragEvent) => {
@@ -683,7 +713,7 @@ const handleDrop = async (target: BattleReport, event: DragEvent) => {
 }
 
 .battle-report-create-modal {
-  width: min(720px, calc(100vw - 32px));
+  width: min(780px, calc(100vw - 32px));
 }
 
 @keyframes battle-report-spin {
@@ -695,6 +725,19 @@ const handleDrop = async (target: BattleReport, event: DragEvent) => {
 @media (max-width: 720px) {
   :deep(.n-drawer) {
     width: 100vw !important;
+  }
+
+  .battle-report-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .battle-report-toolbar__actions {
+    justify-content: flex-start;
+  }
+
+  .battle-report-create-modal {
+    width: calc(100vw - 16px);
   }
 }
 </style>
