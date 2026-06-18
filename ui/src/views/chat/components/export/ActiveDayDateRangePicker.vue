@@ -4,6 +4,7 @@ import { useChatStore } from '@/stores/chat'
 import {
   applyCalendarActiveDayHighlights,
   buildPanelMonthActiveDayMap,
+  collectPanelRelatedMonthKeys,
   parsePanelMonthKey,
 } from './calendarActiveDayHighlight'
 
@@ -126,9 +127,22 @@ const ensureCalendarMonthLoaded = async (month: string) => {
 
 const ensureVisibleCalendarMonthsLoaded = async () => {
   if (!props.channelId) return
-  const monthKeys = collectVisibleCalendarMonths()
-  if (!monthKeys.length) return
-  await Promise.all(monthKeys.map((month) => ensureCalendarMonthLoaded(month)))
+  const panel = document.querySelector<HTMLElement>('.n-date-panel')
+  if (!panel) return
+  const monthKeys = new Set<string>()
+  Array.from(panel.querySelectorAll<HTMLElement>('.n-date-panel-calendar')).forEach((calendar) => {
+    const monthKey = parsePanelMonthKey(
+      calendar.querySelector<HTMLElement>('.n-date-panel-month__month-year')?.textContent || ''
+    )
+    if (!monthKey) return
+    const cellCount = calendar.querySelectorAll('[data-n-date].n-date-panel-date').length
+    collectPanelRelatedMonthKeys(monthKey, cellCount).forEach((relatedMonth) => monthKeys.add(relatedMonth))
+  })
+  if (!monthKeys.size) {
+    collectVisibleCalendarMonths().forEach((month) => monthKeys.add(month))
+  }
+  if (!monthKeys.size) return
+  await Promise.all(Array.from(monthKeys).map((month) => ensureCalendarMonthLoaded(month)))
 }
 
 const startCalendarMonthObserver = () => {

@@ -35,8 +35,14 @@ export const buildPanelDates = (monthKey: string, cellCount: number) => {
     return []
   }
   const firstOfMonth = new Date(year, month - 1, 1)
-  const mondayFirstOffset = (firstOfMonth.getDay() + 6) % 7
-  const firstVisible = new Date(year, month - 1, 1 - mondayFirstOffset)
+  const firstVisible = new Date(firstOfMonth)
+  firstVisible.setDate(firstVisible.getDate() - 1)
+  let protectLastMonthDateIsShownFlag = true
+  while (firstVisible.getDay() !== 0 || protectLastMonthDateIsShownFlag) {
+    firstVisible.setDate(firstVisible.getDate() - 1)
+    protectLastMonthDateIsShownFlag = false
+  }
+  firstVisible.setDate(firstVisible.getDate() + 1)
   const dates: Date[] = []
   for (let index = 0; index < cellCount; index += 1) {
     const next = new Date(firstVisible)
@@ -52,6 +58,14 @@ export const buildPanelMonthActiveDayMap = (input: Record<string, string[]>) => 
     result[month] = new Set(days || [])
   })
   return result
+}
+
+export const collectPanelRelatedMonthKeys = (monthKey: string, cellCount: number) => {
+  const related = new Set<string>()
+  buildPanelDates(monthKey, cellCount).forEach((date) => {
+    related.add(normalizeMonthKey(date))
+  })
+  return Array.from(related)
 }
 
 const clearCalendarActiveDayHighlights = (panel: HTMLElement) => {
@@ -78,15 +92,16 @@ export const applyCalendarActiveDayHighlights = ({
     if (!monthKey) {
       return
     }
-    const activeDays = activeDaySetByMonth[monthKey]
-    if (!activeDays || activeDays.size === 0) {
-      return
-    }
     const cells = Array.from(calendar.querySelectorAll<HTMLElement>('[data-n-date].n-date-panel-date'))
     const dates = buildPanelDates(monthKey, cells.length)
     cells.forEach((cell, index) => {
       const date = dates[index]
-      if (!date || normalizeMonthKey(date) !== monthKey) {
+      if (!date) {
+        return
+      }
+      const dateMonthKey = normalizeMonthKey(date)
+      const activeDays = activeDaySetByMonth[dateMonthKey]
+      if (!activeDays || activeDays.size === 0) {
         return
       }
       const dayKey = buildDayKey(date)
