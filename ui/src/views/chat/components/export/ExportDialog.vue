@@ -1478,12 +1478,13 @@ onBeforeUnmount(() => {
 </style>
 
 <style lang="scss">
-.n-date-panel-date.sc-export-active-day .n-date-panel-date__trigger {
+.n-date-panel-date[data-sc-export-active-day='true'] .n-date-panel-date__trigger {
   position: relative;
+  z-index: 1;
   border-radius: 10px;
 }
 
-.n-date-panel-date.sc-export-active-day .n-date-panel-date__trigger::before {
+.n-date-panel-date[data-sc-export-active-day='true'] .n-date-panel-date__trigger::before {
   content: '';
   position: absolute;
   inset: 2px 3px;
@@ -1494,7 +1495,7 @@ onBeforeUnmount(() => {
   z-index: -1;
 }
 
-.n-date-panel-date.sc-export-active-day .n-date-panel-date__trigger::after {
+.n-date-panel-date[data-sc-export-active-day='true'] .n-date-panel-date__trigger::after {
   content: '';
   position: absolute;
   left: 50%;
@@ -1508,10 +1509,10 @@ onBeforeUnmount(() => {
   pointer-events: none;
 }
 
-.n-date-panel-date.sc-export-active-day.n-date-panel-date--selected .n-date-panel-date__trigger::before,
-.n-date-panel-date.sc-export-active-day.n-date-panel-date--covered .n-date-panel-date__trigger::before,
-.n-date-panel-date.sc-export-active-day.n-date-panel-date--start .n-date-panel-date__trigger::before,
-.n-date-panel-date.sc-export-active-day.n-date-panel-date--end .n-date-panel-date__trigger::before {
+.n-date-panel-date[data-sc-export-active-day='true'].n-date-panel-date--selected .n-date-panel-date__trigger::before,
+.n-date-panel-date[data-sc-export-active-day='true'].n-date-panel-date--covered .n-date-panel-date__trigger::before,
+.n-date-panel-date[data-sc-export-active-day='true'].n-date-panel-date--start .n-date-panel-date__trigger::before,
+.n-date-panel-date[data-sc-export-active-day='true'].n-date-panel-date--end .n-date-panel-date__trigger::before {
   opacity: 0.55;
 }
 </style>

@@ -69,7 +69,7 @@ export const collectPanelRelatedMonthKeys = (monthKey: string, cellCount: number
 }
 
 const clearCalendarActiveDayHighlights = (panel: HTMLElement) => {
-  panel.querySelectorAll<HTMLElement>(`.${ACTIVE_DAY_CLASS}`).forEach((cell) => {
+  panel.querySelectorAll<HTMLElement>(`.${ACTIVE_DAY_CLASS}, [${ACTIVE_DAY_ATTR}]`).forEach((cell) => {
     cell.classList.remove(ACTIVE_DAY_CLASS)
     cell.removeAttribute(ACTIVE_DAY_ATTR)
   })
