@@ -729,12 +729,66 @@ func defaultCertificateConfig() CertificateConfig {
 	})
 }
 
+const legacyAIBattleSummaryPrompt = "你是跑团战报助手。根据提供内容整理清晰、忠实原意的战报摘要。"
+
+const defaultAIBattleSummaryPrompt = `你是一位资深 TRPG 编年史官。你擅长将纷繁的跑团记录转化为精炼、流畅、富有感染力的史诗战报。你的叙述客观、平实而生动，不使用任何游戏术语，让所有读者都能沉浸其中。
+## 核心任务
+阅读用户提供的【TRPG跑团LOG】，将其重写为一篇**600字以内**的完整战报。
+## 铁则
+1.  **绝对忠实**：只根据LOG中已发生的事实进行叙述，禁止推测、补充或延伸情节。
+2.  **受众优先**：面向跑团参与者及普通读者，使用平铺直叙的叙事语言。  
+    *   严禁出现“大成功”、“过侦查”、“检定”等任何TRPG术语，必须转化为自然描述（例如：“他猛地察觉到了暗处的异样”）。  
+    *   严禁使用“队员”、“PC”、“PL”、“KP”等代称，一律使用角色具体姓名或“一行人”、“冒险者们”等自然称谓。
+3.  **内容筛选**：  
+    *   【最高优先】关键战斗流程、重大决策、剧情转折、伏笔揭示、重要背景信息。  
+    *   【次要优先】精彩的角色互动、关键环境渲染。  
+    *   【必须舍弃】重复的机械检定、无意义的闲聊、琐碎的动作复述。
+4.  **前情提要严控**：如果LOG开头包含“前情提要”段落，其内容**仅供你理解故事背景**，绝对不可写入最终战报。战报必须只聚焦于本次LOG新发生的事件。
+5.  **标题要求**：必须添加**主标题**和多个**分节小标题**。所有标题都应是较长的、具有概括性的短语，完整覆盖该段情节，不得遗漏。标题格式参考：
+    *   “20.前路漫漫、木天使捎来消息..、纳德里堡垒密会、废弃要塞中的会晤”
+    *   “过去，现在，历史，真相与质询、神器碎片与相似性带来的隐秘联系”
+    *   “巫妖的赠礼、坚定决心、通往绞首园的死寂之路、路途遭遇：默语魔道的亡灵流水线”
+
+## 输出格式（严格执行）
+只输出以下纯文本结构，不要添加任何开场白、结束语或注释：
+[主标题：用一句较长短语概括全文核心事件]
+[子标题1：概括该阶段事件的短语]
+（内容段落，只描述，不评论）
+[子标题2：概括该阶段事件的短语]
+（内容段落）
+（以此类推，直至故事结束）
+## 内部工作流程（不向用户展示）
+在生成最终战报前，你必须在内部完成以下思考，但不输出：
+1.  梳理LOG整体脉络，识别并跳过任何“前情提要”段落，只将本次新发生的剧情作为核心叙事弧。
+2.  按优先级筛选信息，拟订时间线大纲和子标题。
+3.  起草战报，确保语言客观、连贯、无任何游戏术语。
+4.  最终检查：字数是否≤600？是否包含任何违禁术语或代称？是否混入了前情提要的内容？是否忠实于原文？修正所有问题后，再输出符合格式的战报。`
+
+const legacyAIPolishPrompt = "你是中文文本润色助手。保持原意，修正病句，提升流畅度，不要增加无关信息。"
+
+const defaultAIPolishPrompt = "你是中文文本润色助手，润色以下TRPG文本，仅修正语病、不通顺处及不当用词，不改变原意。"
+
+func normalizeAIFeaturePrompt(featureKey string, prompt string) string {
+	trimmed := strings.TrimSpace(prompt)
+	switch featureKey {
+	case "battle_summary":
+		if trimmed == "" || trimmed == legacyAIBattleSummaryPrompt {
+			return defaultAIBattleSummaryPrompt
+		}
+	case "polish":
+		if trimmed == "" || trimmed == legacyAIPolishPrompt {
+			return defaultAIPolishPrompt
+		}
+	}
+	return trimmed
+}
+
 func defaultAIFeatureConfig(featureKey string) AIFeatureConfig {
 	switch featureKey {
 	case "battle_summary":
 		return AIFeatureConfig{
 			Enabled:       false,
-			DefaultPrompt: "你是跑团战报助手。根据提供内容整理清晰、忠实原意的战报摘要。",
+			DefaultPrompt: defaultAIBattleSummaryPrompt,
 			DefaultModel:  "deepseek-v4-flash",
 			Params: AIModelParams{
 				MaxInputChars: 30000,
@@ -746,7 +800,7 @@ func defaultAIFeatureConfig(featureKey string) AIFeatureConfig {
 	default:
 		return AIFeatureConfig{
 			Enabled:       false,
-			DefaultPrompt: "你是中文文本润色助手。保持原意，修正病句，提升流畅度，不要增加无关信息。",
+			DefaultPrompt: defaultAIPolishPrompt,
 			DefaultModel:  "deepseek-v4-flash",
 			Access: AIFeatureAccessConfig{
 				Mode: AIFeatureAccessAll,
@@ -842,7 +896,7 @@ func NormalizeAIConfig(cfg AIConfig) AIConfig {
 		feature := defaultAIFeatureConfig(featureKey)
 		if raw, ok := cfg.Features[featureKey]; ok {
 			feature.Enabled = raw.Enabled
-			if prompt := strings.TrimSpace(raw.DefaultPrompt); prompt != "" {
+			if prompt := normalizeAIFeaturePrompt(featureKey, raw.DefaultPrompt); prompt != "" {
 				feature.DefaultPrompt = prompt
 			}
 			if model := strings.TrimSpace(raw.DefaultModel); model != "" {
