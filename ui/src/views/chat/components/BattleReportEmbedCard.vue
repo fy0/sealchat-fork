@@ -4,6 +4,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useMessage } from 'naive-ui'
 import { Edit, Copy as CopyIcon } from '@vicons/tabler'
 import { useBattleReportStore } from '@/stores/battleReport'
+import { useDisplayStore } from '@/stores/display'
 import { copyTextWithFallback } from '@/utils/clipboard'
 import { chatEvent } from '@/stores/chat'
 
@@ -14,10 +15,11 @@ interface Props {
 
 const props = defineProps<Props>()
 const store = useBattleReportStore()
+const display = useDisplayStore()
 const message = useMessage()
 const loading = ref(false)
 const failed = ref('')
-const expanded = ref(false)
+const expanded = ref(display.settings.battleReportCardExpandedByDefault)
 const report = computed(() => store.detailById[props.reportId])
 const contentText = computed(() => report.value?.content || report.value?.contentPreview || '暂无内容')
 const isLongContent = computed(() => contentText.value.length > 800 || contentText.value.split('\n').length > 16)
@@ -57,6 +59,9 @@ const openEditor = (event?: MouseEvent) => {
 
 onMounted(load)
 watch(() => props.reportId, load)
+watch(() => props.reportId, () => {
+  expanded.value = display.settings.battleReportCardExpandedByDefault
+})
 </script>
 
 <template>
