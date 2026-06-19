@@ -3,11 +3,12 @@ package ai
 import "sealchat/utils"
 
 type FeatureCapability struct {
-	Key           string              `json:"key"`
-	Enabled       bool                `json:"enabled"`
-	DefaultPrompt string              `json:"defaultPrompt,omitempty"`
-	DefaultModel  string              `json:"defaultModel,omitempty"`
-	Params        utils.AIModelParams `json:"params,omitempty"`
+	Key            string              `json:"key"`
+	Enabled        bool                `json:"enabled"`
+	UserCustomOnly bool                `json:"userCustomOnly"`
+	DefaultPrompt  string              `json:"defaultPrompt,omitempty"`
+	DefaultModel   string              `json:"defaultModel,omitempty"`
+	Params         utils.AIModelParams `json:"params,omitempty"`
 }
 
 func IsFeatureAvailable(cfg utils.AIConfig, featureKey string, userID string, worldID string) bool {
@@ -41,11 +42,12 @@ func AvailableFeatures(cfg utils.AIConfig, userID string, worldID string) []Feat
 			featureCfg = utils.AIFeatureConfig{}
 		}
 		out = append(out, FeatureCapability{
-			Key:           featureKey,
-			Enabled:       IsFeatureAvailable(cfg, featureKey, userID, worldID),
-			DefaultPrompt: featureCfg.DefaultPrompt,
-			DefaultModel:  featureCfg.DefaultModel,
-			Params:        featureCfg.Params,
+			Key:            featureKey,
+			Enabled:        IsFeatureAvailable(cfg, featureKey, userID, worldID),
+			UserCustomOnly: featureCfg.UserCustomOnly,
+			DefaultPrompt:  featureCfg.DefaultPrompt,
+			DefaultModel:   featureCfg.DefaultModel,
+			Params:         featureCfg.Params,
 		})
 	}
 	return out

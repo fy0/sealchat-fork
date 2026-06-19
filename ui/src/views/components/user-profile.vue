@@ -2,7 +2,7 @@
 import { useAIStore } from '@/stores/ai';
 import { useUserStore } from '@/stores/user';
 import { useUtilsStore } from '@/stores/utils';
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, withDefaults } from 'vue';
 import Avatar from '@/components/avatar.vue'
 import AvatarEditor from '@/components/AvatarEditor.vue'
 import { api, urlBase } from '@/stores/_config';
@@ -31,6 +31,12 @@ const user = useUserStore();
 const utils = useUtilsStore();
 const aiStore = useAIStore();
 const message = useMessage()
+
+const props = withDefaults(defineProps<{
+  openAISettingsOnMount?: boolean
+}>(), {
+  openAISettingsOnMount: false,
+})
 
 const model = ref({
   nickname: '',
@@ -113,7 +119,20 @@ onMounted(async () => {
   } catch (err) {
     console.error('Failed to load config:', err);
   }
+
+  if (props.openAISettingsOnMount) {
+    await openAISettings()
+  }
 })
+
+watch(
+  () => props.openAISettingsOnMount,
+  (value) => {
+    if (value && !aiSettingsVisible.value) {
+      void openAISettings()
+    }
+  },
+)
 
 const selectFile = async function () {
   let input = inputFileRef.value

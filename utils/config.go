@@ -300,11 +300,12 @@ type AIFeatureAccessConfig struct {
 }
 
 type AIFeatureConfig struct {
-	Enabled       bool                  `json:"enabled" yaml:"enabled"`
-	DefaultPrompt string                `json:"defaultPrompt" yaml:"defaultPrompt"`
-	DefaultModel  string                `json:"defaultModel" yaml:"defaultModel"`
-	Params        AIModelParams         `json:"params" yaml:"params"`
-	Access        AIFeatureAccessConfig `json:"access" yaml:"access"`
+	Enabled        bool                  `json:"enabled" yaml:"enabled"`
+	UserCustomOnly bool                  `json:"userCustomOnly" yaml:"userCustomOnly"`
+	DefaultPrompt  string                `json:"defaultPrompt" yaml:"defaultPrompt"`
+	DefaultModel   string                `json:"defaultModel" yaml:"defaultModel"`
+	Params         AIModelParams         `json:"params" yaml:"params"`
+	Access         AIFeatureAccessConfig `json:"access" yaml:"access"`
 }
 
 type AIRetryConfig struct {
@@ -788,9 +789,10 @@ func defaultAIFeatureConfig(featureKey string) AIFeatureConfig {
 	switch featureKey {
 	case "battle_summary":
 		return AIFeatureConfig{
-			Enabled:       false,
-			DefaultPrompt: defaultAIBattleSummaryPrompt,
-			DefaultModel:  "deepseek-v4-flash",
+			Enabled:        false,
+			UserCustomOnly: false,
+			DefaultPrompt:  defaultAIBattleSummaryPrompt,
+			DefaultModel:   "deepseek-v4-flash",
 			Params: AIModelParams{
 				MaxInputChars: 30000,
 			},
@@ -800,9 +802,10 @@ func defaultAIFeatureConfig(featureKey string) AIFeatureConfig {
 		}
 	default:
 		return AIFeatureConfig{
-			Enabled:       false,
-			DefaultPrompt: defaultAIPolishPrompt,
-			DefaultModel:  "deepseek-v4-flash",
+			Enabled:        false,
+			UserCustomOnly: false,
+			DefaultPrompt:  defaultAIPolishPrompt,
+			DefaultModel:   "deepseek-v4-flash",
 			Access: AIFeatureAccessConfig{
 				Mode: AIFeatureAccessAll,
 			},
@@ -898,6 +901,7 @@ func NormalizeAIConfig(cfg AIConfig) AIConfig {
 		feature := defaultAIFeatureConfig(featureKey)
 		if raw, ok := cfg.Features[featureKey]; ok {
 			feature.Enabled = raw.Enabled
+			feature.UserCustomOnly = raw.UserCustomOnly
 			if prompt := normalizeAIFeaturePrompt(featureKey, raw.DefaultPrompt); prompt != "" {
 				feature.DefaultPrompt = prompt
 			}

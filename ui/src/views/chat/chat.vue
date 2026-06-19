@@ -74,6 +74,7 @@ import { DEFAULT_GALLERY_PAGE_SIZE, useGalleryStore } from '@/stores/gallery';
 import { Settings, Close as CloseIcon, EyeOutline, EyeOffOutline } from '@vicons/ionicons5';
 import { dialogAskConfirm } from '@/utils/dialog';
 import { useI18n } from 'vue-i18n';
+import { isUserAISettingsRequiredMessage, useAIStore } from '@/stores/ai';
 import { isTipTapJson, tiptapJsonToHtml, tiptapJsonToPlainText } from '@/utils/tiptap-render';
 import { resolveAttachmentUrl, fetchAttachmentMetaById, fetchAttachmentFileById, normalizeAttachmentId, type AttachmentMeta } from '@/composables/useAttachmentResolver';
 import { ensureDefaultDiceExpr, matchDiceExpressions, parseMultiDiceExpression, type DiceMatch } from '@/utils/dice';
@@ -93,7 +94,6 @@ import { useIFormStore } from '@/stores/iform';
 import { useWorldGlossaryStore } from '@/stores/worldGlossary';
 import { useChannelSearchStore } from '@/stores/channelSearch';
 import { useChannelImagesStore } from '@/stores/channelImages';
-import { useAIStore } from '@/stores/ai';
 import { useChannelImageLayoutStore } from '@/stores/channelImageLayout';
 import { useOnboardingStore } from '@/stores/onboarding';
 import {
@@ -14765,6 +14765,18 @@ const runAIPolish = async () => {
   } catch (error: any) {
     const errMsg = error?.response?.data?.message || error?.message || '润色失败'
     finishAIPolishTaskError(aiPolishDockState, slotIndex, requestId, errMsg)
+    if (isUserAISettingsRequiredMessage(errMsg)) {
+      dialog.warning({
+        title: '需要配置个人 API',
+        content: '当前功能仅允许用户自定义调用。请先前往个人设置中的 AI 设置，配置个人 API 后再使用。',
+        positiveText: '前往配置',
+        negativeText: '取消',
+        onPositiveClick: () => {
+          chatEvent.emit('open-user-profile', { openAISettings: true } as any)
+        },
+      })
+      return
+    }
     message.error(errMsg)
   }
 }
@@ -14798,6 +14810,18 @@ const retryCurrentAIPolishTask = async () => {
   } catch (error: any) {
     const errMsg = error?.response?.data?.message || error?.message || '润色失败'
     finishAIPolishTaskError(aiPolishDockState, slotIndex, requestId, errMsg)
+    if (isUserAISettingsRequiredMessage(errMsg)) {
+      dialog.warning({
+        title: '需要配置个人 API',
+        content: '当前功能仅允许用户自定义调用。请先前往个人设置中的 AI 设置，配置个人 API 后再使用。',
+        positiveText: '前往配置',
+        negativeText: '取消',
+        onPositiveClick: () => {
+          chatEvent.emit('open-user-profile', { openAISettings: true } as any)
+        },
+      })
+      return
+    }
     message.error(errMsg)
   }
 }

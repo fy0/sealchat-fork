@@ -384,6 +384,7 @@ export interface AIFeatureAccessConfig {
 
 export interface AIFeatureConfig {
   enabled: boolean;
+  userCustomOnly: boolean;
   defaultPrompt: string;
   defaultModel: string;
   params: AIModelParams;
@@ -460,6 +461,7 @@ export interface AIConfig {
 export interface AIFeatureCapability {
   key: string;
   enabled: boolean;
+  userCustomOnly: boolean;
   defaultPrompt?: string;
   defaultModel?: string;
   params?: AIModelParams;

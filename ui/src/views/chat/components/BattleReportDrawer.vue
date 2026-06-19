@@ -3,7 +3,7 @@ import dayjs from 'dayjs'
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useDialog, useMessage } from 'naive-ui'
 import { useBattleReportStore } from '@/stores/battleReport'
-import { useAIStore } from '@/stores/ai'
+import { isUserAISettingsRequiredMessage, useAIStore } from '@/stores/ai'
 import { chatEvent, useChatStore } from '@/stores/chat'
 import type { BattleReport, SChannel } from '@/types'
 import { copyTextWithFallback } from '@/utils/clipboard'
@@ -333,6 +333,21 @@ const createLocalAISummaryReport = async (primaryChannelId: string, payload: {
       aiModel: String(resp?.data?.model || '').trim(),
       aiFeatureKey: 'battle_summary',
     })
+  } catch (error: any) {
+    const errMsg = error?.response?.data?.message || error?.message || 'AI 生成战报失败'
+    if (isUserAISettingsRequiredMessage(errMsg)) {
+      dialog.warning({
+        title: '需要配置个人 API',
+        content: '当前功能仅允许用户自定义调用。请先前往个人设置中的 AI 设置，配置个人 API 后再使用。',
+        positiveText: '前往配置',
+        negativeText: '取消',
+        onPositiveClick: () => {
+          chatEvent.emit('open-user-profile', { openAISettings: true } as any)
+        },
+      })
+      throw error
+    }
+    throw error
   } finally {
     localSummaryRunning.value = false
     localSummaryStatus.value = ''
@@ -356,12 +371,12 @@ const createReport = async () => {
     periodStart: createForm.period[0],
     periodEnd: createForm.period[1],
     contextReportCount: createForm.contextReportCount,
-    source: aiStore.currentSource,
+    source: aiStore.resolveEffectiveSource('battle_summary', aiStore.currentSource),
     sourceChannelIds,
   }
   try {
     if (createMode.value === 'ai') {
-      if (aiStore.currentSource === 'user') {
+      if (payload.source === 'user') {
         await createLocalAISummaryReport(primaryChannelId, payload)
         message.success('本地 AI 战报已创建')
       } else {
@@ -377,6 +392,9 @@ const createReport = async () => {
     await refreshDisplayChannelContent()
   } catch (error: any) {
     const detail = error?.response?.data?.error || error?.response?.data?.message || error?.message || '创建战报失败'
+    if (isUserAISettingsRequiredMessage(detail)) {
+      return
+    }
     if (String(detail).includes('战报总结输入过长')) {
       dialog.warning({
         title: '战报内容过长',

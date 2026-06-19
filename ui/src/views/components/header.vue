@@ -39,6 +39,7 @@ const emit = defineEmits<{
 
 const notifShow = ref(false)
 const userProfileShow = ref(false)
+const userProfileOpenAISettings = ref(false)
 const adminShow = ref(false)
 const inputStatsShow = ref(false)
 const inputStatsLoading = ref(false)
@@ -667,9 +668,10 @@ const handleRibbonStateUpdate = (state: boolean) => {
   actionRibbonActive.value = !!state;
 };
 
-const handleOpenUserProfile = () => {
+const handleOpenUserProfile = (payload?: { openAISettings?: boolean }) => {
   notifShow.value = false;
   adminShow.value = false;
+  userProfileOpenAISettings.value = payload?.openAISettings === true;
   userProfileShow.value = true;
 };
 
@@ -932,7 +934,7 @@ const sidebarToggleIcon = computed(() => sidebarCollapsed.value ? LayoutSidebarL
 
   <div v-if="userProfileShow" style="background-color: var(--n-color); margin-left: -1.5rem;"
     class="absolute flex justify-center items-center w-full h-full sc-overlay-layer">
-    <user-profile @close="userProfileShow = false" />
+    <user-profile :openAISettingsOnMount="userProfileOpenAISettings" @close="() => { userProfileShow = false; userProfileOpenAISettings = false; }" />
   </div>
   <div
     v-if="adminShow"

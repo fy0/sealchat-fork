@@ -36,6 +36,7 @@ const emit = defineEmits<{
 
 const defaultFeatureConfig = (featureKey: BuiltinFeatureKey): AIFeatureConfig => ({
   enabled: false,
+  userCustomOnly: false,
   defaultPrompt: featureKey === 'battle_summary'
     ? '你是跑团战报助手。根据提供内容整理清晰、忠实原意的战报摘要。'
     : '你是中文文本润色助手。保持原意，修正病句，提升流畅度，不要增加无关信息。',
@@ -589,6 +590,9 @@ defineExpose({
                 <n-descriptions-item label="默认模型">
                   {{ model.features[feature.key].defaultModel }}
                 </n-descriptions-item>
+                <n-descriptions-item label="只允许用户自定义API调用">
+                  <n-switch v-model:value="model.features[feature.key].userCustomOnly" />
+                </n-descriptions-item>
                 <n-descriptions-item label="开放范围">
                   {{ model.features[feature.key].access.mode }}
                 </n-descriptions-item>
@@ -642,6 +646,10 @@ defineExpose({
                   placeholder="选择或输入模型名"
                   @update:value="(value: string) => updateFeatureDefaultModel(String(value || ''))"
                 />
+              </n-form-item>
+              <n-form-item label="只允许用户自定义API调用">
+                <n-switch v-model:value="featureEditorDraft.userCustomOnly" />
+                <template #feedback>开启后，该功能仅允许用户在个人设置中配置个人 API 后调用。</template>
               </n-form-item>
               <n-form-item label="开放范围">
                 <n-select

@@ -7,6 +7,14 @@ import { discoverLocalAIModels, readLocalAISettings, runLocalAIChat, writeLocalA
 
 const AI_SOURCE_STORAGE_KEY = 'sealchat_ai_source_v1'
 const PLATFORM_AI_TASK_TIMEOUT_MS = 120000
+export const USER_AI_SETTINGS_REQUIRED_MESSAGE = '请先在个人信息的 AI 设置中配置个人 API 后再调用'
+
+export const isUserAISettingsRequiredMessage = (value: unknown) => {
+  const message = String(value || '')
+  return message.includes(USER_AI_SETTINGS_REQUIRED_MESSAGE)
+    || message.includes('仅允许用户自定义调用')
+    || message.includes('ai user custom provider required')
+}
 
 const normalizeSource = (value?: string | null): AIRunSource => (value === 'user' ? 'user' : 'platform')
 
@@ -51,7 +59,10 @@ export const useAIStore = defineStore('ai', () => {
       })
       const items = (resp.data?.features || []) as AIFeatureCapability[]
       features.value = items.reduce<Record<string, AIFeatureCapability>>((acc, item) => {
-        acc[item.key] = item
+        acc[item.key] = {
+          ...item,
+          userCustomOnly: item?.userCustomOnly === true,
+        }
         return acc
       }, Object.create(null))
       return resp
@@ -69,6 +80,14 @@ export const useAIStore = defineStore('ai', () => {
 
   function getFeatureCapability(featureKey: string) {
     return features.value[featureKey] || null
+  }
+
+  function resolveEffectiveSource(featureKey: string, requestedSource?: 'platform' | 'user'): AIRunSource {
+    const feature = getFeatureCapability(featureKey)
+    if (feature?.userCustomOnly) {
+      return 'user'
+    }
+    return requestedSource || currentSource.value
   }
 
   function setSource(source: AIRunSource) {
@@ -124,8 +143,11 @@ export const useAIStore = defineStore('ai', () => {
   }
 
   async function runTask(featureKey: string, payload: { worldId?: string; channelId?: string; input: string; source?: 'platform' | 'user' }) {
-    const source = payload.source || currentSource.value
+    const source = resolveEffectiveSource(featureKey, payload.source)
     if (source === 'user') {
+      if (!userProfiles.value.some((item) => item.enabled && item.baseUrl.trim() && item.apiKey?.trim() && Array.isArray(item.models) && item.models.some((model) => String(model || '').trim()))) {
+        throw new Error(USER_AI_SETTINGS_REQUIRED_MESSAGE)
+      }
       return {
         data: await runLocalAIChat({
           featureKey,
@@ -162,6 +184,7 @@ export const useAIStore = defineStore('ai', () => {
     isFeatureEnabled,
     getFeatureCapability,
     setSource,
+    resolveEffectiveSource,
     loadUserProfiles,
     saveUserProfiles,
     loadUserAISettings,

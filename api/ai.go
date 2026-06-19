@@ -77,7 +77,9 @@ func AITaskRun(ctx *fiber.Ctx) error {
 		case *aiService.AIQuotaExceededError:
 			status = fiber.StatusForbidden
 		default:
-			if strings.Contains(err.Error(), "no ai provider available") {
+			if errors.Is(err, aiService.ErrUserCustomProviderRequired) {
+				status = fiber.StatusForbidden
+			} else if strings.Contains(err.Error(), "no ai provider available") {
 				status = fiber.StatusServiceUnavailable
 			} else if strings.Contains(err.Error(), "unavailable") {
 				status = fiber.StatusForbidden

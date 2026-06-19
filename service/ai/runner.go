@@ -122,6 +122,10 @@ func (r *Runner) Run(ctx context.Context, req RunRequest) (RunResult, error) {
 		return RunResult{}, fmt.Errorf("unknown ai feature: %s", req.FeatureKey)
 	}
 	featureCfg := aiCfg.Features[req.FeatureKey]
+	source := strings.ToLower(strings.TrimSpace(req.Source))
+	if featureCfg.UserCustomOnly && source != "user" {
+		return RunResult{}, FormatUserCustomProviderRequiredError(req.FeatureKey)
+	}
 	maxInputChars := featureCfg.Params.MaxInputChars
 	if maxInputChars <= 0 {
 		maxInputChars = definition.InputMaxChars
@@ -134,7 +138,7 @@ func (r *Runner) Run(ctx context.Context, req RunRequest) (RunResult, error) {
 	if maxInputChars > 0 && currentChars > maxInputChars {
 		return RunResult{}, FormatInputTooLongError(req.FeatureKey, currentChars, maxInputChars)
 	}
-	if strings.EqualFold(strings.TrimSpace(req.Source), "user") {
+	if source == "user" {
 		userProviders, err := loadUserProviders(req.UserID)
 		if err != nil {
 			return RunResult{}, err
@@ -157,7 +161,7 @@ func (r *Runner) Run(ctx context.Context, req RunRequest) (RunResult, error) {
 			continue
 		}
 		model := featureCfg.DefaultModel
-		if strings.EqualFold(strings.TrimSpace(req.Source), "user") && strings.TrimSpace(provider.SelectedModel) != "" {
+		if source == "user" && strings.TrimSpace(provider.SelectedModel) != "" {
 			model = strings.TrimSpace(provider.SelectedModel)
 		}
 		if model == "" && len(provider.Models) > 0 {
