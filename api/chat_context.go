@@ -49,6 +49,27 @@ func writeConnJSONAndPrune(connMap *utils.SyncMap[*WsSyncConn, *ConnInfo], conn 
 	return true
 }
 
+func (ctx *ChatContext) rangeChannelConnMaps(channelId string, f func(userId string, connMap *utils.SyncMap[*WsSyncConn, *ConnInfo], indexed bool) bool) {
+	if ctx == nil || ctx.UserId2ConnInfo == nil || channelId == "" || f == nil {
+		return
+	}
+	if ctx.ChannelUsersMap != nil {
+		if userSet, ok := ctx.ChannelUsersMap.Load(channelId); ok && userSet != nil {
+			userSet.Range(func(userId string) bool {
+				connMap, ok := ctx.UserId2ConnInfo.Load(userId)
+				if !ok || connMap == nil {
+					return true
+				}
+				return f(userId, connMap, true)
+			})
+			return
+		}
+	}
+	ctx.UserId2ConnInfo.Range(func(userId string, connMap *utils.SyncMap[*WsSyncConn, *ConnInfo]) bool {
+		return f(userId, connMap, false)
+	})
+}
+
 func botNicknameSyncPendingKey(botUserID, channelId string) string {
 	botUserID = strings.TrimSpace(botUserID)
 	channelId = strings.TrimSpace(channelId)
@@ -199,9 +220,9 @@ func (ctx *ChatContext) BroadcastEvent(data *protocol.Event) {
 
 func (ctx *ChatContext) BroadcastEventInChannel(channelId string, data *protocol.Event) {
 	data.Timestamp = time.Now().Unix()
-	ctx.UserId2ConnInfo.Range(func(_ string, connMap *utils.SyncMap[*WsSyncConn, *ConnInfo]) bool {
+	ctx.rangeChannelConnMaps(channelId, func(_ string, connMap *utils.SyncMap[*WsSyncConn, *ConnInfo], indexed bool) bool {
 		connMap.Range(func(conn *WsSyncConn, info *ConnInfo) bool {
-			if info.ChannelId == channelId {
+			if info != nil && ((indexed && info.ChannelId == "") || info.ChannelId == channelId) {
 				writeConnJSONAndPrune(connMap, conn, struct {
 					protocol.Event
 					Op protocol.Opcode `json:"op"`
@@ -477,12 +498,12 @@ func (ctx *ChatContext) BroadcastEventInChannelExcept(channelId string, ignoredU
 		ignoredMap[id] = struct{}{}
 	}
 	data.Timestamp = time.Now().Unix()
-	ctx.UserId2ConnInfo.Range(func(userId string, value *utils.SyncMap[*WsSyncConn, *ConnInfo]) bool {
+	ctx.rangeChannelConnMaps(channelId, func(userId string, value *utils.SyncMap[*WsSyncConn, *ConnInfo], indexed bool) bool {
 		if _, ignored := ignoredMap[userId]; ignored {
 			return true
 		}
 		value.Range(func(conn *WsSyncConn, info *ConnInfo) bool {
-			if info.ChannelId == channelId {
+			if info != nil && ((indexed && info.ChannelId == "") || info.ChannelId == channelId) {
 				writeConnJSONAndPrune(value, conn, struct {
 					protocol.Event
 					Op protocol.Opcode `json:"op"`
@@ -519,12 +540,13 @@ func (ctx *ChatContext) BroadcastEventInChannelToUsers(channelId string, userIds
 		}
 	}
 	data.Timestamp = time.Now().Unix()
-	ctx.UserId2ConnInfo.Range(func(userId string, value *utils.SyncMap[*WsSyncConn, *ConnInfo]) bool {
-		if _, ok := targets[userId]; !ok {
-			return true
+	for userId := range targets {
+		value, ok := ctx.UserId2ConnInfo.Load(userId)
+		if !ok || value == nil {
+			continue
 		}
 		value.Range(func(conn *WsSyncConn, info *ConnInfo) bool {
-			if info.ChannelId == channelId {
+			if info != nil && (info.ChannelId == "" || info.ChannelId == channelId) {
 				writeConnJSONAndPrune(value, conn, struct {
 					protocol.Event
 					Op protocol.Opcode `json:"op"`
@@ -535,6 +557,5 @@ func (ctx *ChatContext) BroadcastEventInChannelToUsers(channelId string, userIds
 			}
 			return true
 		})
-		return true
-	})
+	}
 }
