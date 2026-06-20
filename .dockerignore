@@ -15,3 +15,8 @@ ui/node_modules
 ui/dist-export-viewer
 
 *.exe
+/sealchat
+/sealchat_test
+/output
+/package
+/release

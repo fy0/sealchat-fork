@@ -48,7 +48,6 @@ FROM alpine:3.20
 ARG TARGETARCH
 RUN apk add --no-cache ca-certificates tzdata wget ffmpeg && update-ca-certificates
 WORKDIR /app
-ARG TARGETARCH
 
 COPY --from=go-builder /out/sealchat-server /app/sealchat-server
 COPY --from=webp-assets /out/bin /app/bin
