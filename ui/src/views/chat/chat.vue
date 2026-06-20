@@ -16500,13 +16500,25 @@ onBeforeUnmount(() => {
                     </div>
                   </n-popover>
                 </div>
-                <div class="chat-input-actions__cell" v-if="showDiceTrayTrigger && isDiceTrayEdgeAnchored">
+                <div class="chat-input-actions__cell" v-if="showAIPolish">
+                  <n-tooltip trigger="hover">
+                    <template #trigger>
+                      <n-button quaternary circle :disabled="!canRunAIPolish" @click="runAIPolish">
+                        <template #icon>
+                          <n-icon :component="Palette" size="18" />
+                        </template>
+                      </n-button>
+                    </template>
+                    润色
+                  </n-tooltip>
+                </div>
+                <div class="chat-input-actions__cell" v-if="showDiceTrayTrigger">
                   <n-popover
                     trigger="manual"
-                    placement="top-end"
-                    :show="diceTrayMobileVisible"
+                    :placement="isDiceTrayEdgeAnchored ? 'top-end' : 'top'"
+                    :show="isDiceTrayEdgeAnchored ? diceTrayMobileVisible : diceTrayDesktopVisible"
                     :show-arrow="false"
-                    :overlay-class="DICE_TRAY_EDGE_OVERLAY_CLASS"
+                    :overlay-class="isDiceTrayEdgeAnchored ? DICE_TRAY_EDGE_OVERLAY_CLASS : undefined"
                   >
                     <template #trigger>
                       <n-tooltip trigger="hover">
@@ -16531,73 +16543,7 @@ onBeforeUnmount(() => {
                       @insert="handleDiceInsert"
                       @roll="handleDiceRollNow"
                       @update-default="handleDiceDefaultUpdate"
-                      @close="diceTrayMobileVisible = false"
-                    >
-                      <template #header-actions>
-                        <ChatDiceModeControl
-                          :visible="diceSettingsVisible"
-                          :show-status="showDiceModeStatus"
-                          :show-settings="showDiceModeSettings"
-                          :is-mobile="isMobileUa"
-                          :mode-label="diceModeLabel"
-                          :mode-tooltip="diceModeTooltip"
-                          :built-in-dice-enabled="channelFeatures.builtInDiceEnabled"
-                          :bot-feature-enabled="channelFeatures.botFeatureEnabled"
-                          :dice-feature-updating="diceFeatureUpdating"
-                          :channel-bot-selection="channelBotSelection"
-                          :bot-select-options="botSelectOptions"
-                          :bot-options-loading="botOptionsLoading"
-                          :channel-bots-loading="channelBotsLoading"
-                          :syncing-channel-bot="syncingChannelBot"
-                          :has-bot-options="hasBotOptions"
-                          @update:visible="diceSettingsVisible = $event"
-                          @toggle-built-in="handleDiceFeatureToggle"
-                          @toggle-bot="handleBotFeatureToggle"
-                          @select-bot="handleBotSelectionChange"
-                          @open-channel-member-settings="openChannelMemberSettings"
-                        />
-                      </template>
-                    </DiceTray>
-                  </n-popover>
-                </div>
-                <div class="chat-input-actions__cell" v-if="showAIPolish">
-                  <n-tooltip trigger="hover">
-                    <template #trigger>
-                      <n-button quaternary circle :disabled="!canRunAIPolish" @click="runAIPolish">
-                        <template #icon>
-                          <n-icon :component="Palette" size="18" />
-                        </template>
-                      </n-button>
-                    </template>
-                    润色
-                  </n-tooltip>
-                </div>
-                <div class="chat-input-actions__cell" v-if="showDiceTrayTrigger">
-                  <n-popover trigger="manual" placement="top" :show="diceTrayDesktopVisible">
-                    <template #trigger>
-                      <n-tooltip trigger="hover">
-                        <template #trigger>
-                          <n-button class="chat-dice-button" quaternary circle :disabled="(!canUseBuiltInDice && !effectiveBotFeatureEnabled) || diceFeatureUpdating" @click="toggleDiceTray">
-                            <template #icon>
-                              <svg class="chat-input-actions__icon" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" focusable="false">
-                                <rect width="12" height="12" x="2" y="10" rx="2" ry="2"></rect>
-                                <path d="m17.92 14 3.5-3.5a2.24 2.24 0 0 0 0-3l-5-4.92a2.24 2.24 0 0 0-3 0L10 6M6 18h.01M10 14h.01M15 6h.01M18 9h.01"></path>
-                              </svg>
-                            </template>
-                          </n-button>
-                        </template>
-                        掷骰
-                      </n-tooltip>
-                    </template>
-                    <DiceTray
-                      :default-dice="defaultDiceExpr"
-                      :can-edit-default="canEditDefaultDice"
-                      :built-in-dice-enabled="effectiveBuiltInDiceEnabled"
-                      :bot-feature-enabled="effectiveBotFeatureEnabled"
-                      @insert="handleDiceInsert"
-                      @roll="handleDiceRollNow"
-                      @update-default="handleDiceDefaultUpdate"
-                      @close="diceTrayDesktopVisible = false"
+                      @close="isDiceTrayEdgeAnchored ? (diceTrayMobileVisible = false) : (diceTrayDesktopVisible = false)"
                     >
                       <template #header-actions>
                         <ChatDiceModeControl
